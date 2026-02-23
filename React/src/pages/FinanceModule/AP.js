@@ -376,7 +376,8 @@ const AP = () => {
             const response = await GenerateSPC(payload);
             if (response && response.status) {
                 toast.success("SPC generated successfully!");
-                fetchData();
+                // Remove generated rows from the local state to make them vanish immediately
+                setPayableData(prev => prev.filter(row => !selectedPayables.includes(row.IRNId || row.Id)));
                 setSelectedPayables([]);
             } else {
                 toast.error(response?.message || "Failed.");

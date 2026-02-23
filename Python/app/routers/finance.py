@@ -583,19 +583,19 @@ async def create_book_entries_from_claim(
                 receipt_date=entry.payment_date,
                 customer_id=entry.supplier_id or 0,
 
-                # Cash vs Bank
-                cash_amount=entry.amount if is_cash else 0,
-                bank_amount=0 if is_cash else entry.amount,
+                # Cash vs Bank (Payments out are negative)
+                cash_amount=-abs(entry.amount) if is_cash else 0,
+                bank_amount=0 if is_cash else -abs(entry.amount),
                 bank_charges=0,
                 deposit_bank_id="0" if is_cash else str(entry.bank_id or 0),
 
                 # Reference = claim number for traceability
                 reference_no=f"{entry.claim_no} - {entry.supplier_name or entry.applicant_name}".strip(" -"),
 
-                # Auto-posted, no verification
+                # Auto-posted, no verification, fully submitted
                 is_posted=True,
                 pending_verification=False,
-                is_submitted=False,
+                is_submitted=True,
                 send_notification=False,
 
                 flag=False,
