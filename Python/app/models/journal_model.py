@@ -11,7 +11,8 @@ class JournalDetailItem(BaseModel):
     description: Optional[str] = None
     amount: float
     reference_no: Optional[str] = None
-    party_name: Optional[str] = None # Added based on UI, though typically ID is preferred
+    party_name: Optional[str] = None
+    id: Optional[int] = None # Ensure we can parse detail IDs for updating
 
 class JournalCreateRequest(BaseModel):
     journal_date: date
@@ -23,6 +24,8 @@ class JournalCreateRequest(BaseModel):
     total_amount: float
     status: str # 'Saved', 'Posted'
     created_by: str
+    is_posted: int = 0
+    journal_id: Optional[int] = None
     details: List[JournalDetailItem]
 
 class JournalResponse(BaseModel):

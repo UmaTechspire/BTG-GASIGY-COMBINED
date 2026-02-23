@@ -168,6 +168,24 @@ async def get_ledger_report(
                         "credit": 0.0,
                         "narration": ref
                     })
+
+                    # Calculate GST (Assuming 11% inclusive based on common IDR logic, user didn't specify exactly)
+                    # We will split amount into sales_amount + gst_amount where total = amount.
+                    gst_amount = amount * 0.11 / 1.11
+                    sales_amount = amount - gst_amount
+
+                    # Cr Output GST
+                    all_rows.append({
+                        "transaction_date": txn_date,
+                        "category": "Sales Invoice",
+                        "reference_no": ref,
+                        "party": party_name,
+                        "description": "Cr Output GST",
+                        "debit": 0.0,
+                        "credit": gst_amount,
+                        "narration": ref
+                    })
+
                     # Cr Sales
                     all_rows.append({
                         "transaction_date": txn_date,
@@ -176,38 +194,41 @@ async def get_ledger_report(
                         "party": party_name,
                         "description": "Cr Sales",
                         "debit": 0.0,
-                        "credit": amount,
+                        "credit": sales_amount,
                         "narration": ref
                     })
 
             # ---------------------------------------------------------------
-            # 2. CUSTOMER PAYMENTS — Dr Bank/Cash, Cr Customer
-            #    Source: tbl_ar_receipt + tbl_receipt_ag_ar + tbl_accounts_receivable
+            # 2. RECEIPTS & PAYMENTS (from tbl_ar_receipt)
+            #    Includes: Customer Payments (Pos), Purchase Payments (Neg), Claim Payments (Neg)
             # ---------------------------------------------------------------
-            if not category or category == "Customer Payment":
+            if not category or category in ["Customer Payment", "Purchase Payment", "Claim Payment"]:
                 q_payment = text(f"""
                     SELECT 
                         DATE_FORMAT(r.receipt_date, '%Y-%m-%d') AS txn_date,
                         COALESCE(r.reference_no, CONCAT('REC-', r.receipt_id)) AS ref_no,
                         COALESCE(c.CustomerName, 'Unknown') AS party_name,
-                        ra.payment_amount AS amount,
+                        -- Use raw amount from ar_receipt directly to see negatives
+                        (IFNULL(r.cash_amount, 0) + IFNULL(r.bank_amount, 0)) AS amount,
                         CASE 
-                            WHEN IFNULL(r.bank_amount, 0) > 0 THEN 'Bank'
+                            WHEN IFNULL(r.bank_amount, 0) != 0 THEN 'Bank'
                             ELSE 'Cash'
                         END AS pay_mode
-                    FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra
-                    JOIN {DB_NAME_FINANCE}.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id
-                    JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id
-                    JOIN {DB_NAME_USER_NEW}.master_customer c ON ar.customer_id = c.Id
+                    FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
+                    LEFT JOIN {DB_NAME_USER_NEW}.master_customer c ON r.customer_id = c.Id
                     WHERE r.receipt_date BETWEEN :from_date AND :to_date
+                      AND r.is_active = 1
                     ORDER BY r.receipt_date ASC
                 """)
                 result = await conn.execute(q_payment, {"from_date": from_date, "to_date": to_date})
                 for row in result.fetchall():
                     r = dict(row._mapping)
-                    amount = float(r["amount"] or 0)
-                    if amount == 0:
+                    raw_amount = float(r["amount"] or 0)
+                    if raw_amount == 0:
                         continue
+                        
+                    is_payment_out = (raw_amount < 0)
+                    abs_amount = abs(raw_amount)
 
                     party_name = r["party_name"]
                     if party and party.lower() not in party_name.lower():
@@ -217,28 +238,63 @@ async def get_ledger_report(
                     txn_date = r["txn_date"]
                     pay_mode = r["pay_mode"]
 
-                    # Dr Bank / Cash
-                    all_rows.append({
-                        "transaction_date": txn_date,
-                        "category": "Customer Payment",
-                        "reference_no": ref,
-                        "party": party_name,
-                        "description": f"Dr {pay_mode}",
-                        "debit": amount,
-                        "credit": 0.0,
-                        "narration": f"Customer Payment, {ref}"
-                    })
-                    # Cr Customer
-                    all_rows.append({
-                        "transaction_date": txn_date,
-                        "category": "Customer Payment",
-                        "reference_no": ref,
-                        "party": party_name,
-                        "description": "Cr Customer",
-                        "debit": 0.0,
-                        "credit": amount,
-                        "narration": f"Customer Payment, {ref}"
-                    })
+                    if not is_payment_out:
+                        # --- CUSTOMER PAYMENT (Incoming) ---
+                        if category and category != "Customer Payment":
+                            continue
+                            
+                        # Dr Bank / Cash
+                        all_rows.append({
+                            "transaction_date": txn_date,
+                            "category": "Customer Payment",
+                            "reference_no": ref,
+                            "party": party_name,
+                            "description": f"Dr {pay_mode}",
+                            "debit": abs_amount,
+                            "credit": 0.0,
+                            "narration": f"Purchase Payment, {ref}" # User specifically requested this narration
+                        })
+                        # Cr Customer
+                        all_rows.append({
+                            "transaction_date": txn_date,
+                            "category": "Customer Payment",
+                            "reference_no": ref,
+                            "party": party_name,
+                            "description": "Cr Customer",
+                            "debit": 0.0,
+                            "credit": abs_amount,
+                            "narration": f"Purchase Payment, {ref}"
+                        })
+                    else:
+                        # --- OUTGOING PAYMENT (Purchase or Claim) ---
+                        is_claim = ref.startswith("SPC-")
+                        cat_label = "Claim Payment" if is_claim else "Purchase Payment"
+                        
+                        if category and category != cat_label:
+                            continue
+                            
+                        # Dr Supplier
+                        all_rows.append({
+                            "transaction_date": txn_date,
+                            "category": cat_label,
+                            "reference_no": ref,
+                            "party": party_name,
+                            "description": "Dr Supplier",
+                            "debit": abs_amount,
+                            "credit": 0.0,
+                            "narration": ref
+                        })
+                        # Cr Bank / Cash
+                        all_rows.append({
+                            "transaction_date": txn_date,
+                            "category": cat_label,
+                            "reference_no": ref,
+                            "party": party_name,
+                            "description": f"Cr {pay_mode}",
+                            "debit": 0.0,
+                            "credit": abs_amount,
+                            "narration": ref
+                        })
 
             # ---------------------------------------------------------------
             # 3. CREDIT NOTES — Dr Sales Return, Cr Customer

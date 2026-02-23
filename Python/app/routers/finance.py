@@ -572,6 +572,7 @@ async def create_book_entries_from_claim(
         created_ids = []
 
         for entry in payload.entries:
+            # 1 = Cash mode. If Cash, it must always route to Cash Book, even if a Bank was selected in the UI.
             is_cash = entry.payment_mode_id == 1
 
             db_receipt = ARReceipt(

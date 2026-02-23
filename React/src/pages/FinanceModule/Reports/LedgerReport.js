@@ -35,6 +35,8 @@ const categoryOptions = [
   { value: null, label: "All Categories" },
   { value: "Sales Invoice", label: "Sales Invoice" },
   { value: "Customer Payment", label: "Customer Payment" },
+  { value: "Purchase Payment", label: "Purchase Payment" },
+  { value: "Claim Payment", label: "Claim Payment" },
   { value: "Credit Note", label: "Credit Note" },
   { value: "Debit Note", label: "Debit Note" },
   { value: "Journal Entry", label: "Journal Entry" },
@@ -66,10 +68,14 @@ export default function LedgerReport() {
         url += `&category=${encodeURIComponent(categoryFilter.value)}`;
       }
       if (partySearch.trim()) {
-        url += `&party=${encodeURIComponent(partySearch.trim())}`;
-      }
+        url += `&category=null&party=${encodeURIComponent(partySearch.trim())}`; // Remove category query parameter logic is wrong here, fixing it below
+      } // wait, just fixing parameter appending logic.
 
-      const res = await axios.get(url);
+      let finalUrl = `${PYTHON_API_URL}/ledger/report?from_date=${from}&to_date=${to}`;
+      if (categoryFilter?.value) finalUrl += `&category=${encodeURIComponent(categoryFilter.value)}`;
+      if (partySearch.trim()) finalUrl += `&party=${encodeURIComponent(partySearch.trim())}`;
+
+      const res = await axios.get(finalUrl);
       if (res.data && res.data.status === "success") {
         setTransactions(res.data.data || []);
         setTotals({
@@ -164,9 +170,11 @@ export default function LedgerReport() {
     const colors = {
       "Sales Invoice": "primary",
       "Customer Payment": "success",
+      "Purchase Payment": "danger",
+      "Claim Payment": "secondary",
       "Credit Note": "warning",
       "Debit Note": "info",
-      "Journal Entry": "secondary"
+      "Journal Entry": "dark"
     };
     return <span className={`badge bg-${colors[cat] || "dark"}`}>{cat}</span>;
   };

@@ -140,6 +140,10 @@ async def save_journal(
             }
             await db.execute(detail_query, detail_params)
 
+        # Add is_posted to save
+        query_update_is_posted = text(f"UPDATE {DB_NAME_FINANCE}.tbl_journal_master SET is_posted = :is_posted WHERE journal_id = :journal_id")
+        await db.execute(query_update_is_posted, {"is_posted": request.is_posted, "journal_id": journal_id})
+
         await db.commit()
 
         return {
@@ -151,4 +155,130 @@ async def save_journal(
     except Exception as e:
         await db.rollback()
         print(f"Error saving journal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/get-journal/{journal_id}")
+async def get_journal_by_id(journal_id: int, db: AsyncSession = Depends(database.get_db)):
+    try:
+        # Get Header
+        header_query = text(f"""
+            SELECT journal_id as id, journal_no, DATE_FORMAT(journal_date, '%Y-%m-%d') as journal_date, 
+                   description, party_type, party_id, party_name, reference_no, 
+                   total_amount, status, created_by, is_posted
+            FROM {DB_NAME_FINANCE}.tbl_journal_master
+            WHERE journal_id = :journal_id
+        """)
+        header_res = await db.execute(header_query, {"journal_id": journal_id})
+        header = header_res.mappings().first()
+        
+        if not header:
+            raise HTTPException(status_code=404, detail="Journal not found")
+
+        # Get Details
+        detail_query = text(f"""
+            SELECT detail_id as id, gl_code, type, description, amount, reference_no 
+            FROM {DB_NAME_FINANCE}.tbl_journal_details
+            WHERE journal_id = :journal_id
+        """)
+        detail_res = await db.execute(detail_query, {"journal_id": journal_id})
+        details = detail_res.mappings().all()
+
+        return {
+            "status": True,
+            "data": {
+                "header": dict(header),
+                "details": [dict(d) for d in details]
+            }
+        }
+    except Exception as e:
+        print(f"Error getting journal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/update-journal/{journal_id}")
+async def update_journal(
+    journal_id: int,
+    request: journal_model.JournalCreateRequest,
+    db: AsyncSession = Depends(database.get_db)
+):
+    try:
+        # 1. Update Header
+        header_update = text(f"""
+            UPDATE {DB_NAME_FINANCE}.tbl_journal_master 
+            SET journal_date = :date, description = :desc, party_type = :ptype, 
+                party_id = :pid, party_name = :pname, reference_no = :ref, 
+                total_amount = :amt, status = :status, is_posted = :is_posted, updated_at = NOW()
+            WHERE journal_id = :jid
+        """)
+        await db.execute(header_update, {
+            "date": request.journal_date,
+            "desc": request.description,
+            "ptype": request.party_type,
+            "pid": request.party_id,
+            "pname": request.party_name,
+            "ref": request.reference_no,
+            "amt": request.total_amount,
+            "status": request.status,
+            "is_posted": request.is_posted,
+            "jid": journal_id
+        })
+
+        # 2. Delete existing details and re-insert (easiest way to handle edit/add/remove for collections)
+        delete_details = text(f"DELETE FROM {DB_NAME_FINANCE}.tbl_journal_details WHERE journal_id = :jid")
+        await db.execute(delete_details, {"jid": journal_id})
+
+        # 3. Insert Details
+        detail_query = text(f"""
+            INSERT INTO {DB_NAME_FINANCE}.tbl_journal_details 
+            (journal_id, gl_code, type, description, amount, reference_no)
+            VALUES (:journal_id, :gl_code, :type, :desc, :amount, :ref_no)
+        """)
+        
+        for detail in request.details:
+            await db.execute(detail_query, {
+                "journal_id": journal_id,
+                "gl_code": detail.gl_code,
+                "type": detail.type,
+                "desc": detail.description,
+                "amount": detail.amount,
+                "ref_no": detail.reference_no
+            })
+
+        await db.commit()
+
+        return {
+            "status": True,
+            "message": "Journal updated successfully",
+            "journal_id": journal_id
+        }
+
+    except Exception as e:
+        await db.rollback()
+        print(f"Error updating journal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/get-all-journals")
+async def get_all_journals(db: AsyncSession = Depends(database.get_db)):
+    try:
+        query = text(f"""
+            SELECT journal_id as id, 
+                   journal_no as journalNo, 
+                   DATE_FORMAT(journal_date, '%Y-%m-%d') as date, 
+                   description, 
+                   total_amount as amount, 
+                   status
+            FROM {DB_NAME_FINANCE}.tbl_journal_master
+            ORDER BY journal_date DESC, journal_id DESC
+        """)
+        result = await db.execute(query)
+        rows = result.mappings().all()
+
+        # Convert to a list of dicts to ensure JSON serialization
+        journals = [dict(row) for row in rows]
+
+        return {
+            "status": True,
+            "data": journals
+        }
+    except Exception as e:
+        print(f"Error fetching all journals: {e}")
         raise HTTPException(status_code=500, detail=str(e))

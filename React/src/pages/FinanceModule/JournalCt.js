@@ -17,6 +17,8 @@ import { Column } from 'primereact/column';
 import { Tag } from 'primereact/tag';
 import { InputText } from "primereact/inputtext";
 import { FilterMatchMode } from 'primereact/api';
+import axios from "axios";
+import { PYTHON_API_URL } from "../../common/pyapiconfig";
 
 const JournalCt = () => {
     const history = useHistory();
@@ -35,38 +37,24 @@ const JournalCt = () => {
     });
 
     useEffect(() => {
-        // Mock Data Load
-        setLoading(true);
-        const mockData = [
-            {
-                id: 1,
-                journalNo: "JRN-2026-001",
-                date: "2026-02-06",
-                description: "Opening Balance Adjustment",
-                amount: 15000.00,
-                status: "Saved"
-            },
-            {
-                id: 2,
-                journalNo: "JRN-2026-002",
-                date: "2026-02-05",
-                description: "Petty Cash Reimbursement",
-                amount: 250.50,
-                status: "Posted"
-            },
-            {
-                id: 3,
-                journalNo: "JRN-2026-003",
-                date: "2026-02-04",
-                description: "Bank Charges",
-                amount: 50.00,
-                status: "Posted"
+        const fetchJournals = async () => {
+            try {
+                setLoading(true);
+                const response = await axios.get(`${PYTHON_API_URL}/journal/get-all-journals`);
+                if (response.data?.status) {
+                    setJournals(response.data.data || []);
+                } else {
+                    setJournals([]);
+                }
+            } catch (error) {
+                console.error("Failed to fetch journals:", error);
+                setJournals([]);
+            } finally {
+                setLoading(false);
             }
-        ];
-        setTimeout(() => {
-            setJournals(mockData);
-            setLoading(false);
-        }, 500);
+        };
+
+        fetchJournals();
     }, []);
 
     const onGlobalFilterChange = (e) => {
@@ -130,6 +118,7 @@ const JournalCt = () => {
                     className="text-primary cursor-pointer"
                     title="Edit"
                     style={{ cursor: 'pointer' }}
+                    onClick={() => history.push(`/add-journal?id=${rowData.id}`)}
                 >
                     <i className="mdi mdi-square-edit-outline font-size-18"></i>
                 </span>
