@@ -317,7 +317,7 @@ const AddManualInvoice = () => {
         // Fetch details for each selected DO
         const detailsData = await GetInvoiceDetails(doId);
 
-        if (detailsData && detailsData.Items) {
+        if (detailsData && detailsData.Items && detailsData.Items.length > 0) {
           const mappedItems = await Promise.all(detailsData.Items.map(async (item) => {
             // 🟢 FIX: SMART MATCH GAS CODE ID
             // If the imported ID doesn't exist in our list, try to find it by NAME
@@ -377,6 +377,31 @@ const AddManualInvoice = () => {
             };
           }));
           newItems = [...newItems, ...mappedItems];
+        } else if (detailsData) {
+          // If the DO has NO items (e.g. legacy DOs),
+          // add a fallback row so it appears in the grid.
+          const fallbackItem = {
+            sqid: 0, packingid: 0, id: 0, salesInvoicesId: invoiceHeader.id || 0, packingDetailId: 0, deliveryNumber: "",
+            GasCodeId: 0,
+            gasCode: "",
+            Description: "",
+            Volume: "",
+            Pressure: "",
+            Qty: doHeader.qty || 1,
+            pickedQty: doHeader.qty || 1,
+            UnitPrice: doHeader.qty ? (doHeader.total / doHeader.qty) : doHeader.total,
+            TotalPrice: doHeader.total || 0,
+            ConvertedPrice: doHeader.total || 0,
+            CurrencyId: currencySelect || null,
+            ConvertedCurrencyId: currencySelect || null,
+            Exchangerate: 1,
+            Uom: "", UomId: 0,
+            poNumber: detailsData.PONumber || "",
+            doNumber: doNumber,
+            requestDeliveryDate: currentDate,
+            isImportedDO: true
+          };
+          newItems.push(fallbackItem);
         }
       }
 

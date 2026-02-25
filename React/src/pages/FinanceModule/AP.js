@@ -166,27 +166,31 @@ const AP = () => {
             } else {
                 const response = await GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId);
                 if (response?.data && Array.isArray(response.data)) {
-                    const mappedData = response.data.map(item => ({
-                        Id: item.receiptnote_hdr_id,
-                        IRNId: item.receiptnote_hdr_id,
-                        Reference: item.receipt_no,
-                        POId: item.poid,
-                        DueDate: item.due_dt,
-                        SupplierName: item.suppliername,
-                        Amount: item.totalamount || 0,
-                        // Additional fields needed for GenerateSPC payload
-                        grnid: item.grn_id || item.grnid || "0",
-                        supplierid: item.supplierid || item.supplier_id || 0,
-                        modeOfPaymentId: item.ModeOfPaymentId || item.modeOfPaymentId || 0,
-                        invoiceno: item.receiptno || item.receipt_no || "",
-                        invoicedate: item.receiptdate || "",
-                        duedate: item.due_dt || item.duedate || "",
-                        po_amount: item.po_amount || 0,
-                        adv_payment: item.adv_payment || 0,
-                        balance_payment: item.balance_payment || 0,
-                        alreadyrecivedamount: item.alreadyrecivedamount || 0,
-                        balancepaymentamount: item.balancepaymentamount || 0
-                    }));
+                    let cumulativeTotal = 0;
+                    const mappedData = response.data.map(item => {
+                        cumulativeTotal += (item.totalamount || 0);
+                        return {
+                            Id: item.receiptnote_hdr_id,
+                            IRNId: item.receiptnote_hdr_id,
+                            Reference: item.receipt_no,
+                            POId: item.poid,
+                            DueDate: item.due_dt,
+                            SupplierName: item.suppliername,
+                            Amount: cumulativeTotal,
+                            // Additional fields needed for GenerateSPC payload
+                            grnid: item.grn_id || item.grnid || "0",
+                            supplierid: item.supplierid || item.supplier_id || 0,
+                            modeOfPaymentId: item.ModeOfPaymentId || item.modeOfPaymentId || 0,
+                            invoiceno: item.receiptno || item.receipt_no || "",
+                            invoicedate: item.receiptdate || "",
+                            duedate: item.due_dt || item.duedate || "",
+                            po_amount: item.po_amount || 0,
+                            adv_payment: item.adv_payment || 0,
+                            balance_payment: item.balance_payment || 0,
+                            alreadyrecivedamount: item.alreadyrecivedamount || 0,
+                            balancepaymentamount: item.balancepaymentamount || 0
+                        };
+                    });
                     setPayableData(mappedData);
                 } else {
                     setPayableData([]);
