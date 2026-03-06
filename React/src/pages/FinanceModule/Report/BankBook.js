@@ -10,6 +10,8 @@ import Select from "react-select";
 import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
 import { FilterMatchMode } from "primereact/api";
+import { Dialog } from "primereact/dialog";
+import { InputText } from "primereact/inputtext";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import { toast } from "react-toastify";
@@ -78,6 +80,11 @@ const BankBook = () => {
     const [toDate, setToDate] = useState(today);
     const [bankid, setBankid] = useState(null);
 
+    // --- DIALOG STATE FOR GROUPED CLAIMS ---
+    const [showClaimsDialog, setShowClaimsDialog] = useState(false);
+    const [selectedClaims, setSelectedClaims] = useState(null);
+    const [claimsFilter, setClaimsFilter] = useState("");
+
     const fetchBankBook = async () => {
         try {
             setLoading(true);
@@ -136,6 +143,7 @@ const BankBook = () => {
                 balance: parseFloat(item.Balance || 0),
                 overdraftLimit: parseFloat(item.OverdraftLimit || 0),
                 overdraft: parseFloat(item.OverDraft || 0),
+                groupedClaims: item.GroupedClaims || []
             }));
 
             setBankBook(transformed);
@@ -404,9 +412,39 @@ const BankBook = () => {
                                     filter
                                 >
                                     <Column field="date" header="Date" body={dateBodyTemplate} style={{ width: '120px' }} />
-                                    <Column field="voucherNo" header="Reference No" filter filterPlaceholder="Search Reference" />
+                                    {/* Reference No column removed from Grid per request */}
+
                                     <Column field="transactionType" header="Transaction Type" filter filterPlaceholder="Search Type" />
-                                    <Column field="party" header="Party" filter filterPlaceholder="Search Party" />
+
+                                    <Column
+                                        field="party"
+                                        header="Party"
+                                        filter
+                                        filterPlaceholder="Search Party"
+                                        body={(rowData) => {
+                                            if (rowData.groupedClaims && rowData.groupedClaims.length > 0) {
+                                                return (
+                                                    <span
+                                                        className="text-primary fw-bold"
+                                                        style={{ cursor: "pointer", textDecoration: "underline" }}
+                                                        onClick={() => {
+                                                            setSelectedClaims({
+                                                                party: rowData.party,
+                                                                date: rowData.date,
+                                                                claims: rowData.groupedClaims
+                                                            });
+                                                            setClaimsFilter("");
+                                                            setShowClaimsDialog(true);
+                                                        }}
+                                                    >
+                                                        {rowData.party} {rowData.groupedClaims.length > 1 && `(${rowData.groupedClaims.length})`}
+                                                    </span>
+                                                );
+                                            }
+                                            return rowData.party;
+                                        }}
+                                    />
+
                                     <Column field="currency" header="Currency" filter filterPlaceholder="Currency" style={{ width: '90px' }} />
 
                                     <Column header="Exchange Rate" body={(rowData) => {
@@ -527,6 +565,53 @@ const BankBook = () => {
                                     </table>
                                 </div>
 
+                                {/* --- GROUPED CLAIMS DIALOG --- */}
+                                <Dialog
+                                    header={`Claims for ${selectedClaims?.party || ''}`}
+                                    visible={showClaimsDialog}
+                                    style={{ width: '40vw' }}
+                                    onHide={() => setShowClaimsDialog(false)}
+                                    draggable={false}
+                                    resizable={false}
+                                >
+                                    {selectedClaims && (
+                                        <div className="p-3">
+                                            <div className="d-flex justify-content-between align-items-center mb-3">
+                                                <div className="fw-bold" style={{ color: "#495057" }}>
+                                                    Date: {selectedClaims.date ? formatPrintDate(selectedClaims.date) : ""}
+                                                </div>
+                                                <InputText
+                                                    type="search"
+                                                    placeholder="Search Claim..."
+                                                    className="form-control form-control-sm w-auto"
+                                                    value={claimsFilter}
+                                                    onChange={(e) => setClaimsFilter(e.target.value)}
+                                                />
+                                            </div>
+
+                                            <DataTable
+                                                value={selectedClaims.claims}
+                                                className="p-datatable-sm p-datatable-gridlines"
+                                                responsiveLayout="scroll"
+                                                globalFilter={claimsFilter}
+                                                globalFilterFields={['VoucherNo']}
+                                                emptyMessage="No matching claims found."
+                                            >
+                                                <Column field="VoucherNo" header="Reference No" />
+                                                <Column
+                                                    field="Amount"
+                                                    header="Amount"
+                                                    body={(r) => Math.abs(r.Amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                    className="text-end"
+                                                />
+                                            </DataTable>
+
+                                            <div className="text-end mt-3">
+                                                <button className="btn btn-secondary btn-sm" onClick={() => setShowClaimsDialog(false)}>Close</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </Dialog>
                             </CardBody>
                         </Card>
                     </Col>

@@ -236,7 +236,11 @@ async def get_bank_book_report(
                     "Currency": row["Currency"],
                     "CreditIn": float(row["CreditIn"] or 0),
                     "DebitOut": float(row["DebitOut"] or 0),
-                    "NetAmount": float(row["NetAmount"] or 0)
+                    "NetAmount": float(row["NetAmount"] or 0),
+                    "GroupedClaims": [{
+                        "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
+                        "Amount": float(row["NetAmount"] or 0)
+                    }]
                 }
             else:
                 # Group exists, sum the amounts
@@ -245,10 +249,16 @@ async def get_bank_book_report(
                 existing["DebitOut"] += float(row["DebitOut"] or 0)
                 existing["NetAmount"] += float(row["NetAmount"] or 0)
                 
-                # Append Voucher No if it's new
+                # Append Voucher No for the global search string
                 new_voucher = str(row["VoucherNo"]) if row["VoucherNo"] else ""
                 if new_voucher and new_voucher not in existing["VoucherNo"]:
                     existing["VoucherNo"] += f", {new_voucher}"
+                    
+                # Append to GroupedClaims array
+                existing["GroupedClaims"].append({
+                    "VoucherNo": new_voucher,
+                    "Amount": float(row["NetAmount"] or 0)
+                })
 
         
         # Calculate moving balance on the grouped array
