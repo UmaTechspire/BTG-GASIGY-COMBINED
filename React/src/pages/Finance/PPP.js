@@ -1866,7 +1866,33 @@ let severity = 'secondary'; // default gray
                 </tr>
               );
 
-              return [...rows, totalRow]; // Return both the rows and the total row
+              // Cash Needed row
+              const cashNeededMopRow = (
+                <tr style={{ fontWeight: "bold", backgroundColor: "#fff3cd" }}>
+                  <td style={{ textAlign: "left" }}>Cash Needed</td>
+                  {currencies.map(curr => {
+                    const modeOfCashTotal = data
+                      .filter(r => (r.paymentMethod || "").toLowerCase().includes("cash"))
+                      .filter(r => r.curr === curr)
+                      .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+                    
+                    const cihValue = parseFloat(cashInHand[curr] || 0);
+                    const cfsValue = parseFloat(cashFromSales[curr] || 0);
+                    const needed = modeOfCashTotal - cihValue - cfsValue;
+
+                    return (
+                      <td style={{ textAlign: "right" }} key={`cash-needed-mop-${curr}`}>
+                        {needed.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+
+              return [...rows, cashNeededMopRow, totalRow]; // Return rows, cash needed, and total row
             };
 
 

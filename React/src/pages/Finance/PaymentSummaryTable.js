@@ -962,6 +962,30 @@ word-break: break-word;
               ))}
             </tr>
 
+            {/* Cash Needed */}
+            <tr style={{ backgroundColor: "#fff3cd", fontWeight: "bold" }}>
+              <td colSpan={3} style={{ textAlign: "left" }}>Cash Needed</td>
+              {currencies.map(curr => {
+                const modeOfCashTotal = data
+                  .filter(r => r.PaymentMethod === "Cash" || r.PaymentMethod === "Cash Withdrawal")
+                  .filter(r => r.curr === curr)
+                  .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+                
+                const cihValue = parseFloat(cashInHand[curr] || 0);
+                const cfsValue = parseFloat(cashFromSales[curr] || 0);
+                const cashNeededVal = modeOfCashTotal - cihValue - cfsValue;
+
+                return (
+                  <td style={{ textAlign: "right" }} key={`cashneeded-${curr}`}>
+                    {cashNeededVal.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    })}
+                  </td>
+                );
+              })}
+            </tr>
+
             {/* Total */}
             <tr style={{ backgroundColor: "#f1f1f1", fontWeight: "bold" }}>
               <td colSpan={3}>Total</td>

@@ -978,8 +978,8 @@ async def get_comparative_p_and_l(year: int, db: AsyncSession = Depends(database
                 MONTH(jm.journal_date) as month_num,
                 SUM(l.debit - l.credit) as balance
             FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
-            JOIN {DB_NAME_FINANCE}.tbl_glcodemaster gl ON l.gl_id = gl.id
-            JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_0900_ai_ci
+            JOIN {DB_NAME_FINANCE}.tbl_GLcodemaster gl ON l.gl_id = gl.id
+            JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
             WHERE YEAR(jm.journal_date) = :year
             GROUP BY gl.GLCode, MONTH(jm.journal_date)
         """)
@@ -1073,8 +1073,8 @@ async def get_comparative_balance_sheet(years: str, db: AsyncSession = Depends(d
                     gl.GLCode,
                     SUM(l.debit - l.credit) as balance
                 FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
-                JOIN {DB_NAME_FINANCE}.tbl_glcodemaster gl ON l.gl_id = gl.id
-                JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_0900_ai_ci
+                    JOIN {DB_NAME_FINANCE}.tbl_GLcodemaster gl ON l.gl_id = gl.id
+                JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
                 WHERE YEAR(jm.journal_date) <= :year
                 GROUP BY gl.GLCode
             """)
