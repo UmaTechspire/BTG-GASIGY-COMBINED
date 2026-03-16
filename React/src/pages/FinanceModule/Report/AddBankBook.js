@@ -235,6 +235,8 @@ const AddBankBook = () => {
             amount: "",
             bankCharges: "",
             salesPersonId: "",
+            bank_payment_via: 2,
+            cheque_number: "",
             sendNotification: false
         }]);
     };
@@ -298,6 +300,8 @@ const AddBankBook = () => {
             amount: "",
             bankCharges: "",
             salesPersonId: "",
+            bank_payment_via: 2,
+            cheque_number: "",
             sendNotification: false
         };
 
@@ -322,6 +326,8 @@ const AddBankBook = () => {
             amount: Math.abs(amount),
             bankCharges: rowData.bank_charges,
             salesPersonId: rowData.sales_person_id,
+            bank_payment_via: rowData.bank_payment_via || (parseFloat(rowData.cash_amount) !== 0 ? 4 : 2),
+            cheque_number: rowData.cheque_number || "",
             sendNotification: rowData.send_notification
         }]);
 
@@ -359,11 +365,12 @@ const AddBankBook = () => {
                     send_notification: row.sendNotification,
                     status: isPosted ? "Posted" : "Saved",
                     is_posted: isPosted,
-                    payment_amount: 0,
-                    cash_amount: 0,
+                    cash_amount: row.bank_payment_via === 4 ? finalAmount : 0,
+                    bank_amount: row.bank_payment_via === 4 ? 0 : finalAmount,
                     contra_amount: 0,
                     tax_rate: 0,
-                    bank_payment_via: 0,
+                    bank_payment_via: parseInt(row.bank_payment_via),
+                    cheque_number: row.cheque_number,
                     proof_missing: false
                 };
             });
@@ -448,7 +455,7 @@ const AddBankBook = () => {
         if (!printRecord) return "";
         const bId = printRecord.deposit_bank_id || printRecord.bank_id;
         // Search both labels and bank names
-        return printRecord.bankName || printRecord.bank_name || 
+        return printRecord.bankName || printRecord.bank_name ||
             (bankList.find(b => b.value == bId)?.label) ||
             "";
     };
@@ -461,14 +468,13 @@ const AddBankBook = () => {
         if (via === 1) method = "Cheque";
         else if (via === 2) method = "Bank Transfer";
         else if (via === 3) method = "Giro";
-        
+        else if (via === 4) method = "Cash";
+
         const bName = getPrintBankName();
         const currency = record.currencyCode || currencyList.find(c => c.value === record.currencyid)?.label || "";
 
-        // If it's a bank book entry, avoid showing "Cash" unless explicitly indicated by cash_amount
-        if (parseFloat(record.cash_amount) !== 0 && parseFloat(record.bank_amount) === 0) {
-            return "Cash";
-        }
+        if (via === 4) return "Cash";
+        if (via === 1 && record.cheque_number) return `Cheque - ${record.cheque_number}`;
 
         return `${method} - ${bName} ${currency}`.trim().replace(/ - $/, "");
     };
@@ -730,6 +736,7 @@ const AddBankBook = () => {
                                     <th style={{ width: '220px' }}>Party</th>
                                     <th style={{ width: '120px' }}>Reference No.</th>
                                     <th style={{ width: '130px' }} className="text-end">Amount</th>
+                                    <th style={{ width: '130px' }}>Method</th>
                                     <th style={{ width: '100px' }} className="text-end">Charges</th>
                                     <th style={{ width: '160px' }}>Sales Person</th>
                                     <th style={{ width: '40px' }} className="text-center">Del</th>
@@ -776,6 +783,30 @@ const AddBankBook = () => {
                                         </td>
                                         <td>
                                             <Input type="number" bsSize="sm" value={row.amount} onChange={(e) => handleRowChange(index, 'amount', e.target.value)} className="text-end" style={{ fontSize: '12px' }} />
+                                        </td>
+                                        <td>
+                                            <div className="d-flex flex-column gap-1">
+                                                <select
+                                                    className="form-select form-select-sm"
+                                                    value={row.bank_payment_via}
+                                                    onChange={(e) => handleRowChange(index, 'bank_payment_via', parseInt(e.target.value))}
+                                                    style={{ fontSize: '11px' }}
+                                                >
+                                                    <option value={2}>Bank Transfer</option>
+                                                    <option value={1}>Cheque</option>
+                                                    <option value={3}>Giro</option>
+                                                    <option value={4}>Cash</option>
+                                                </select>
+                                                {row.bank_payment_via === 1 && (
+                                                    <Input
+                                                        bsSize="sm"
+                                                        placeholder="Cheque No"
+                                                        value={row.cheque_number}
+                                                        onChange={(e) => handleRowChange(index, 'cheque_number', e.target.value)}
+                                                        style={{ fontSize: '10px', height: '24px' }}
+                                                    />
+                                                )}
+                                            </div>
                                         </td>
                                         <td>
                                             <Input type="number" bsSize="sm" value={row.bankCharges} onChange={(e) => handleRowChange(index, 'bankCharges', e.target.value)} className="text-end" style={{ fontSize: '12px' }} />

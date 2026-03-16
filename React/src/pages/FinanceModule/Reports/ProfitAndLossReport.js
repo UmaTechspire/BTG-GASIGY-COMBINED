@@ -137,7 +137,7 @@ const ProfitAndLossReport = () => {
                                             header="Particulars"
                                             body={particularBody}
                                             frozen
-                                            style={{ backgroundColor: "#f8f9fa", width: '250px', fontWeight: '500' }}
+                                            style={{ backgroundColor: "#f8f9fa", width: '250px', fontWeight: '500', color: "#0B5ED7" }}
                                         />
                                         {monthColumns.map(col => (
                                             <Column

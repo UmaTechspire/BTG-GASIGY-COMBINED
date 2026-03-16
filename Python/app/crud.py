@@ -50,6 +50,11 @@ async def create_ar_receipt(db: AsyncSession, command: schemas.CreateARCommand):
             reference_no=item.reference_no,
             sales_person_id=item.sales_person_id,
             send_notification=item.send_notification,
+
+            # 🟢 Persist Cash/Cheque/Via
+            cash_amount=item.cash_amount,
+            bank_payment_via=item.bank_payment_via,
+            cheque_number=item.cheque_number,
             
             # --- STATUS FLAGS ---
             is_posted=is_posted,
@@ -372,6 +377,7 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
             UPDATE {DB_NAME_FINANCE}.tbl_accounts_receivable
             SET is_active = 0
             WHERE is_active = 1
+              AND invoice_no != :inv_no
               AND invoice_no IN (
                   SELECT DISTINCT DOnumber 
                   FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details 
@@ -380,7 +386,7 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
                     AND DOnumber != ''
               )
         """)
-        await db.execute(deactivate_dos_sql, {"inv_id": str(request.invoiceId)})
+        await db.execute(deactivate_dos_sql, {"inv_id": str(request.invoiceId), "inv_no": invoice_number})
 
         # ---------------------------------------------------------
         # 5. UPDATE HEADER FLAG (For the specific ID posted)

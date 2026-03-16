@@ -47,7 +47,7 @@ const BalanceSheetReport = () => {
 
   useEffect(() => {
     fetchBalanceSheetData();
-  }, [baseYear, isComparing]);
+  }, [baseYear, compareYear, isComparing]);
 
   const numBody = (val) =>
     val !== null && val !== undefined ? val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";

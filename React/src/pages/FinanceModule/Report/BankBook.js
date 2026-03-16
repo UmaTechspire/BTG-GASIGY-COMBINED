@@ -123,6 +123,7 @@ const BankBook = () => {
                 balance: parseFloat(item.Balance || 0),
                 overdraftLimit: parseFloat(item.OverdraftLimit || 0),
                 overdraft: parseFloat(item.OverDraft || 0),
+                chequeNumber: item.cheque_number || "",
                 groupedClaims: item.GroupedClaims || []
             }));
 
@@ -391,7 +392,17 @@ const BankBook = () => {
                                     <Column field="date" header="Date" body={dateBodyTemplate} style={{ width: '120px' }} />
                                     {/* Reference No column removed from Grid per request */}
 
-                                    <Column field="transactionType" header="Transaction Type" filter filterPlaceholder="Search Type" />
+                                    <Column
+                                        field="transactionType"
+                                        header="Transaction Type"
+                                        filter
+                                        filterPlaceholder="Search Type"
+                                        body={(rowData) => (
+                                            <span>
+                                                {rowData.transactionType} {rowData.chequeNumber ? `(${rowData.chequeNumber})` : ''}
+                                            </span>
+                                        )}
+                                    />
 
                                     <Column
                                         field="party"
@@ -525,7 +536,7 @@ const BankBook = () => {
                                                         <td>{index + 1}</td>
                                                         <td>{formatPrintDate(item.date)}</td>
                                                         <td>{item.voucherNo}</td>
-                                                        <td>{item.transactionType}</td>
+                                                        <td>{item.transactionType} {item.chequeNumber ? `(${item.chequeNumber})` : ''}</td>
                                                         <td>{item.party}</td>
                                                         <td>{item.currency}</td>
                                                         <td className="text-end">{item.exchangeRate}</td>

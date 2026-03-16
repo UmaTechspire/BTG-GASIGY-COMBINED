@@ -26,6 +26,11 @@ class ReceiptItem(BaseModel):
     sales_person_id: Optional[int] = None
     send_notification: bool = False
     status: str 
+    
+    # 🟢 New fields for Cash/Cheque/Via
+    cash_amount: float = 0
+    bank_payment_via: int = 0
+    cheque_number: Optional[str] = None
 
 class CreateReceiptRequest(BaseModel):
     orgId: int
@@ -63,6 +68,8 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
                 r.is_posted, 
                 r.pending_verification, 
                 r.bank_payment_via,
+                r.cheque_number,
+                r.cash_amount,
                 r.currencyid,
 
                 CASE WHEN r.is_posted = 1 THEN 'P' ELSE 'S' END as status_code,
@@ -165,6 +172,8 @@ async def get_bank_book_report(
                 r.reference_no as VoucherNo,
                 
                 CASE 
+                    WHEN MAX(r.bank_payment_via) = 1 THEN 'Cheque'
+                    WHEN MAX(r.bank_payment_via) = 4 THEN 'Cash'
                     WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 THEN 'Payment' 
                     ELSE 'Receipt' 
                 END as TransactionType, 
@@ -191,7 +200,10 @@ async def get_bank_book_report(
                 CASE WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 
                      THEN ABS(MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount))) ELSE 0 END as CreditIn,
                 
-                MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) as NetAmount
+                MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) as NetAmount,
+                MAX(r.bank_payment_via) as bank_payment_via,
+                MAX(r.cheque_number) as cheque_number,
+                MAX(r.cash_amount) as cash_amount
             FROM tbl_ar_receipt r
             LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
             LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
@@ -239,6 +251,9 @@ async def get_bank_book_report(
                     "CreditIn": float(row["CreditIn"] or 0),
                     "DebitOut": float(row["DebitOut"] or 0),
                     "NetAmount": float(row["NetAmount"] or 0),
+                    "bank_payment_via": row["bank_payment_via"],
+                    "cheque_number": row["cheque_number"],
+                    "cash_amount": float(row["cash_amount"] or 0),
                     "GroupedClaims": [{
                         "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
                         "Amount": float(row["NetAmount"] or 0)
@@ -402,6 +417,11 @@ async def update_receipt(receipt_id: int, payload: CreateReceiptRequest, db: Asy
         entry.sales_person_id = data.sales_person_id
         entry.send_notification = data.send_notification
         entry.status = data.status
+        
+        # 🟢 Persistent new fields
+        entry.cash_amount = data.cash_amount
+        entry.bank_payment_via = data.bank_payment_via
+        entry.cheque_number = data.cheque_number
         
         if data.status == "Posted":
             entry.is_posted = True

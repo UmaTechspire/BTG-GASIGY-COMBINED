@@ -16,6 +16,7 @@ DB_NAME_FINANCE = os.getenv('DB_NAME_FINANCE', 'btggasify_finance_live')
 DB_NAME_USER = os.getenv('DB_NAME_USER', 'btggasify_live')
 DB_NAME_USER_NEW = os.getenv('DB_NAME_USER_NEW', 'btggasify_userpanel_live')
 DB_NAME_MASTER = os.getenv('DB_NAME_MASTER', 'btggasify_masterpanel_live')
+DB_NAME_PURCHASE = os.getenv('DB_NAME_PURCHASE', 'btggasify_purchase_live')
 DB_NAME_OLD = os.getenv('DB_NAME_OLD', 'btggasify_live')
 
 router = APIRouter(
@@ -185,7 +186,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             0 as deposit_bank_id, 
             ar.invoice_id as real_invoice_id
         FROM {DB_NAME_FINANCE}.tbl_accounts_receivable ar 
-        JOIN {DB_NAME_USER_NEW}.master_customer c ON ar.customer_id = c.Id 
+        JOIN {DB_NAME_USER}.master_customer c ON ar.customer_id = c.Id 
         LEFT JOIN {DB_NAME_OLD}.master_currency cur ON ar.currencyid = cur.CurrencyId 
         WHERE {base_filter} {date_filter_ar}
     """
@@ -218,7 +219,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
         JOIN {DB_NAME_FINANCE}.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id 
         JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id 
         LEFT JOIN {DB_NAME_OLD}.master_currency cur ON ar.currencyid = cur.CurrencyId 
-        JOIN {DB_NAME_USER_NEW}.master_customer c ON ar.customer_id = c.Id 
+        JOIN {DB_NAME_USER}.master_customer c ON ar.customer_id = c.Id 
         WHERE {base_filter} {date_filter_r}
     """
 
@@ -245,7 +246,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             0 as receipt_id, 0 as deposit_bank_id, 
             dn.DebitNoteId as real_invoice_id
         FROM {DB_NAME_FINANCE}.Debit_Notes dn 
-        JOIN {DB_NAME_USER_NEW}.master_customer c ON dn.CustomerId = c.Id 
+        JOIN {DB_NAME_USER}.master_customer c ON dn.CustomerId = c.Id 
         LEFT JOIN {DB_NAME_OLD}.master_currency cur ON dn.CurrencyId = cur.CurrencyId 
         WHERE 1=1 {cust_filter_dn} {date_filter_dn}
         AND NOT EXISTS (
@@ -277,7 +278,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             0 as receipt_id, 0 as deposit_bank_id, 
             cn.CreditNoteId as real_invoice_id
         FROM {DB_NAME_FINANCE}.Credit_Notes cn 
-        JOIN {DB_NAME_USER_NEW}.master_customer c ON cn.CustomerId = c.Id 
+        JOIN {DB_NAME_USER}.master_customer c ON cn.CustomerId = c.Id 
         LEFT JOIN {DB_NAME_OLD}.master_currency cur ON cn.CurrencyId = cur.CurrencyId 
         WHERE 1=1 {cust_filter_cn} {date_filter_cn}
         AND NOT EXISTS (
@@ -309,7 +310,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
             '0' as real_invoice_id
         FROM {DB_NAME_FINANCE}.tbl_ar_receipt r 
-        JOIN {DB_NAME_USER_NEW}.master_customer c ON r.customer_id = c.Id 
+        JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id 
         LEFT JOIN {DB_NAME_OLD}.master_currency cur ON r.currencyid = cur.CurrencyId 
         WHERE r.is_active = 1 AND r.ar_id IS NULL AND r.orgid = %(org_id)s AND r.branchid = %(branch_id)s
         {cust_filter_r} {date_filter_r}
@@ -419,7 +420,7 @@ def get_customer_address(customer_id: int):
                 COALESCE(c.Address, '') as address,
                 COALESCE(c.City, '') as city,
                 COALESCE(c.Country, '') as country
-            FROM {DB_NAME_USER_NEW}.master_customer c
+            FROM {DB_NAME_USER}.master_customer c
             WHERE c.Id = %(customer_id)s AND c.IsActive = 1
         """
         cursor.execute(query, {"customer_id": customer_id})
@@ -492,7 +493,7 @@ async def get_pending_list(
                 COALESCE(mc.CurrencyCode, 'IDR') as CurrencyCode,
                 c.CustomerName
             FROM tbl_ar_receipt r
-            LEFT JOIN {DB_NAME_USER_NEW}.master_customer c ON r.customer_id = c.Id
+            LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
             LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
             LEFT JOIN {DB_NAME_USER}.master_currency mc ON b.CurrencyId = mc.CurrencyId
             {where_clause}
@@ -1032,43 +1033,143 @@ async def get_balance_sheet(
 @router.get("/reports/comparative-p-and-l")
 async def get_comparative_p_and_l(year: int, db: AsyncSession = Depends(database.get_db)):
     try:
-        # 1. Fetch data from Ledger joined with Journal Header for accurate dates
+        # 1. Fetch data from Ledger (Manual Journals) + Source Tables (Transactional)
         query = text(f"""
             SELECT 
-                gl.GLCode,
-                MONTH(jm.journal_date) as month_num,
-                SUM(l.debit - l.credit) as balance
-            FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
-            JOIN {DB_NAME_FINANCE}.tbl_GLcodemaster gl ON l.gl_id = gl.id
-            JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
-            WHERE YEAR(jm.journal_date) = :year
-            GROUP BY gl.GLCode, MONTH(jm.journal_date)
+                gl_code,
+                month_num,
+                SUM(debit - credit) as balance
+            FROM (
+                -- A. Manual Journal Entries (from tbl_ledgerbook)
+                SELECT 
+                    gl.GLCode as gl_code,
+                    MONTH(jm.journal_date) as month_num,
+                    l.debit,
+                    l.credit
+                FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
+                JOIN {DB_NAME_FINANCE}.tbl_GLcodemaster gl ON l.gl_id = gl.id
+                JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
+                WHERE YEAR(jm.journal_date) = :year
+
+                UNION ALL
+
+                -- B. Sales Invoices (Revenue - Categorized)
+                SELECT 
+                    CASE 
+                        WHEN gt.TypeName LIKE '%Refill%' THEN '4110-001'
+                        WHEN gt.TypeName LIKE '%Rental%' THEN '4120-001'
+                        WHEN gt.TypeName LIKE '%Transport%' THEN '4130-001'
+                        WHEN gt.TypeName LIKE '%Industrial%' THEN '4100-002'
+                        ELSE '4000-001' -- LPG Cylinder Sales
+                    END as gl_code,
+                    MONTH(h.Salesinvoicesdate) as month_num,
+                    0 as debit,
+                    d.TotalPrice as credit
+                FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
+                JOIN {DB_NAME_USER_NEW}.tbl_salesinvoices_details d ON h.id = d.salesinvoicesheaderid
+                LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
+                LEFT JOIN {DB_NAME_USER}.master_gastypes gt ON g.GasTypeId = gt.Id
+                WHERE YEAR(h.Salesinvoicesdate) = :year 
+                  AND h.isactive = 1 
+                  AND h.IsSubmitted = 1
+
+                UNION ALL
+
+                -- C. Purchase Invoices (COGS - Purchases)
+                SELECT 
+                    '5900-001' as gl_code,
+                    MONTH(receiptdate) as month_num,
+                    po_amount as debit,
+                    0 as credit
+                FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
+                WHERE YEAR(receiptdate) = :year AND isactive = 1
+
+                UNION ALL
+
+                -- D. Claims & Payments (Operating Expenses)
+                SELECT 
+                    CASE 
+                        WHEN mc.claimcategory LIKE '%Salary%' OR mc.claimcategory LIKE '%Upah%' OR mc.claimcategory LIKE '%Gaji%' 
+                             OR h.Remarks LIKE '%Salary%' OR h.Remarks LIKE '%Upah%' OR h.Remarks LIKE '%Gaji%' THEN '6120-001'
+                        WHEN mc.claimcategory LIKE '%BPJS%' OR h.Remarks LIKE '%BPJS%' THEN '6120-019'
+                        WHEN mc.claimcategory LIKE '%Rent%' OR mc.claimcategory LIKE '%Sewa%' 
+                             OR h.Remarks LIKE '%Rent%' OR h.Remarks LIKE '%Sewa%' THEN '6120-023'
+                        WHEN mc.claimcategory LIKE '%Fuel%' OR mc.claimcategory LIKE '%BBM%' OR mc.claimcategory LIKE '%Petrol%'
+                             OR h.Remarks LIKE '%Fuel%' OR h.Remarks LIKE '%BBM%' OR h.Remarks LIKE '%Petrol%' THEN '6110-001'
+                        WHEN mc.claimcategory LIKE '%Maintenance%' OR mc.claimcategory LIKE '%Service%' OR mc.claimcategory LIKE '%Perbaikan%'
+                             OR h.Remarks LIKE '%Maintenance%' OR h.Remarks LIKE '%Service%' OR h.Remarks LIKE '%Perbaikan%' THEN '6110-003'
+                        WHEN mc.claimcategory LIKE '%Marketing%' OR h.Remarks LIKE '%Marketing%' THEN '6120-002'
+                        WHEN mc.claimcategory LIKE '%Cylinder%' OR h.Remarks LIKE '%Cylinder%' THEN '6120-015'
+                        ELSE '6120-099' 
+                    END as gl_code,
+                    MONTH(h.ApplicationDate) as month_num,
+                    h.TotalAmountInIDR as debit,
+                    0 as credit
+                FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header h
+                JOIN {DB_NAME_FINANCE}.master_claimcategory mc ON h.ClaimCategoryId = mc.Id
+                WHERE YEAR(h.ApplicationDate) = :year 
+                  AND h.claim_director_isapproved = 1
+
+                UNION ALL
+
+                -- E. Bank Receipts & Payments (Charges, Misc Income)
+                SELECT 
+                    CASE 
+                        WHEN (bank_amount + cash_amount) < 0 AND customer_id = 0 THEN '6120-099' -- Bank Charges
+                        WHEN (bank_amount + cash_amount) > 0 AND customer_id = 0 THEN '7000-001' -- Interest/Misc Income
+                        ELSE '6120-099'
+                    END as gl_code,
+                    MONTH(COALESCE(receipt_date, created_date)) as month_num,
+                    CASE WHEN (bank_amount + cash_amount) < 0 THEN ABS(bank_amount + cash_amount) ELSE 0 END as debit,
+                    CASE WHEN (bank_amount + cash_amount) > 0 THEN ABS(bank_amount + cash_amount) ELSE 0 END as credit
+                FROM {DB_NAME_FINANCE}.tbl_ar_receipt
+                WHERE YEAR(COALESCE(receipt_date, created_date)) = :year 
+                  AND is_active = 1
+                  AND (customer_id = 0 OR (bank_amount + cash_amount) < 0) -- Only non-customer or payments (ArReceipt can handle supplier payments if needed)
+                  AND (reference_no NOT LIKE 'CLM%' OR reference_no IS NULL) -- Don't duplicate claims
+                  AND (reference_no NOT LIKE 'SPC-%' OR reference_no IS NULL)
+            ) combined
+            GROUP BY gl_code, month_num
         """)
         
         res = await db.execute(query, {"year": year})
         db_data = res.mappings().all()
+
         
         # 2. Pivot the data into a usable format
         pivoted = {}
         for row in db_data:
-            code = row['GLCode']
+            code = row['gl_code']
             m = row['month_num']
             val = float(row['balance'])
             if code not in pivoted: pivoted[code] = {i: 0.0 for i in range(1, 13)}
             pivoted[code][m] = val
             
-        # 3. Map to Categories
+        # 3. Categorize and build report data
         report_data = []
+        used_gl_codes = set()
+        
+        # Pass 1: Specific categories
         for cat in PL_CATEGORIES:
             row = {"id": cat["id"], "accountName": cat["label"], "isHeader": cat.get("isHeader", False), "isTotal": cat.get("isTotal", False), "level": cat["level"]}
-            for m in range(1, 13): row[f"month_{m}"] = 0.0
-            
-            if "codes" in cat:
-                for gl_code, months in pivoted.items():
-                    if any(gl_code.startswith(prefix) for prefix in cat["codes"]):
-                        for m, val in months.items():
-                            row[f"month_{m}"] += val
+            for i in range(1, 13):
+                row[f"month_{i}"] = 0.0
+                if "codes" in cat and cat["id"] != "EXP_OTHER":
+                    for gl_code in pivoted:
+                        if any(gl_code.startswith(prefix) for prefix in cat["codes"]):
+                            row[f"month_{i}"] += pivoted[gl_code][i]
+                            if i == 1: used_gl_codes.add(gl_code)
             report_data.append(row)
+
+        # Pass 2: Catch-all Other Expenses
+        other_exp_row = next((r for r in report_data if r["id"] == "EXP_OTHER"), None)
+        if other_exp_row:
+            cat_config = next(c for c in PL_CATEGORIES if c["id"] == "EXP_OTHER")
+            for i in range(1, 13):
+                for gl_code in pivoted:
+                    if gl_code not in used_gl_codes:
+                        if any(gl_code.startswith(prefix) for prefix in cat_config["codes"]):
+                            other_exp_row[f"month_{i}"] += pivoted[gl_code][i]
             
         # 4. Calculate Totals
         def get_row(rid): return next((r for r in report_data if r["id"] == rid), None)
@@ -1131,39 +1232,169 @@ async def get_comparative_balance_sheet(years: str, db: AsyncSession = Depends(d
         for y in year_list:
             query = text(f"""
                 SELECT 
-                    gl.GLCode,
-                    SUM(l.debit - l.credit) as balance
-                FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
+                    gl_code,
+                    SUM(debit - credit) as balance
+                FROM (
+                    -- A. Manual Journal Entries
+                    SELECT 
+                        CASE 
+                            WHEN gl.GLCode LIKE '4%' OR gl.GLCode LIKE '5%' OR gl.GLCode LIKE '6%' OR gl.GLCode LIKE '7%' THEN '3120'
+                            ELSE gl.GLCode 
+                        END as gl_code,
+                        l.debit,
+                        l.credit
+                    FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
                     JOIN {DB_NAME_FINANCE}.tbl_GLcodemaster gl ON l.gl_id = gl.id
-                JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
-                WHERE YEAR(jm.journal_date) <= :year
-                GROUP BY gl.GLCode
+                    JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
+                    WHERE YEAR(jm.journal_date) <= :year
+
+                    UNION ALL
+
+                    -- B. Cash & Bank
+                    SELECT 
+                        '1120' as gl_code,
+                        SUM(IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) as debit,
+                        0 as credit
+                    FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
+                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
+                      AND r.is_active = 1 
+                      AND (r.is_submitted = 1 OR r.is_posted = 1)
+                    GROUP BY gl_code
+
+                    UNION ALL
+
+                    -- C. Accounts Receivable (Invoices)
+                    SELECT 
+                        '1130' as gl_code,
+                        inv_amount as debit,
+                        0 as credit
+                    FROM {DB_NAME_FINANCE}.tbl_accounts_receivable
+                    WHERE YEAR(invoice_date) <= :year AND is_active = 1
+
+                    UNION ALL
+
+                    -- D. Accounts Receivable (Receipts)
+                    SELECT 
+                        '1130' as gl_code,
+                        0 as debit,
+                        payment_amount as credit
+                    FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra
+                    JOIN {DB_NAME_FINANCE}.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id
+                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
+                      AND ra.is_active = 1
+
+                    UNION ALL
+
+                    -- E. Accounts Payable (IRNs)
+                    SELECT 
+                        '2110' as gl_code,
+                        0 as debit,
+                        IFNULL(po_amount, 0) as credit
+                    FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
+                    WHERE YEAR(receiptdate) <= :year AND isactive = 1
+
+                    UNION ALL
+
+                    -- F. Accounts Payable (Payments)
+                    SELECT 
+                        '2110' as gl_code,
+                        ABS(IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) as debit,
+                        0 as credit
+                    FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
+                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
+                      AND r.is_active = 1 
+                      AND (IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) < 0
+                      AND (r.reference_no NOT LIKE 'SPC-%' OR r.reference_no IS NULL)
+
+                    UNION ALL
+
+                    -- G. Accrued Expenses (Claims)
+                    SELECT 
+                        '2130' as gl_code,
+                        0 as debit,
+                        IFNULL(h.TotalAmountInIDR, 0) as credit
+                    FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header h
+                    WHERE YEAR(h.ApplicationDate) <= :year 
+                      AND h.claim_director_isapproved = 1
+
+                    UNION ALL
+
+                    -- H. Accrued Expenses (Claim Payments)
+                    SELECT 
+                        '2130' as gl_code,
+                        ABS(IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) as debit,
+                        0 as credit
+                    FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
+                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
+                      AND r.is_active = 1 
+                      AND r.reference_no LIKE 'SPC-%'
+
+                    UNION ALL
+
+                    -- I. Retained Earnings (Revenue from AR Table)
+                    SELECT 
+                        '3120' as gl_code,
+                        0 as debit,
+                        IFNULL(inv_amount, 0) as credit
+                    FROM {DB_NAME_FINANCE}.tbl_accounts_receivable
+                    WHERE YEAR(invoice_date) <= :year AND is_active = 1
+
+                    UNION ALL
+
+                    -- J. Retained Earnings (COGS)
+                    SELECT 
+                        '3120' as gl_code,
+                        IFNULL(po_amount, 0) as debit,
+                        0 as credit
+                    FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
+                    WHERE YEAR(receiptdate) <= :year AND isactive = 1
+
+                    UNION ALL
+
+                    -- K. Retained Earnings (Claims)
+                    SELECT 
+                        '3120' as gl_code,
+                        IFNULL(h.TotalAmountInIDR, 0) as debit,
+                        0 as credit
+                    FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header h
+                    WHERE YEAR(h.ApplicationDate) <= :year 
+                      AND h.claim_director_isapproved = 1
+                ) combined
+                GROUP BY gl_code
             """)
             res = await db.execute(query, {"year": y})
-            for db_row in res.mappings().all():
-                gl_code = db_row['GLCode']
-                balance = float(db_row['balance'])
-                for row in report_data:
-                    cat = next(c for c in BS_CATEGORIES if c["id"] == row["id"])
-                    if "codes" in cat:
-                        if any(gl_code.startswith(prefix) for prefix in cat["codes"]):
-                            # Assets: Debit is positive (balance)
-                            # Liabilities: Credit is positive (-balance)
-                            if cat["id"].startswith("AST"):
-                                row[f"year_{y}"] += balance
-                            else:
-                                row[f"year_{y}"] -= balance
+            year_balances = {row['gl_code']: float(row['balance']) for row in res.mappings().all()}
 
-        # Calculate Totals
+            for row in report_data:
+                field = f"year_{y}"
+                cat = next(c for c in BS_CATEGORIES if c["id"] == row["id"])
+                if "codes" in cat:
+                    for gl_code, balance in year_balances.items():
+                        if any(gl_code.startswith(prefix) for prefix in cat["codes"]):
+                            if cat["id"].startswith("AST"):
+                                row[field] += balance
+                            else:
+                                row[field] -= balance
+
+        # Calculate Totals & Reconciliation
         def get_row_bs(rid): return next((r for r in report_data if r["id"] == rid), None)
         total_assets = get_row_bs("AST_TOTAL")
         total_liab = get_row_bs("LIAB_TOTAL")
         total_equity = get_row_bs("EQT_TOTAL")
+        cap_row = get_row_bs("EQT_CAP")
+        re_row = get_row_bs("EQT_RE")
 
         for y in year_list:
-            total_assets[f"year_{y}"] = sum(r[f"year_{y}"] for r in report_data if r["id"].startswith("AST_") and r["level"] == 1)
-            total_liab[f"year_{y}"] = sum(r[f"year_{y}"] for r in report_data if r["id"].startswith("LIAB_") and r["level"] == 1)
-            total_equity[f"year_{y}"] = sum(r[f"year_{y}"] for r in report_data if r["id"].startswith("EQT_") and r["level"] == 1)
+            field = f"year_{y}"
+            total_assets[field] = sum(r[field] for r in report_data if r["id"].startswith("AST_") and r["level"] == 1)
+            total_liab[field] = sum(r[field] for r in report_data if r["id"].startswith("LIAB_") and r["level"] == 1)
+            
+            # Reconciliation
+            net_assets = total_assets[field] - total_liab[field]
+            current_re = re_row[field]
+            if cap_row[field] == 0:
+                cap_row[field] = net_assets - current_re
+            total_equity[field] = cap_row[field] + current_re
 
         return {"status": "success", "data": report_data}
     except Exception as e:
