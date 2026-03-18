@@ -39,7 +39,8 @@ import {
     GenerateSPC,
     GetGRNById,
     GetByIdPurchaseOrder,
-    GetByIdPurchaseRequisition
+    GetByIdPurchaseRequisition,
+    GetAllPurchaseOrderList
 } from "../../common/data/mastersapi";
 
 const AP = () => {
@@ -146,17 +147,19 @@ const AP = () => {
                     setCurrencyList(curRes.data.map(c => ({ value: c.CurrencyId, label: c.CurrencyCode })));
                 }
 
-                const poUrl = `https://btg.sogfusion.com/dnapi/api/PurchaseOrder/GetALL?BranchId=${branchId}&SupplierId=0&OrgId=${orgId}&UserId=${userId}`;
-                const poRes = await axios.get(poUrl);
-                if (poRes?.data?.data) {
+                const poRes = await GetAllPurchaseOrderList(0, branchId, 0, orgId, userId);
+                const poDataList = poRes?.data || (Array.isArray(poRes) ? poRes : []);
+                
+                if (poDataList && Array.isArray(poDataList)) {
                     const lookup = {};
-                    poRes.data.data.forEach(po => {
-                        if (po.poid) {
-                            lookup[po.poid] = { 
-                                pono: po.pono, 
-                                podate: po.podate,
-                                currencyid: po.currencyid || po.CurrencyId,
-                                currencycode: po.currencycode || po.CurrencyCode || po.transactioncurrency
+                    poDataList.forEach(po => {
+                        const pid = po.poid || po.POId || po.po_id || po.purchase_id;
+                        if (pid) {
+                            lookup[pid] = { 
+                                pono: po.pono || po.PONo || po.PO_Number || po.ponumber || po.po_no || po.PONumber, 
+                                podate: po.podate || po.PODate || po.po_date || po.docdate,
+                                currencyid: po.currencyid || po.CurrencyId || po.currency_id || po.TransactionCurrencyId,
+                                currencycode: po.currencycode || po.CurrencyCode || po.currency_code || po.transactioncurrency || po.TransactionCurrency
                             };
                         }
                     });
@@ -192,15 +195,32 @@ const AP = () => {
             const supplierId = filter.supplier ? filter.supplier.value : 0;
             const currencyId = filter.currency ? filter.currency.value : 0;
 
+            // Refresh PO Lookup locally for this fetch to ensure accuracy
+            const poRes = await GetAllPurchaseOrderList(0, branchId, supplierId, orgId, userId);
+            const poDataList = poRes?.data || (Array.isArray(poRes) ? poRes : []);
+            const currentPoLookup = { ...poLookup };
+            if (Array.isArray(poDataList)) {
+                poDataList.forEach(po => {
+                    const pid = po.poid || po.POId || po.po_id || po.purchase_id;
+                    if (pid) {
+                        currentPoLookup[pid] = {
+                            pono: po.pono || po.PONo || po.PO_Number || po.ponumber || po.po_no || po.PONumber,
+                            podate: po.podate || po.PODate || po.po_date || po.docdate,
+                            currencyid: po.currencyid || po.CurrencyId || po.currency_id || po.TransactionCurrencyId,
+                            currencycode: po.currencycode || po.CurrencyCode || po.currency_code || po.transactioncurrency || po.TransactionCurrency
+                        };
+                    }
+                });
+            }
+
             if (activeTab === "1") {
-                // Fetch GRN list and IRN list in parallel to get amounts and determine which GRNs are converted
+                // Fetch GRN list and IRN list in parallel
                 const [grnResponse, irnResponse] = await Promise.all([
                     GetAllGRNList(supplierId, 0, orgId, branchId, userId, currencyId),
                     GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId, currencyId)
                 ]);
 
                 if (grnResponse?.data && Array.isArray(grnResponse.data)) {
-                    // Build a lookup: grnId -> { amount, poid } from IRN data
                     const grnLookup = {};
                     if (irnResponse?.data && Array.isArray(irnResponse.data)) {
                         irnResponse.data.forEach(irn => {
@@ -214,30 +234,26 @@ const AP = () => {
                         });
                     }
 
-                    if (grnResponse.data.length > 0) console.log("GRN first row:", grnResponse.data[0]);
-
                     let mappedData = grnResponse.data
-                        .filter(item => !grnLookup[item.grnid]) // Exclude GRNs already converted to IRN
+                        .filter(item => !grnLookup[item.grnid])
                         .map(item => {
-                            const poId = item.poid || 0;
-                            const curId = item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (poLookup[poId] ? (poLookup[poId].currencyid || poLookup[poId].CurrencyId) : 0);
-                            const curCode = item.currencycode || item.CurrencyCode || item.transactioncurrency || (poLookup[poId] ? (poLookup[poId].currencycode || poLookup[poId].CurrencyCode) : "");
+                            const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
+                            const directPoNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no || "";
+                            const curId = item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (currentPoLookup[poId] ? (currentPoLookup[poId].currencyid || currentPoLookup[poId].CurrencyId) : 0);
+                            const curCode = item.currencycode || item.CurrencyCode || item.transactioncurrency || item.TransactionCurrency || (currentPoLookup[poId] ? (currentPoLookup[poId].currencycode || currentPoLookup[poId].CurrencyCode) : "");
 
                             return {
-                                Id: item.grnid,
-                                Date: item.grndate,
-                                DateObj: item.grndate ? new Date(item.grndate) : new Date(0),
-                                Reference: item.grnno,
+                                Id: item.grnid || item.Id || item.grn_id,
+                                Date: item.grndate || item.Date || item.grn_date,
+                                Reference: item.grnno || item.Reference || item.grn_no,
                                 POId: poId,
-                                Amount: 0,
-                                currencyid: curId,
+                                PONumber: directPoNo || (currentPoLookup[poId] ? currentPoLookup[poId].pono : ""),
+                                Amount: Number(item.grnvalue || item.amount || item.Amount || item.total_amount || 0),
+                                currencyid: Number(curId),
                                 currencycode: curCode
                             };
                         });
 
-
-
-                    // Client-side filtering by currencyId and date
                     const selectedCurrencyId = Number(currencyId);
                     if (selectedCurrencyId > 0) {
                         mappedData = mappedData.filter(item => Number(item.currencyid) === selectedCurrencyId);
@@ -247,14 +263,11 @@ const AP = () => {
                         const fromTime = new Date(filter.fromDate).setHours(0, 0, 0, 0);
                         const toTime = new Date(filter.toDate).setHours(23, 59, 59, 999);
                         mappedData = mappedData.filter(item => {
-                            const dateToUse = item.Date;
-                            if (!dateToUse) return true;
-                            const itemTime = new Date(dateToUse).getTime();
+                            const itemTime = item.Date ? new Date(item.Date).getTime() : 0;
                             return itemTime >= fromTime && itemTime <= toTime;
                         });
                     }
 
-                    // Recalculate cumulative amounts after filtering
                     let cumulativeGRNTotal = 0;
                     mappedData = mappedData.map(item => {
                         cumulativeGRNTotal += item.Amount;
@@ -266,35 +279,27 @@ const AP = () => {
                     setAccruedData([]);
                 }
             } else {
-                // Fetch IRN with backend docdate filtering
                 const response = await GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId, currencyId);
                 if (response?.data && Array.isArray(response.data)) {
-                    if (response.data.length > 0) console.log("IRN first row:", response.data[0]);
                     let cumulativeTotal = 0;
                     let mappedData = response.data.map(item => {
-                        const poId = item.poid || 0;
-                        const curId = item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (poLookup[poId] ? (poLookup[poId].currencyid || poLookup[poId].CurrencyId) : 0);
-                        const curCode = item.currencycode || item.CurrencyCode || item.transactioncurrency || (poLookup[poId] ? (poLookup[poId].currencycode || poLookup[poId].CurrencyCode) : "");
-
+                        const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
                         return {
-                            Id: item.receiptnote_hdr_id,
-                            IRNId: item.receiptnote_hdr_id,
-                            Reference: item.receipt_no,
+                            Id: item.receiptnote_hdr_id || item.receipt_hdr_id || item.IRNId || item.id,
+                            IRNId: item.receiptnote_hdr_id || item.receipt_hdr_id || item.IRNId || item.id,
+                            Reference: item.receipt_no || item.Reference || item.receiptno || item.docno,
+                            IRNDate: formatDate(item.receipt_date || item.receipt_Date || item.IRNDate || item.docdate),
                             POId: poId,
-                            IRNDate: item.receipt_Date || "-",
-                            IRNDateObj: item.receipt_Date ? new Date(item.receipt_Date) : new Date(0),
-                            DueDate: item.due_dt || "-",
-                            DueDateObj: item.due_dt ? new Date(item.due_dt) : new Date(0),
-                            SupplierName: item.suppliername,
-                            OriginalAmount: item.totalamount || 0,
-                            currencyid: curId,
-                            currencycode: curCode,
-                            // Additional fields needed for GenerateSPC payload
+                            PONumber: item.pono || item.po_number || item.ponumber || item.PONo || item.po_no || (currentPoLookup[poId] ? currentPoLookup[poId].pono : ""),
+                            OriginalAmount: Number(item.totalamount || item.amount || item.total_amount || 0),
+                            currencyid: Number(item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (currentPoLookup[poId] ? (currentPoLookup[poId].currencyid || currentPoLookup[poId].CurrencyId) : 0)),
+                            currencycode: item.currencycode || item.CurrencyCode || item.transactioncurrency || item.TransactionCurrency || (currentPoLookup[poId] ? (currentPoLookup[poId].currencycode || currentPoLookup[poId].CurrencyCode) : ""),
+                            DueDate: item.due_dt || item.dueDate || item.DueDate || item.duedate || "",
                             grnid: item.grn_id || item.grnid || "0",
                             supplierid: item.supplierid || item.supplier_id || 0,
                             modeOfPaymentId: item.ModeOfPaymentId || item.modeOfPaymentId || 0,
                             invoiceno: item.receiptno || item.receipt_no || "",
-                            invoicedate: item.receiptdate || "",
+                            invoicedate: item.receiptdate || item.receipt_Date || "",
                             duedate: item.due_dt || item.duedate || "",
                             po_amount: item.po_amount || 0,
                             adv_payment: item.adv_payment || 0,
@@ -313,6 +318,7 @@ const AP = () => {
                     }
 
                     // Calculate cumulative total after filtering
+                    cumulativeTotal = 0; // Reset cumulative total for filtered results
                     const processedData = mappedData.map(item => {
                         cumulativeTotal += item.OriginalAmount;
                         return { ...item, CumulativeAmount: cumulativeTotal };
@@ -330,6 +336,23 @@ const AP = () => {
             setLoading(false);
         }
     }, [activeTab, filter.fromDate, filter.toDate, filter.supplier, filter.currency, orgId, branchId, userId, poLookup]);
+
+    const displayPONumber = (item) => {
+        // Priority: 1. Direct PONumber field, 2. Lookup by POId
+        const poNo = item.PONumber || (poLookup[item.POId] ? poLookup[item.POId].pono : null);
+        if (poNo && poNo !== "-") {
+            return (
+                <span 
+                    style={{ ...blueLinkStyle, cursor: 'pointer', fontWeight: '500', textDecoration: 'underline' }} 
+                    onClick={() => handlePOClick(item.POId)}
+                    title="View PO Details"
+                >
+                    {poNo}
+                </span>
+            );
+        }
+        return "-";
+    };
 
     useEffect(() => {
         fetchData();
@@ -643,7 +666,7 @@ const AP = () => {
                                     rows={20}
                                     loading={loading}
                                     globalFilter={globalFilterAccrued}
-                                    globalFilterFields={["Reference", "currencycode", "Amount"]}
+                                    globalFilterFields={["Reference", "currencycode", "Amount", "PONumber"]}
                                     style={{ fontSize: '13px' }}
                                     header={
                                         <div className="d-flex justify-content-end">
@@ -660,13 +683,7 @@ const AP = () => {
                                         </span>
                                     )} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
                                     <Column field="DateObj" header="GRN Date" body={(item) => formatDate(item.Date)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
-                                    <Column field="POId" header="PO Number" body={(item) => (
-                                        poLookup[item.POId] ? (
-                                            <span style={blueLinkStyle} onClick={() => handlePOClick(item.POId)}>
-                                                {poLookup[item.POId].pono}
-                                            </span>
-                                        ) : "-"
-                                    )} sortable />
+                                    <Column field="POId" header="PO Number" body={displayPONumber} sortable />
                                     <Column field="currencycode" header="Currency" sortable />
                                     <Column field="Amount" header="Amount" body={(item) => new Intl.NumberFormat().format(item.Amount)} className="text-end" sortable />
                                     <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => new Intl.NumberFormat().format(item.CumulativeAmount)} className="text-end" sortable />
@@ -681,7 +698,7 @@ const AP = () => {
                                     rows={20}
                                     loading={loading}
                                     globalFilter={globalFilterPayable}
-                                    globalFilterFields={["Reference", "SupplierName", "currencycode", "OriginalAmount"]}
+                                    globalFilterFields={["Reference", "SupplierName", "currencycode", "OriginalAmount", "PONumber"]}
                                     style={{ fontSize: '13px' }}
                                     header={
                                         <div className="d-flex justify-content-end">
@@ -706,13 +723,7 @@ const AP = () => {
                                         </span>
                                     )} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
                                     <Column field="IRNDateObj" header="IRN Date" body={(item) => item.IRNDate} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
-                                    <Column field="POId" header="PO Number" body={(item) => (
-                                        poLookup[item.POId] ? (
-                                            <span style={blueLinkStyle} onClick={() => handlePOClick(item.POId)}>
-                                                {poLookup[item.POId].pono}
-                                            </span>
-                                        ) : "-"
-                                    )} sortable />
+                                    <Column field="POId" header="PO Number" body={displayPONumber} sortable />
                                     <Column field="currencycode" header="Currency" sortable />
                                     <Column field="DueDateObj" header="Due Date" body={(item) => formatDate(item.DueDate)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
 
@@ -807,22 +818,22 @@ const AP = () => {
                                         </thead>
                                         <tbody>
                                             {((modalType === "GRN") ? modalData.Details : modalData.Requisition)?.map((row, i) => (
-                                                <tr key={i}>
+                                                <tr key={i} className="align-middle">
                                                     <td>{i + 1}</td>
-                                                    {(modalType === "PO" || modalType === "IRN") && <td><span style={prNoStyle} onClick={() => handlePRClick(row.prid)}>{row.prnumber}</span></td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td>{row.groupname}</td>}
-                                                    <td>{row.itemDescription || row.itemname || "-"}</td>
-                                                    <td>{row.poqty || row.qty}</td>
-                                                    <td>{row.UOM || row.uom}</td>
+                                                    {(modalType === "PO" || modalType === "IRN") && <td><span style={{ ...prNoStyle, cursor: 'pointer' }} onClick={() => handlePRClick(row.prid)}>{row.prnumber || row.pr_number || "-"}</span></td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td>{row.groupname || "-"}</td>}
+                                                    <td>{row.itemname || row.itemDescription || "-"}</td>
+                                                    <td>{row.qty || row.poqty || 0}</td>
+                                                    <td>{row.uom || row.UOM || "-"}</td>
                                                     {modalType === "GRN" && <td>{row.alreadyrecqty || 0}</td>}
                                                     {modalType === "GRN" && <td>{row.balanceqty || 0}</td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.unitprice || 0)}</td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.discountvalue || 0)}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{row.taxperc}</td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{row.taxperc || 0}</td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.taxvalue || 0)}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{row.vatperc}</td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{row.vatperc || 0}</td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.vatvalue || 0)}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end"><strong>{new Intl.NumberFormat().format(row.totalvalue || 0)}</strong></td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end"><strong>{new Intl.NumberFormat().format(row.totalvalue || row.nettotal || 0)}</strong></td>}
                                                 </tr>
                                             ))}
                                             {(modalType === "PO" || modalType === "IRN") && (

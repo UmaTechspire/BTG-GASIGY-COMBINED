@@ -82,6 +82,7 @@ async def get_daily_cash_entries(db: AsyncSession = Depends(get_db)):
             WHERE r.cash_amount != 0
               AND r.is_active = 1
               AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL)
+              AND IFNULL(r.is_submitted, 0) = 0
             
             ORDER BY r.receipt_id DESC
         """)
@@ -145,7 +146,7 @@ async def get_cash_book_report(
             
             WHERE DATE(COALESCE(r.receipt_date, r.created_date)) BETWEEN :from_date AND :to_date
               AND r.is_active = 1
-              AND r.is_submitted = 1
+              AND r.is_posted = 1
               AND r.cash_amount != 0
               AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL
                    OR (r.deposit_bank_id IS NULL OR r.deposit_bank_id = '' OR r.deposit_bank_id = '0'))

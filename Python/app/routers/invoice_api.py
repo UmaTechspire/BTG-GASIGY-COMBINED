@@ -404,10 +404,10 @@ async def get_all_invoices(filter_data: InvoiceFilter):
 async def get_invoice_details(invoiceid: str):
     try:
         async with engine.connect() as conn:
-            # 1. Fetch Headers from BOTH Old and New schemas using UNION
+            # 1. Fetch Header from User Panel schema ONLY
             header_query = text(f"""
                 SELECT 
-                    h.id AS RealHeaderId, 
+                    h.id AS InvoiceId, 
                     h.salesinvoicenbr AS InvoiceNbr,
                     COALESCE(DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d'), '') AS Salesinvoicesdate,
                     h.customerid,
@@ -419,91 +419,39 @@ async def get_invoice_details(invoiceid: str):
                 LEFT JOIN {DB_NAME_USER}.master_customer c ON h.customerid = c.Id
                 WHERE (h.salesinvoicenbr = :input_val OR h.id = :input_val)
                   AND h.isactive = 1 
-                  
-                UNION ALL 
-                
-                SELECT 
-                    h.id AS RealHeaderId, 
-                    h.salesinvoicenbr AS InvoiceNbr,
-                    COALESCE(DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d'), '') AS Salesinvoicesdate,
-                    h.customerid,
-                    COALESCE(c.CustomerName, 'Unknown') AS CustomerName,
-                    COALESCE(h.TotalAmount, 0) AS TotalAmount,
-                    COALESCE(h.CalculatedPrice, h.TotalAmount, 0) AS CalculatedPrice,
-                    CASE WHEN h.IsSubmitted = 1 THEN 'Posted' ELSE 'Saved' END AS Status
-                FROM {DB_NAME_USER}.tbl_salesinvoices_header h
-                LEFT JOIN {DB_NAME_USER}.master_customer c ON h.customerid = c.Id
-                WHERE (h.salesinvoicenbr = :input_val OR h.id = :input_val)
-                  AND h.isactive = 1 
             """)
             
             result = await conn.execute(header_query, {"input_val": invoiceid})
-            headers = result.fetchall()
+            header = result.mappings().first()
             
-            if not headers:
+            if not header:
                 raise HTTPException(status_code=404, detail=f"Invoice '{invoiceid}' not found")
 
-            # ... (Rest of the function remains exactly the same)
-            primary_header = headers[0]
+            header_dict = dict(header)
+            hid = header_dict["InvoiceId"]
+
+            # 2. Fetch Details from User Panel schema ONLY
+            detail_query = text(f"""
+                SELECT 
+                    d.id AS Id,
+                    COALESCE(d.gascodeid, 0) AS gascodeid,
+                    COALESCE(g.GasName, 'Item') AS GasName,
+                    COALESCE(d.PickedQty, 0) AS PickedQty,
+                    COALESCE(d.UnitPrice, 0) AS UnitPrice,
+                    COALESCE(d.TotalPrice, 0) AS TotalPrice,
+                    COALESCE(d.Currencyid, 1) AS Currencyid,
+                    COALESCE(d.ExchangeRate, 1) AS ExchangeRate, 
+                    COALESCE(d.DOnumber, '') AS DOnumber,
+                    COALESCE(d.PONumber, '') AS PONumber,
+                    COALESCE(d.uomid, 0) AS uomid,
+                    COALESCE(d.Note, '') AS Note
+                FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d
+                LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
+                WHERE d.salesinvoicesheaderid = :hid
+            """)
             
-            aggregated_total_amount = 0.0
-            aggregated_calc_price = 0.0
-            all_header_ids = []
-
-            for h in headers:
-                aggregated_total_amount += float(h.TotalAmount)
-                aggregated_calc_price += float(h.CalculatedPrice)
-                all_header_ids.append(h.RealHeaderId)
-
-            header_dict = dict(primary_header._mapping)
-            header_dict["InvoiceId"] = header_dict.pop("RealHeaderId") 
-            header_dict["TotalAmount"] = aggregated_total_amount
-            header_dict["CalculatedPrice"] = aggregated_calc_price
-
-            if all_header_ids:
-                # 2. Fetch Details from BOTH Old and New schemas using UNION
-                detail_query = text(f"""
-                    SELECT 
-                        d.id AS Id,
-                        COALESCE(d.gascodeid, 0) AS gascodeid,
-                        COALESCE(g.GasName, 'Item') AS GasName,
-                        COALESCE(d.PickedQty, 0) AS PickedQty,
-                        COALESCE(d.UnitPrice, 0) AS UnitPrice,
-                        COALESCE(d.TotalPrice, 0) AS TotalPrice,
-                        COALESCE(d.Currencyid, 1) AS Currencyid,
-                        COALESCE(d.ExchangeRate, 1) AS ExchangeRate, 
-                        COALESCE(d.DOnumber, '') AS DOnumber,
-                        COALESCE(d.PONumber, '') AS PONumber,
-                        COALESCE(d.uomid, 0) AS uomid,
-                        COALESCE(d.Note, '') AS Note
-                    FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d
-                    LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
-                    WHERE d.salesinvoicesheaderid IN :hids
-                    
-                    UNION ALL 
-                    
-                    SELECT 
-                        d.id AS Id,
-                        COALESCE(d.gascodeid, 0) AS gascodeid,
-                        COALESCE(g.GasName, 'Item') AS GasName,
-                        COALESCE(d.PickedQty, 0) AS PickedQty,
-                        COALESCE(d.UnitPrice, 0) AS UnitPrice,
-                        COALESCE(d.TotalPrice, 0) AS TotalPrice,
-                        COALESCE(d.Currencyid, 1) AS Currencyid,
-                        1 AS ExchangeRate, 
-                        COALESCE(d.DOnumber, '') AS DOnumber,
-                        COALESCE(d.PONumber, '') AS PONumber,
-                        0 AS uomid,
-                        '' AS Note
-                    FROM {DB_NAME_USER}.tbl_salesinvoices_details d
-                    LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
-                    WHERE d.salesinvoicesheaderid IN :hids
-                """)
-                
-                details_result = await conn.execute(detail_query, {"hids": tuple(all_header_ids)})
-                details_rows = details_result.fetchall()
-            else:
-                details_rows = []
+            details_result = await conn.execute(detail_query, {"hid": hid})
+            details_rows = details_result.fetchall()
 
             items_list = []
             for row in details_rows:

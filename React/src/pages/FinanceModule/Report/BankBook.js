@@ -392,11 +392,11 @@ const BankBook = () => {
                                     <Column field="date" header="Date" body={dateBodyTemplate} style={{ width: '120px' }} />
                                     {/* Reference No column removed from Grid per request */}
 
-                                    <Column
-                                        field="transactionType"
-                                        header="Transaction Type"
-                                        filter
-                                        filterPlaceholder="Search Type"
+                                    <Column 
+                                        field="transactionType" 
+                                        header="Transaction Type" 
+                                        filter 
+                                        filterPlaceholder="Search Type" 
                                         body={(rowData) => (
                                             <span>
                                                 {rowData.transactionType} {rowData.chequeNumber ? `(${rowData.chequeNumber})` : ''}

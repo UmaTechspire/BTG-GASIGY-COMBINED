@@ -210,7 +210,7 @@ const AddBankBook = () => {
             if (response.data?.status === "success" && Array.isArray(response.data.data)) {
                 const mapped = response.data.data.map(item => ({
                     ...item,
-                    bankName: bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || item.deposit_bank_id,
+                    bankName: item.bank_name || bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || item.deposit_bank_id,
                     customerName: customerList.find(c => c.value === item.customer_id)?.label || item.customer_id,
                     displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
                     verificationStatus: item.verification_status,
@@ -454,29 +454,30 @@ const AddBankBook = () => {
     const getPrintBankName = () => {
         if (!printRecord) return "";
         const bId = printRecord.deposit_bank_id || printRecord.bank_id;
-        // Search both labels and bank names
-        return printRecord.bankName || printRecord.bank_name ||
-            (bankList.find(b => b.value == bId)?.label) ||
-            "";
+        // 🟢 FIX: Find the master bank entry and take only the first part (e.g. "BCA" from "BCA - Cash in Bank")
+        const masterBank = bankList.find(b => b.value == bId);
+        const fullName = masterBank?.label || printRecord.bankName || printRecord.bank_name || "";
+        
+        return fullName.split(' - ')[0];
     };
 
     const getFormattedPaymentMethod = (record) => {
         if (!record) return "";
         const via = record.bank_payment_via;
-        let method = "Bank Transfer"; // Default for Bank Book
+        let method = "Bank Transfer"; 
 
         if (via === 1) method = "Cheque";
         else if (via === 2) method = "Bank Transfer";
         else if (via === 3) method = "Giro";
         else if (via === 4) method = "Cash";
-
+        
         const bName = getPrintBankName();
-        const currency = record.currencyCode || currencyList.find(c => c.value === record.currencyid)?.label || "";
 
         if (via === 4) return "Cash";
         if (via === 1 && record.cheque_number) return `Cheque - ${record.cheque_number}`;
 
-        return `${method} - ${bName} ${currency}`.trim().replace(/ - $/, "");
+        // 🟢 FIX: Clean format "Method - Bank Name"
+        return bName ? `${method} - ${bName}` : method;
     };
 
     const getReceiptHTML = () => {
@@ -664,14 +665,15 @@ const AddBankBook = () => {
                 <Card className="main-card border-0">
                     <CardBody>
                         <DataTable value={entryList} paginator rows={10} loading={loading} globalFilter={globalFilter} className="p-datatable-modern" responsiveLayout="scroll">
-                            <Column field="displayDate" header="Date" sortable filter style={{ width: '10%' }} />
-                            <Column field="customerName" header="Party" sortable filter style={{ width: '25%' }} />
+                            <Column field="displayDate" header="Date" sortable filter style={{ width: '8%' }} />
+                            <Column field="bankName" header="Bank Name" sortable filter style={{ width: '15%' }} />
+                            <Column field="customerName" header="Party" sortable filter style={{ width: '22%' }} />
                             <Column field="reference_no" header="Reference" sortable filter style={{ width: '10%' }} />
                             <Column field="bank_amount" header="Amount" textAlign="right" body={(d) => parseFloat(d.bank_amount || 0).toLocaleString()} style={{ width: '10%' }} />
                             <Column field="bank_charges" header="Bank Charges" textAlign="right" body={(d) => parseFloat(d.bank_charges || 0).toLocaleString()} style={{ width: '10%' }} />
-                            <Column header="Status" body={statusBodyTemplate} style={{ width: '8%' }} className="text-center" />
-                            <Column header="Verify" body={verificationBodyTemplate} style={{ width: '8%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
-                            <Column header="Action" body={actionBodyTemplate} style={{ width: '16%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Status" body={statusBodyTemplate} style={{ width: '5%' }} className="text-center" />
+                            <Column header="Verify" body={verificationBodyTemplate} style={{ width: '5%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Action" body={actionBodyTemplate} style={{ width: '15%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
                         </DataTable>
                     </CardBody>
                 </Card>
@@ -798,10 +800,10 @@ const AddBankBook = () => {
                                                     <option value={4}>Cash</option>
                                                 </select>
                                                 {row.bank_payment_via === 1 && (
-                                                    <Input
-                                                        bsSize="sm"
-                                                        placeholder="Cheque No"
-                                                        value={row.cheque_number}
+                                                    <Input 
+                                                        bsSize="sm" 
+                                                        placeholder="Cheque No" 
+                                                        value={row.cheque_number} 
                                                         onChange={(e) => handleRowChange(index, 'cheque_number', e.target.value)}
                                                         style={{ fontSize: '10px', height: '24px' }}
                                                     />
@@ -958,11 +960,11 @@ const AddBankBook = () => {
                                     {printRecord?.customerName || printRecord?.customer_name}
                                 </div>
 
-                                <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', whiteSpace: 'nowrap' }}>The Sum Of</div>
+                                 <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', whiteSpace: 'nowrap' }}>The Sum Of</div>
                                 <div className="colon" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', textAlign: 'center' }}>:</div>
                                 <div className="slanted-box" style={{ border: '1px solid #1a2c5b', transform: 'skewX(-20deg)', padding: '4px 6px', background: '#fff' }}>
                                     <div style={{ transform: 'skewX(20deg)', fontWeight: 'bold', fontSize: '11px' }}>
-                                        {numberToWords(parseFloat(printRecord?.bank_amount || 0))} {printRecord?.currencyCode === "IDR" ? "Rupiah" : (printRecord?.currencyCode || "Rupiah")} Only
+                                        {numberToWords(Math.abs(parseFloat(printRecord?.bank_amount || 0)))} {printRecord?.currencyCode === "IDR" ? "Rupiah" : (printRecord?.currencyCode || "Rupiah")} Only
                                     </div>
                                 </div>
 
@@ -980,7 +982,7 @@ const AddBankBook = () => {
                                         <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', marginRight: '8px', whiteSpace: 'nowrap' }}>
                                             Amount {printRecord?.currencyCode === 'IDR' ? 'Rp' : (printRecord?.currencyCode || 'Rp')} :
                                         </div>
-                                        <div style={{
+                                         <div style={{
                                             border: '1px solid #1a2c5b',
                                             width: '200px',
                                             padding: '5px 8px',
@@ -989,10 +991,17 @@ const AddBankBook = () => {
                                             background: '#fff'
                                         }}>
                                             <span style={{ display: 'inline-block', transform: 'skewX(20deg)', fontWeight: 'bold', fontSize: '14px' }}>
-                                                {parseFloat(printRecord?.bank_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                {Math.abs(parseFloat(printRecord?.bank_amount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                             </span>
                                         </div>
                                     </div>
+
+                                    {/* Bank Charges Row (Only if charges exist) */}
+                                    {parseFloat(printRecord?.bank_charges || 0) !== 0 && (
+                                        <div style={{ fontSize: '10px', color: '#1a2c5b', fontStyle: 'italic', marginBottom: '8px', paddingLeft: '2px' }}>
+                                            Note: Bank Charges {Math.abs(parseFloat(printRecord?.bank_charges || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </div>
+                                    )}
 
                                     <div style={{ display: 'flex', alignItems: 'baseline' }}>
                                         <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', marginRight: '6px', whiteSpace: 'nowrap' }}>

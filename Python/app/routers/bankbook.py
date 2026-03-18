@@ -71,6 +71,7 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
                 r.cheque_number,
                 r.cash_amount,
                 r.currencyid,
+                b.BankName as bank_name,
 
                 CASE WHEN r.is_posted = 1 THEN 'P' ELSE 'S' END as status_code,
                 
@@ -84,11 +85,13 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
             LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
             -- 🟢 FIX: Join on SupplierId, not Id
             LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
+            LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
             
             WHERE r.deposit_bank_id IS NOT NULL 
               AND r.deposit_bank_id != '' 
               AND r.deposit_bank_id != '0'
               AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL)
+              AND IFNULL(r.is_submitted, 0) = 0
             
             ORDER BY r.receipt_id DESC
         """)
@@ -212,7 +215,7 @@ async def get_bank_book_report(
             WHERE 
                 DATE(COALESCE(r.receipt_date, r.created_date)) BETWEEN :from_date AND :to_date
                 AND r.is_active = 1
-                AND r.is_submitted = 1
+                AND r.is_posted = 1
                 AND CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = :bank_id
             GROUP BY 
                 r.receipt_id,

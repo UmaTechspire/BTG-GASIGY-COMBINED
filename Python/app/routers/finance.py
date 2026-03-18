@@ -221,6 +221,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
         LEFT JOIN {DB_NAME_OLD}.master_currency cur ON ar.currencyid = cur.CurrencyId 
         JOIN {DB_NAME_USER}.master_customer c ON ar.customer_id = c.Id 
         WHERE {base_filter} {date_filter_r}
+          AND IFNULL(r.is_submitted, 0) = 1
     """
 
     # 3. DEBIT NOTES
@@ -314,6 +315,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
         LEFT JOIN {DB_NAME_OLD}.master_currency cur ON r.currencyid = cur.CurrencyId 
         WHERE r.is_active = 1 AND r.ar_id IS NULL AND r.orgid = %(org_id)s AND r.branchid = %(branch_id)s
         {cust_filter_r} {date_filter_r}
+        AND IFNULL(r.is_submitted, 0) = 1
     """
 
     full_query = f"{q_invoice} UNION ALL {q_receipt} UNION ALL {q_dn} UNION ALL {q_cn} UNION ALL {q_unalloc} ORDER BY customer_name, ledger_date, ar_no"
@@ -612,6 +614,12 @@ async def get_outstanding_invoices(customer_id: int, db: AsyncSession = Depends(
             WHERE h.customerid = :cust_id
               AND (h.TotalAmount - IFNULL(h.PaidAmount, 0)) > 0
               AND h.IsSubmitted = 1
+              AND h.IsAR = 1
+              AND h.salesinvoicenbr NOT IN (
+                  SELECT DISTINCT DOnumber 
+                  FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details 
+                  WHERE DOnumber IS NOT NULL AND DOnumber != ''
+              )
             ORDER BY h.Salesinvoicesdate ASC
         """)
         
@@ -1081,7 +1089,7 @@ async def get_comparative_p_and_l(year: int, db: AsyncSession = Depends(database
                     MONTH(receiptdate) as month_num,
                     po_amount as debit,
                     0 as credit
-                FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
+                FROM {DB_NAME_PURCHASE}.tbl_IRNReceipt_detail
                 WHERE YEAR(receiptdate) = :year AND isactive = 1
 
                 UNION ALL
@@ -1290,7 +1298,7 @@ async def get_comparative_balance_sheet(years: str, db: AsyncSession = Depends(d
                         '2110' as gl_code,
                         0 as debit,
                         IFNULL(po_amount, 0) as credit
-                    FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
+                    FROM {DB_NAME_PURCHASE}.tbl_IRNReceipt_detail
                     WHERE YEAR(receiptdate) <= :year AND isactive = 1
 
                     UNION ALL
@@ -1346,7 +1354,7 @@ async def get_comparative_balance_sheet(years: str, db: AsyncSession = Depends(d
                         '3120' as gl_code,
                         IFNULL(po_amount, 0) as debit,
                         0 as credit
-                    FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
+                    FROM {DB_NAME_PURCHASE}.tbl_IRNReceipt_detail
                     WHERE YEAR(receiptdate) <= :year AND isactive = 1
 
                     UNION ALL
