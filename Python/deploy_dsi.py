@@ -20,7 +20,7 @@ async def deploy():
             COALESCE(d.PONumber, '') AS PONumber,
             COALESCE(d.uomid, 0) AS uomid,
             COALESCE(d.Note, '') AS Note
-        FROM btggasify_userpanel_live.tbl_salesinvoices_details d
+        FROM btggasify_live.tbl_salesinvoices_details d
         LEFT JOIN btggasify_live.master_gascode g ON d.gascodeid = g.Id
         WHERE d.salesinvoicesheaderid = p_header_id;
     END

@@ -380,7 +380,7 @@ const AddPurchaseRequisition = () => {
                                                     77057.00
                                                 </td>
                                             </tr>
-                                              <tr>
+                                            <tr>
                                                 <td className="align-middle text-end">
                                                     <strong>Discount</strong>
                                                 </td>

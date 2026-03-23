@@ -1,39 +1,33 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {}
+    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {}
   },
   "projects": {
-    "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
+    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\Application.csproj",
+        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj",
         "projectName": "Application",
-        "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\Application.csproj",
-        "packagesPath": "C:\\Users\\USER\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\obj\\",
+        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj",
+        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
+        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\USER\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
-                "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\Core.csproj"
+              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj": {
+                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj"
               }
             }
           }
@@ -73,15 +67,15 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             }
           ],
           "frameworkReferences": {
@@ -89,32 +83,26 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
+    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
+        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
         "projectName": "BackEnd",
-        "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
-        "packagesPath": "C:\\Users\\USER\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\BackEnd\\obj\\",
+        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
+        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
+        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\USER\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -152,15 +140,15 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             }
           ],
           "frameworkReferences": {
@@ -168,32 +156,26 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
+    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
+        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj",
         "projectName": "Core",
-        "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
-        "packagesPath": "C:\\Users\\USER\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\obj\\",
+        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj",
+        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
+        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\USER\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -245,15 +227,15 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             }
           ],
           "frameworkReferences": {
@@ -261,46 +243,40 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
+    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
+        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
         "projectName": "Infrastructure",
-        "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
-        "packagesPath": "C:\\Users\\USER\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Infrastructure\\obj\\",
+        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
+        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
+        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\USER\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
-                "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\Application.csproj"
+              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj": {
+                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj"
               },
-              "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
-                "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj"
+              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
+                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj"
               },
-              "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
-                "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Core\\Core.csproj"
+              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj": {
+                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj"
               }
             }
           }
@@ -352,15 +328,15 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             }
           ],
           "frameworkReferences": {
@@ -368,43 +344,37 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {
+    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
+        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
         "projectName": "UserPanel",
-        "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
-        "packagesPath": "C:\\Users\\USER\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\UserPanel\\obj\\",
+        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
+        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
+        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\USER\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
-                "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Application\\Application.csproj"
+              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj": {
+                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj"
               },
-              "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
-                "projectPath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj"
+              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
+                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj"
               }
             }
           }
@@ -474,19 +444,19 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.NETCore.App.Host.win-x64",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             },
             {
               "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.12, 9.0.12]"
+              "version": "[9.0.11, 9.0.11]"
             }
           ],
           "frameworkReferences": {
@@ -497,7 +467,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

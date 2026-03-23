@@ -17,7 +17,7 @@ namespace Application.FinanceModule.BankBook.GetListBankBook
         {
             var from = query.FromDate ?? new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             var to = query.ToDate ?? DateTime.Today;
-            var list = await _repository.GetListBankBookAsync(from, to, query.BranchId, query.OrgId,query.bankid);
+            var list = await _repository.GetListBankBookAsync(from, to, query.BranchId, query.OrgId);
             return list;
         }
 

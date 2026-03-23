@@ -12,5 +12,6 @@
         Task<object> GetAllClaimList(Int32 id, Int32 branchid, string Searchtext, Int32 orgid, Int32 claimtypeid);
 
         Task<object> GetPOList(Int32 id, Int32 branchid, string Searchtext, Int32 orgid, Int32 supplierid);
+        Task<object> GetPaymentdetails(string poid,Int32 orgid);
     }
 }

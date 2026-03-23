@@ -20,7 +20,7 @@ CREATE PROCEDURE btggasify_finance_live.proc_PL_GetRevenue(
 )
 BEGIN
     SELECT SUM(TotalAmount) as total
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header
+    FROM btggasify_live.tbl_salesinvoices_header
     WHERE Salesinvoicesdate BETWEEN p_from_date AND p_to_date
       AND IsSubmitted = 1;
 END //
@@ -103,8 +103,8 @@ BEGIN
             MONTH(h.Salesinvoicesdate) as month_num,
             0 as debit,
             d.TotalPrice as credit
-        FROM btggasify_userpanel_live.tbl_salesinvoices_header h
-        JOIN btggasify_userpanel_live.tbl_salesinvoices_details d ON h.id = d.salesinvoicesheaderid
+        FROM btggasify_live.tbl_salesinvoices_header h
+        JOIN btggasify_live.tbl_salesinvoices_details d ON h.id = d.salesinvoicesheaderid
         LEFT JOIN btggasify_live.master_gascode g ON d.gascodeid = g.Id
         LEFT JOIN btggasify_live.master_gastypes gt ON g.GasTypeId = gt.Id
         WHERE YEAR(h.Salesinvoicesdate) = p_year 
@@ -218,7 +218,7 @@ CREATE PROCEDURE btggasify_finance_live.proc_BS_GetARBalance(
 )
 BEGIN
     SELECT SUM(TotalAmount - PaidAmount) as balance
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header
+    FROM btggasify_live.tbl_salesinvoices_header
     WHERE Salesinvoicesdate <= p_as_of_date AND IsSubmitted = 1;
 END //
 DELIMITER ;
@@ -454,7 +454,7 @@ BEGIN
         COALESCE(c.CustomerName, 'Unknown') AS party_name,
         h.TotalAmount AS amount,
         COALESCE(h.CalculatedPrice, h.TotalAmount) AS amount_idr
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     WHERE h.isactive = 1 
       AND h.IsSubmitted = 1

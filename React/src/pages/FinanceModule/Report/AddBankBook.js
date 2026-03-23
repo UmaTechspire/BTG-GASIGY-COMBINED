@@ -326,7 +326,7 @@ const AddBankBook = () => {
             amount: Math.abs(amount),
             bankCharges: rowData.bank_charges,
             salesPersonId: rowData.sales_person_id,
-            bank_payment_via: rowData.bank_payment_via || (parseFloat(rowData.cash_amount) !== 0 ? 4 : 2),
+            bank_payment_via: rowData.bank_payment_via || (parseFloat(rowData.cash_amount || 0) !== 0 ? 4 : 2),
             cheque_number: rowData.cheque_number || "",
             sendNotification: rowData.send_notification
         }]);
@@ -385,14 +385,26 @@ const AddBankBook = () => {
 
             if (editMode) {
                 const idToUpdate = rows[0].rowId;
-                const endpoint = `${PYTHON_API_URL}/AR/update/${idToUpdate}`;
-                await axios.put(endpoint, payload);
+                // Step 1: Always save the data fields
+                await axios.put(`${PYTHON_API_URL}/AR/update/${idToUpdate}`, payload);
+
+                // Step 2: If Post was clicked, call submit to set is_posted=True + pending_verification=True
+                if (isPosted) {
+                    await axios.put(`${PYTHON_API_URL}/AR/submit/${idToUpdate}`, {});
+                }
             } else {
-                const endpoint = `${PYTHON_API_URL}/AR/create`;
-                await axios.post(endpoint, payload);
+                // New entry: create the record first
+                const createRes = await axios.post(`${PYTHON_API_URL}/AR/create`, payload);
+
+                // If Post was clicked, call submit on each newly created id
+                if (isPosted && createRes.data?.ids?.length > 0) {
+                    for (const newId of createRes.data.ids) {
+                        await axios.put(`${PYTHON_API_URL}/AR/submit/${newId}`, {});
+                    }
+                }
             }
 
-            toast.success(`${rows.length} Entries ${isPosted ? 'Posted' : 'Saved'} Successfully`);
+            toast.success(`${rows.length} ${isPosted ? 'Posted' : 'Saved'} Successfully`);
             setIsModalOpen(false);
             loadEntryList();
         } catch (err) {
@@ -401,9 +413,10 @@ const AddBankBook = () => {
         }
     };
 
+
     const handleSubmitRow = async (id) => {
         try {
-            await axios.put(`${PYTHON_API_URL}/AR/post/${id}`);
+            await axios.put(`${PYTHON_API_URL}/AR/post/${id}`, {});
             toast.success("Transaction Posted Successfully!");
             loadEntryList();
         } catch (err) {
@@ -438,7 +451,7 @@ const AddBankBook = () => {
     const handleGenerateVerification = async () => {
         if (!selectedEntry) return;
         try {
-            await axios.put(`${PYTHON_API_URL}/AR/submit/${selectedEntry.receipt_id}`);
+            await axios.put(`${PYTHON_API_URL}/AR/submit/${selectedEntry.receipt_id}`, {});
             toast.success("Marketing Verification Generated!");
             setIsPreviewOpen(false);
             loadEntryList();

@@ -28,7 +28,7 @@ BEGIN
         c.CustomerName as customer_name, 
         ar.ar_no, 
         ar.invoice_no, 
-        (SELECT d.PONumber FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
         ar.inv_amount as invoice_amount, 
         NULL as receipt_no, 
@@ -70,7 +70,7 @@ BEGIN
         c.CustomerName as customer_name, 
         ar.ar_no, 
         ar.invoice_no, 
-        (SELECT d.PONumber FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
         0 as invoice_amount, 
         r.reference_no as receipt_no, 
@@ -208,7 +208,7 @@ BEGIN
     SELECT 
         h.id as invoice_id,
         h.salesinvoicenbr as invoice_no,
-        (SELECT d.PONumber FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = h.id LIMIT 1) as po_no,
         DATE_FORMAT(h.Salesinvoicesdate, '%d-%m-%Y') as invoice_date,
         h.TotalAmount as total_amount,
@@ -225,7 +225,7 @@ BEGIN
              WHERE ar_link.invoice_id = h.id AND ra.receipt_id = p_receipt_id AND ra.is_active = 1
             )
         )) as balance_due
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_finance_live.tbl_accounts_receivable ar ON TRIM(h.salesinvoicenbr) = TRIM(ar.invoice_no)
     LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId
     WHERE h.customerid = p_customer_id
@@ -243,7 +243,7 @@ BEGIN
       )
       AND h.salesinvoicenbr NOT IN (
           SELECT DISTINCT DOnumber 
-          FROM btggasify_userpanel_live.tbl_salesinvoices_details 
+          FROM btggasify_live.tbl_salesinvoices_details 
           WHERE DOnumber IS NOT NULL AND DOnumber != ''
       )
       AND h.salesinvoicenbr NOT LIKE 'DO %'
@@ -793,7 +793,7 @@ CREATE PROCEDURE btggasify_finance_live.proc_DSI_CheckDuplicate(
     IN p_invoice_nbr VARCHAR(100), IN p_exclude_id INT
 )
 BEGIN
-    SELECT count(*) as cnt FROM btggasify_userpanel_live.tbl_salesinvoices_header 
+    SELECT count(*) as cnt FROM btggasify_live.tbl_salesinvoices_header 
     WHERE salesinvoicenbr = p_invoice_nbr COLLATE utf8mb4_general_ci AND isactive = 1
       AND (p_exclude_id = 0 OR id != p_exclude_id);
 END //
@@ -820,20 +820,20 @@ BEGIN
         h.salesinvoicenbr AS InvoiceNbr,
         DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d') AS Salesinvoicesdate,
         COALESCE(c.CustomerName, 'Unknown') AS CustomerName,
-        (SELECT d.PONumber FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS PONumber, 
         (SELECT mc.CurrencyCode 
-         FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+         FROM btggasify_live.tbl_salesinvoices_details d 
          JOIN btggasify_live.master_currency mc ON d.Currencyid = mc.CurrencyId
          WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS CurrencyCode,
         h.TotalAmount,
         COALESCE(h.CalculatedPrice, h.TotalAmount) AS CalculatedPrice,
         CASE WHEN h.IsSubmitted = 1 THEN 'Posted' ELSE 'Saved' END AS Status,
-        (SELECT d.DOnumber FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.DOnumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS DOnumber,
-        (SELECT d.uomid FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.uomid FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS uomid
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     WHERE h.Salesinvoicesdate BETWEEN p_from_date AND p_to_date
       AND (p_customer_id = 0 OR h.customerid = p_customer_id)
@@ -857,7 +857,7 @@ BEGIN
         COALESCE(h.TotalAmount, 0) AS TotalAmount,
         COALESCE(h.CalculatedPrice, h.TotalAmount, 0) AS CalculatedPrice,
         CASE WHEN h.IsSubmitted = 1 THEN 'Posted' ELSE 'Saved' END AS Status
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     WHERE (h.salesinvoicenbr = p_input_val COLLATE utf8mb4_general_ci OR h.id = CAST(p_input_val AS UNSIGNED))
       AND h.isactive = 1;
@@ -883,7 +883,7 @@ BEGIN
         COALESCE(d.PONumber, '') AS PONumber,
         COALESCE(d.uomid, 0) AS uomid,
         COALESCE(d.Note, '') AS Note
-    FROM btggasify_userpanel_live.tbl_salesinvoices_details d
+    FROM btggasify_live.tbl_salesinvoices_details d
     LEFT JOIN btggasify_live.master_gascode g ON d.gascodeid = g.Id
     WHERE d.salesinvoicesheaderid = p_header_id;
 END //
@@ -901,8 +901,8 @@ BEGIN
         h.TotalQty as qty,
         h.TotalAmount as total,
         MAX(g.GasName) as GasName
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
-    LEFT JOIN btggasify_userpanel_live.tbl_salesinvoices_details det ON h.id = det.salesinvoicesheaderid
+    FROM btggasify_live.tbl_salesinvoices_header h
+    LEFT JOIN btggasify_live.tbl_salesinvoices_details det ON h.id = det.salesinvoicesheaderid
     LEFT JOIN btggasify_live.master_gascode g ON det.gascodeid = g.Id
     WHERE h.customerid = p_customer_id
       AND h.isactive = 1 
@@ -940,8 +940,8 @@ BEGIN
         d.UnitPrice,
         d.TotalPrice as OriginalTotal, 
         (d.TotalPrice * COALESCE(mc.ExchangeRate, 1)) as ConvertedTotal
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
-    JOIN btggasify_userpanel_live.tbl_salesinvoices_details d ON h.id = d.salesinvoicesheaderid
+    FROM btggasify_live.tbl_salesinvoices_header h
+    JOIN btggasify_live.tbl_salesinvoices_details d ON h.id = d.salesinvoicesheaderid
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     LEFT JOIN btggasify_live.master_gascode g ON d.gascodeid = g.Id
     LEFT JOIN btggasify_live.master_currency mc ON d.Currencyid = mc.CurrencyId

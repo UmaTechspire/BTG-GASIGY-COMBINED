@@ -752,16 +752,28 @@ const BankBook = () => {
                                                     header="Relevant Invoice" 
                                                     body={(r) => {
                                                         const match = r.VoucherNo?.match(/\(Inv:\s*(.*?)\)/);
-                                                        const invoiceNo = match ? match[1] : "-";
-                                                        return invoiceNo !== "-" ? (
-                                                            <span
-                                                                className="text-info fw-bold"
-                                                                style={{ cursor: "pointer", textDecoration: "underline" }}
-                                                                onClick={() => handleInvoiceClick(invoiceNo)}
-                                                            >
-                                                                {invoiceNo}
-                                                            </span>
-                                                        ) : "-";
+                                                        const invoiceNoStr = match ? match[1] : "-";
+                                                        
+                                                        if (invoiceNoStr === "-") return "-";
+                                                        
+                                                        const invoices = invoiceNoStr.split(',').map(i => i.trim()).filter(i => i);
+                                                        
+                                                        return (
+                                                            <div>
+                                                                {invoices.map((inv, idx) => (
+                                                                    <span key={idx}>
+                                                                        <span
+                                                                            className="text-info fw-bold"
+                                                                            style={{ cursor: "pointer", textDecoration: "underline", marginRight: "3px" }}
+                                                                            onClick={() => handleInvoiceClick(inv)}
+                                                                        >
+                                                                            {inv}
+                                                                        </span>
+                                                                        {idx < invoices.length - 1 && <span style={{ marginRight: "3px" }}>,</span>}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        );
                                                     }}
                                                 />
                                                 <Column

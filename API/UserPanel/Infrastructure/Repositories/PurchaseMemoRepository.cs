@@ -174,13 +174,13 @@ namespace Infrastructure.Repositories
                     if (row.Memo_dtl_ID == 0)
                     {
                         updatesql += @"
-                INSERT INTO  `tbl_purchasememo_detail`(`Memo_ID`,`ItemId`,`DepartmentId`,`UOMId`,`Qty`,`AvailStk`,`DeliveryDate`,`Remarks`,`CreatedBy`,`CreatedDate`,`CreatedIP`,`IsActive`,`itemGroupId`
+                INSERT INTO  `tbl_purchasememo_detail`(`Memo_ID`,`ItemId`,`DepartmentId`,`UOMId`,`Qty`,`AvailStk`,`DeliveryDate`,`Remarks`,`CreatedBy`,`CreatedDate`,`CreatedIP`,`IsActive`,`itemGroupId`)
                 select " + row.Memo_ID + "," + row.ItemId + "," + row.DepartmentId + "," + row.UOMId + "," + row.Qty + "," + row.AvailStk + ",'" + row.DeliveryDate + "',''," + Obj.Header.UserId + ",now(),'',1,"+row.itemGroupId + "; ";
 
                     }
                     else
                     {
-                        updatesql += @" update tbl_purchasememo_detail set ItemId="+row.ItemId+ ",DepartmentId="+row.DepartmentId+ ",UOMId="+row.UOMId+ ",DeliveryDate='"+row.DeliveryDate+"',itemGroupId="+row.itemGroupId+",Qty="+row.Qty+", isactive=1 where Memo_dtl_ID=" + row.Memo_dtl_ID + ";";
+                        updatesql += @" update tbl_purchasememo_detail set ItemId="+row.ItemId+ ",DepartmentId="+row.DepartmentId+ ",UOMId="+row.UOMId+ ",DeliveryDate='"+row.DeliveryDate+ "',itemGroupId="+row.itemGroupId+ ",Qty="+row.Qty+", isactive=1 where Memo_dtl_ID=" + row.Memo_dtl_ID + ";";
                         
                     }
                 }
@@ -332,7 +332,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message + (Ex.InnerException != null ? " | Inner: " + Ex.InnerException.Message : ""),
+                    Message = "Something went wrong",
                     Status = false
                 };
             }

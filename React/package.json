@@ -1,9 +1,7 @@
 {
   "name": "bts-gasify-react-app",
   "version": "1.0.0",
-  "homepage": "",
   "private": true,
-  "proxy": "https://btg.sogfusion.com/api",
   "dependencies": {
     "@ckeditor/ckeditor5-build-classic": "^31.0.0",
     "@ckeditor/ckeditor5-react": "^3.0.3",

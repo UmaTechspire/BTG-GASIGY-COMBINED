@@ -3301,9 +3301,9 @@ export const GetDiscussionlist = async (orgId, branchId, userid) => {
 };
 
 // update claim Discussion details
-export const UpdateDiscussion = async (claimid, remarks, Type, isclaimant) => {
+export const UpdateDiscussion = async (claimid, remarks, Type, isclaimant, userid) => {
     try {
-        const res = await put(`/ClaimApproval/AcceptDiscussion?ClaimId=${claimid}&Comment=${remarks}&Type=${Type}&isclaimant=${isclaimant}`);
+        const res = await put(`/ClaimApproval/AcceptDiscussion?ClaimId=${claimid}&Comment=${remarks}&Type=${Type}&isclaimant=${isclaimant}&userid=${userid}`);
         return res;
     } catch (error) {
         console.error("Failed to fetch claim remarks details", error);
@@ -4816,6 +4816,7 @@ export const saveOrUpdatePettyCash = async (payload, isEdit = false, file = null
             method: method,
             url: url,
             data: formData,
+            headers: { "Content-Type": "multipart/form-data" }
         });
 
         return response.data;
@@ -5574,3 +5575,29 @@ export const getLedgerCurrencies = async () => {
     }
 };
 //#endregion
+
+// New functions
+
+// GetPVHistoryDetails
+export const GetPVHistoryDetails = async (summaryId, branchId, orgId) => {
+    try {
+        const res = await get(`/ClaimApproval/GetPVHistory?SummaryId=${summaryId}&BranchId=${branchId}&orgid=${orgId}`);
+        return res;
+    } catch (error) {
+        console.error("Failed to fetch PV history details", error);
+        return { status: false, message: error.message };
+    }
+};
+
+// GetAllPayment
+export const GetAllPayment = async (orgId, poid) => {
+    try {
+        const response = await get(
+            `/CommonClaimAndPaymentData/GetPaymentdetails?poid=${poid}&orgid=${orgId}`
+        );
+        return response;
+    } catch (error) {
+        console.error("Failed to fetch Payment list", error);
+        return { status: false, message: error };
+    }
+};

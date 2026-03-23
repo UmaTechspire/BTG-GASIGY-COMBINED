@@ -285,55 +285,6 @@ namespace Infrastructure.Repositories
 
                 var List = await _connection.QueryAsync(ClaimAndPaymentMasterDB.ClaimAndPayment, param: param, commandType: CommandType.StoredProcedure);
                 var Modellist = List.ToList();
-                // Attach PaymentNo (PPP) from tbl_PaymentSummary_header when SummaryId is present
-                try
-                {
-                    var summaryIds = new List<int>();
-                    foreach (var item in Modellist)
-                    {
-                        if (item is IDictionary<string, object> dict && dict.ContainsKey("SummaryId") && dict["SummaryId"] != null)
-                        {
-                            if (int.TryParse(dict["SummaryId"].ToString(), out var sid))
-                                summaryIds.Add(sid);
-                        }
-                    }
-
-                    if (summaryIds.Any())
-                    {
-                        var idsCsv = string.Join(',', summaryIds.Distinct());
-                        var sql = $"SELECT SummaryId, PaymentNo FROM tbl_PaymentSummary_header WHERE SummaryId IN ({idsCsv}) AND Isactive = 1";
-                        var payments = await _connection.QueryAsync(sql);
-                        var paymentDict = new Dictionary<int, string>();
-                        foreach (var p in payments)
-                        {
-                            var pd = p as IDictionary<string, object>;
-                            if (pd != null && pd.ContainsKey("SummaryId") && pd.ContainsKey("PaymentNo") && pd["SummaryId"] != null)
-                            {
-                                if (int.TryParse(pd["SummaryId"].ToString(), out var sid))
-                                {
-                                    paymentDict[sid] = pd["PaymentNo"]?.ToString();
-                                }
-                            }
-                        }
-
-                        // add PaymentNo property to each result item if available
-                        foreach (var item in Modellist)
-                        {
-                            if (item is IDictionary<string, object> dict && dict.ContainsKey("SummaryId") && dict["SummaryId"] != null)
-                            {
-                                if (int.TryParse(dict["SummaryId"].ToString(), out var sid) && paymentDict.TryGetValue(sid, out var pno))
-                                {
-                                    // add or overwrite PaymentNo property
-                                    if (dict.ContainsKey("PaymentNo"))
-                                        dict["PaymentNo"] = pno;
-                                    else
-                                        dict.Add("PaymentNo", pno);
-                                }
-                            }
-                        }
-                    }
-                }
-                catch { /* swallow secondary errors to avoid breaking main result */ }
                 return new ResponseModel()
                 {
                     Data = Modellist,
@@ -370,6 +321,35 @@ namespace Infrastructure.Repositories
 
 
                 var List = await _connection.QueryAsync(ClaimAndPaymentMasterDB.ClaimAndPayment, param: param, commandType: CommandType.StoredProcedure);
+                var Modellist = List.ToList();
+                return new ResponseModel()
+                {
+                    Data = Modellist,
+                    Message = "Success",
+                    Status = true
+                };
+            }
+            catch (Exception Ex)
+            {
+                return new ResponseModel()
+                {
+                    Data = null,
+                    Message = "Something went wrong",
+                    Status = false
+                };
+            }
+        }
+        public async Task<object> GetPaymentdetails(string poid,Int32 orgid)
+        {
+            try
+            {
+                var param = new DynamicParameters();
+               
+                param.Add("@poid", poid);
+                param.Add("@orgid", orgid);
+
+
+                var List = await _connection.QueryAsync(ClaimAndPaymentMasterDB.paymentdetails, param: param, commandType: CommandType.StoredProcedure);
                 var Modellist = List.ToList();
                 return new ResponseModel()
                 {

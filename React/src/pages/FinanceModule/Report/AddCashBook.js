@@ -369,7 +369,7 @@ const AddCashBook = () => {
 
     const handleSubmitRow = async (id) => {
         try {
-            await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${id}`);
+            await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${id}`, {});
             toast.success("Marketing Verification Generated!");
             loadEntryList();
         } catch (err) {
@@ -379,7 +379,7 @@ const AddCashBook = () => {
 
     const handleFinalizePost = async (id) => {
         try {
-            await axios.put(`${PYTHON_API_URL}/AR/cash/post/${id}`);
+            await axios.put(`${PYTHON_API_URL}/AR/cash/post/${id}`, {});
             toast.success("Posted to Cash Book successfully!");
             loadEntryList();
         } catch (err) {
@@ -414,7 +414,7 @@ const AddCashBook = () => {
     const handleGenerateVerification = async () => {
         if (!selectedEntry) return;
         try {
-            await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${selectedEntry.receipt_id}`);
+            await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${selectedEntry.receipt_id}`, {});
             toast.success("Marketing Verification Generated!");
             setIsPreviewOpen(false);
             loadEntryList();

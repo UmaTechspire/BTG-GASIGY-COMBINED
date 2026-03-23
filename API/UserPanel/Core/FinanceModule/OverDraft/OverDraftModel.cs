@@ -6,13 +6,6 @@
     }
     public class OverDraftHeader
     {
-        public int? currencyid { get; set; }
-        public int? bankid { get; set; }
-        public int? payment_method { get; set; }
- 
-        public decimal? ODAmount { get; set; }
-        public decimal? FinalSettlementAmountIDR { get; set; }
-
         public int? OverDraftId { get; set; }
         public string VoucherNo { get; set; }
         public DateTime OverDraftDate { get; set; }

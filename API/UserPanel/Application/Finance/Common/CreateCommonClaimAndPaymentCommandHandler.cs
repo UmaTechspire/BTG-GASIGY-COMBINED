@@ -66,6 +66,11 @@ namespace Application.Finance.Common
                 var Result = await _repository.GetPOList(command.Id, command.branchid, command.searchtext, command.orgid, command.supplierid);
                 return Result;
             }
+            if (command.opt == 10)
+            {
+                var Result = await _repository.GetPaymentdetails(command.searchtext, command.orgid);
+                return Result;
+            }
             else
             {
                 return new ResponseModel()

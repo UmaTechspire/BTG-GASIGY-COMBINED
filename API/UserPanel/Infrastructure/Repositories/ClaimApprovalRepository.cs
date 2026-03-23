@@ -5,6 +5,7 @@ using Core.Finance.ClaimAndPayment;
 using Core.Finance.PaymentPlan;
 using Core.Models;
 using Dapper;
+using DocumentFormat.OpenXml.Math;
 using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Collections.Generic;
@@ -25,8 +26,48 @@ namespace Infrastructure.Repositories
         {
             _connection = financedb.Connection;
         }
-        // Legacy T-SQL query removed. Logic moved to C# in ApproveAsync.
+        string insertDiscussionQuery = @"
 
+-- Detect level based on which discussion is 1
+SET @level = CASE 
+    WHEN @hod = 1 THEN 1
+    WHEN @gm = 1 THEN 2
+    WHEN @director = 1 THEN 3
+    ELSE 0
+END;
+
+IF @level > 0
+BEGIN
+    -- Insert only if not already inserted before
+    IF NOT EXISTS (
+        SELECT 1 FROM tbl_claimAndpayment_reply 
+        WHERE Claim_ID = @claimid AND level = @level
+    )
+    BEGIN
+        
+        -- Set previous record to completed
+        UPDATE tbl_claimAndpayment_reply
+        SET is_cont_discussion = 0
+        WHERE Claim_ID = @claimid AND is_cont_discussion = 1;
+
+        -- Get next sequence number
+        set @seq = (
+            SELECT IFNULL(MAX(reply_seq),0) + 1 
+            FROM tbl_claimAndpayment_reply 
+            WHERE Claim_ID = @claimid AND level = @level
+        );
+
+        INSERT INTO tbl_claimAndpayment_reply
+        (
+            Claim_ID, level, reply_seq, comment, replied_by, is_cont_discussion
+        )
+        VALUES
+        (
+            @claimid, @level, @seq, @remarks, @userid, 1
+        );
+    END
+END;
+";
 
         //public async Task<object> ApproveAsync(ClaimApprovalHdr obj)
         //{
@@ -76,7 +117,13 @@ namespace Infrastructure.Repositories
         //    }
         //}
 
-
+    //    PPP_Discussed_Count = CASE
+    //    WHEN(@ppp_gm_discussed = 1 AND IFNULL(ppp_gm_discussed, 0) = 0)
+    //      OR(@ppp_director_discussed = 1 AND IFNULL(ppp_director_discussed, 0) = 0)
+    //      OR(@ppp_commissioner_discussed = 1 AND IFNULL(ppp_commissioner_discussedone, 0) = 0   )
+    //    THEN IFNULL(PPP_Discussed_Count, 0) + 1 
+    //    ELSE IFNULL(PPP_Discussed_Count, 0)
+    //END,
 
         public async Task<object> ApproveAsync(ClaimApprovalHdr obj)
         {
@@ -114,16 +161,13 @@ claim_hod_isdiscussed= @isdiscussedeight,
 
 
 
-PPP_Discussed_Count = CASE 
-        WHEN (@ppp_gm_discussed = 1 AND IFNULL(ppp_gm_discussed, 0) = 0)
-          OR (@ppp_director_discussed = 1 AND IFNULL(ppp_director_discussed, 0) = 0)
-          OR (@ppp_commissioner_discussed = 1 AND IFNULL(ppp_commissioner_discussedone, 0) = 0   )
-        THEN IFNULL(PPP_Discussed_Count, 0) + 1 
-        ELSE IFNULL(PPP_Discussed_Count, 0)
-    END,
 
 
-  
+
+  ppp_GM_dis_count = CASE WHEN (@ppp_gm_discussed = 1 AND IFNULL(ppp_gm_discussed, 0) = 0) then   IFNULL(ppp_GM_dis_count, 0) + 1    ELSE 0 end,
+
+  ppp_DIR_dis_count = CASE WHEN (@ppp_director_discussed = 1 AND IFNULL(ppp_director_discussed, 0) = 0) then    IFNULL(ppp_DIR_dis_count, 0) + 1    ELSE 0 end,
+  ppp_CEO_dis_count = CASE WHEN (@ppp_commissioner_discussed = 1 AND IFNULL(ppp_commissioner_discussedone, 0) = 0) then   IFNULL(ppp_CEO_dis_count, 0) + 1    ELSE 0 end,
 
  
 
@@ -143,13 +187,29 @@ PPP_Discussed_Count = CASE
                 ppp_commissioner_approvalone = @ppp_commissioner_approvalone,
                 
                 claim_comment = @remarks,
-                GmComment = @GmComment, PPP_temp_GM_status=0,PPP_temp_Director_status=0,PPP_temp_CEO_status=0
+                GmComment = @GmComment
             WHERE Claim_ID = @claimid AND IFNULL(ppp_IsRejected, 0) = 0;";
 
                     foreach (var item in obj.approve)
                     {
                         item.userid = obj.UserId;
                         await _connection.ExecuteAsync(updatedetails, item);
+                    }
+
+
+
+                    const string PPPupdatedetails = @"
+            UPDATE tbl_claimAndpayment_header
+            SET 
+                
+                PPP_Discussed_Count=ifnull(ppp_GM_dis_count,0) + ifnull(ppp_DIR_dis_count,0) + ifnull(ppp_CEO_dis_count,0)
+               
+            WHERE Claim_ID = @claimid AND IFNULL(ppp_IsRejected, 0) = 0;";
+
+
+                    foreach (var item in obj.approve)
+                    {
+                        await _connection.ExecuteAsync(PPPupdatedetails, item);
                     }
 
 
@@ -170,7 +230,7 @@ PPP_Discussed_Count = CASE
 
         IsSubmitted = CASE
         WHEN ((IFNULL(Claim_Discussed_Count, 0) 
-              ) > 2
+              ) > 2 or @isdiscussedeight = 1 or (ifnull(is_Hod_created,0)=0 and ifnull(@isdiscussedone,0)=1)
               )
         THEN 0
         ELSE IsSubmitted 
@@ -191,14 +251,6 @@ PPP_Discussed_Count = CASE
                     }
 
 
-                    // The original implementation updated/inserted into `tbl_claimAndpayment_reply` to track
-                    // discussion replies. That table is not available in this deployment/database, so
-                    // skip recording discussion replies to avoid runtime errors.
-                    // If reply persistence is required, reintroduce appropriate storage and update this
-                    // block to persist replies safely.
-
-
-
                 }
                 else
                 {
@@ -211,7 +263,7 @@ PPP_Discussed_Count = CASE
                         {
                             updateSql = @"
                 UPDATE tbl_claimAndpayment_header
-                SET PPP_PV_Director_approve = 1
+                SET PPP_PV_Director_approve = 1,pv_dis_count=0,  LastModifiedBY=@userid 
                 WHERE SummaryId = @SummaryId
                   AND IFNULL(PPP_PV_Director_approve, 0) = 0 and ifnull(ppp_IsRejected,0)=0 and ifnull(ppp_pv_IsRejected,0)=0;";
                         }
@@ -219,7 +271,7 @@ PPP_Discussed_Count = CASE
                         {
                             updateSql = @"
                 UPDATE tbl_claimAndpayment_header
-                SET ppp_pv_Director_discussed = 1  ,claim_comment= @remarks
+                SET ppp_pv_Director_discussed = 1  ,claim_comment= @remarks,pv_dis_count=ifnull(pv_dis_count,0)+1,  LastModifiedBY=@userid  
                 WHERE SummaryId = @SummaryId
                   AND IFNULL(PPP_PV_Director_approve, 0) = 0 and ifnull(ppp_IsRejected,0)=0 and ifnull(ppp_pv_IsRejected,0)=0;";
                         }
@@ -230,7 +282,7 @@ PPP_Discussed_Count = CASE
                         {
                             updateSql = @"
                 UPDATE tbl_claimAndpayment_header
-                SET PPP_PV_Commissioner_approveone = 1,ppp_commissioner_approvalone=1 
+                SET PPP_PV_Commissioner_approveone = 1,pv_dis_count=0,  LastModifiedBY=@userid 
                 WHERE SummaryId = @SummaryId
                   AND IFNULL(PPP_PV_Commissioner_approveone, 0) = 0 and ifnull(ppp_IsRejected,0)=0 and ifnull(ppp_pv_IsRejected,0)=0;";
                         }
@@ -238,8 +290,8 @@ PPP_Discussed_Count = CASE
                         {
                             updateSql = @"
                 UPDATE tbl_claimAndpayment_header
-                SET ppp_pv_Commissioner_discussedone = 1 ,claim_comment= @remarks
-                WHERE SummaryId = @SummaryId
+                SET ppp_pv_Commissioner_discussedone = 1 ,claim_comment= @remarks,pv_dis_count=ifnull(pv_dis_count,0)+1,  LastModifiedBY=@userid 
+                WHERE SummaryId = @SummaryId 
                   AND IFNULL(PPP_PV_Commissioner_approveone, 0) = 0 and ifnull(ppp_IsRejected,0)=0 and ifnull(ppp_pv_IsRejected,0)=0;";
                         }
 
@@ -254,8 +306,21 @@ PPP_Discussed_Count = CASE
                         };
                     }
 
-                    int affectedRows = await _connection.ExecuteAsync(updateSql, new { SummaryId = obj.summaryid, remarks = obj.remarks });
+                    int affectedRows = await _connection.ExecuteAsync(updateSql, new { SummaryId = obj.summaryid, remarks = obj.remarks,userid=obj.UserId });
 
+
+
+                    string updateissubmittedSql = @"
+                UPDATE tbl_claimAndpayment_header
+                SET    IsSubmitted = CASE
+        WHEN ((IFNULL(pv_dis_count, 0) 
+              ) > 2  
+              )
+        THEN 0
+        ELSE IsSubmitted 
+          END
+                WHERE SummaryId = @SummaryId";
+                    int affectedRows_issubmitted = await _connection.ExecuteAsync(updateissubmittedSql, new { SummaryId = obj.summaryid, remarks = obj.remarks });
 
 
 
@@ -270,17 +335,7 @@ PPP_Discussed_Count = CASE
 
                 updatedetailsdis += @"update tbl_claimAndpayment_header set  isdiscussionaccepted=" + 1 + "  where    ifnull(ppp_pv_Commissioner_discussedone,0)=1;";
                 updatedetailsdis += @"update tbl_claimAndpayment_header set  isdiscussionaccepted=" + 1 + "  where ifnull(ppp_pv_Director_discussed,0)=1;";
-
-                // Execute each statement separately to avoid issues when multiple SQL statements
-                // are concatenated in a single command (some providers disallow multiple statements).
-                var statements = updatedetailsdis.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-                                                .Select(s => s.Trim())
-                                                .Where(s => !string.IsNullOrEmpty(s));
-
-                foreach (var stmt in statements)
-                {
-                    await _connection.ExecuteAsync(stmt);
-                }
+                await _connection.ExecuteAsync(updatedetailsdis);
 
                 return new ResponseModel
                 {
@@ -310,37 +365,37 @@ PPP_Discussed_Count = CASE
                 {
                     if (obj.isapproved == true)
                     {
-                        updatedetailsdis += @"update tbl_claimAndpayment_header set  PPP_temp_GM_status=1  where   ifnull(Claim_ID,0)=@claimid and ifnull(ppp_gm_approvalone,0)=0;";
+                        updatedetailsdis += @"update tbl_claimAndpayment_header set LastModifiedBY=@userid ,  PPP_temp_GM_status=1  where   ifnull(Claim_ID,0)=@claimid and ifnull(ppp_gm_approvalone,0)=0;";
                     }
                     else
                     {
-                        updatedetailsdis += @"update tbl_claimAndpayment_header set  PPP_temp_GM_status=2, claim_comment=@GmComment  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_gm_discussed,0)=0;";
+                        updatedetailsdis += @"update tbl_claimAndpayment_header set LastModifiedBY=@userid , PPP_temp_GM_status=2, claim_comment=@GmComment  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_gm_discussed,0)=0;";
                     }
                 }
                 else if (obj.level == 2)
                 {
                     if (obj.isapproved == true)
                     {
-                        updatedetailsdis += @"update tbl_claimAndpayment_header set  PPP_temp_Director_status=1  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_director_approvalone,0)=0;";
+                        updatedetailsdis += @"update tbl_claimAndpayment_header set LastModifiedBY=@userid , PPP_temp_Director_status=1  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_director_approvalone,0)=0;";
                     }
                     else
                     {
-                        updatedetailsdis += @"update tbl_claimAndpayment_header set  PPP_temp_Director_status=2, claim_comment=@GmComment  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_director_discussed,0)=0;";
+                        updatedetailsdis += @"update tbl_claimAndpayment_header set  LastModifiedBY=@userid ,PPP_temp_Director_status=2, claim_comment=@GmComment  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_director_discussed,0)=0;";
                     }
 
-
+                     
                 }
                 else if (obj.level == 3)
                 {
                     if (obj.isapproved == true)
                     {
-                        updatedetailsdis += @"update tbl_claimAndpayment_header set  PPP_temp_CEO_status=1  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_commissioner_approvalone,0)=0;";
+                        updatedetailsdis += @"update tbl_claimAndpayment_header set LastModifiedBY=@userid , PPP_temp_CEO_status=1  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_commissioner_approvalone,0)=0;";
                     }
                     else
                     {
-                        updatedetailsdis += @"update tbl_claimAndpayment_header set  PPP_temp_CEO_status=2, claim_comment=@GmComment  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_commissioner_discussedone,0)=0;";
+                        updatedetailsdis += @"update tbl_claimAndpayment_header set LastModifiedBY=@userid , PPP_temp_CEO_status=2, claim_comment=@GmComment  where   ifnull(Claim_ID,0)=@claimid  and ifnull(ppp_commissioner_discussedone,0)=0;";
                     }
-
+                    
 
                 }
 
@@ -349,8 +404,9 @@ PPP_Discussed_Count = CASE
 
                 await _connection.ExecuteAsync(updatedetailsdis, new
                 {
-                    claimid = obj.claimid,
-                    GmComment = obj.GmComment
+                    claimid=obj.claimid,
+                    GmComment=obj.GmComment,
+                    userid=obj.userid
 
                 });
 
@@ -385,7 +441,7 @@ PPP_Discussed_Count = CASE
                 param.Add("@todate", todate);
                 param.Add("@orgid", orgid);
                 param.Add("@branchid", branchId);
-
+               
 
                 var list = await _connection.QueryAsync(ClaimAndPaymentDB.ClaimAndPaymentApprovalHistory, param, commandType: CommandType.StoredProcedure);
 
@@ -430,47 +486,9 @@ PPP_Discussed_Count = CASE
                 param.Add("@claimidlog", 0);
                 var list = await _connection.QueryAsync(ClaimAndPaymentDB.ClaimAndPaymentApproval, param, commandType: CommandType.StoredProcedure);
 
-                // Normalize returned columns to the front-end expected names.
-                var normalized = list.Select(row =>
-                {
-                    var dict = row as IDictionary<string, object>;
-                    var exp = new Dictionary<string, object>();
-                    // copy all original fields
-                    if (dict != null)
-                    {
-                        foreach (var kv in dict)
-                            exp[kv.Key] = kv.Value;
-                    }
-
-                    object GetFirst(params string[] keys)
-                    {
-                        if (dict == null) return null;
-                        foreach (var k in keys)
-                        {
-                            if (dict.ContainsKey(k) && dict[k] != null)
-                                return dict[k];
-                            var lower = dict.Keys.FirstOrDefault(x => string.Equals(x, k, StringComparison.OrdinalIgnoreCase));
-                            if (lower != null) return dict[lower];
-                        }
-                        return null;
-                    }
-
-                    // discussed flags
-                    exp["discussedone"] = GetFirst("discussedone", "claim_gm_isdiscussed", "claim_gm_isdiscussed") ?? 0;
-                    exp["discussedtwo"] = GetFirst("discussedtwo", "claim_director_isdiscussed", "claim_director_isdiscussed") ?? 0;
-                    exp["discussedeight"] = GetFirst("discussedeight", "claim_hod_isdiscussed", "claim_hod_isdiscussed") ?? 0;
-
-                    // approved flags
-                    exp["approvedone"] = GetFirst("approvedone", "claim_gm_isapproved", "claim_gm_isapproved") ?? 0;
-                    exp["approvedtwo"] = GetFirst("approvedtwo", "claim_director_isapproved", "claim_director_isapproved") ?? 0;
-                    exp["approvedeight"] = GetFirst("approvedeight", "claim_hod_isapproved", "claim_hod_isapproved") ?? 0;
-
-                    return (object)exp;
-                }).ToList();
-
                 return new ResponseModel
                 {
-                    Data = normalized,
+                    Data = list,
                     Message = "Success",
                     Status = true
                 };
@@ -534,6 +552,47 @@ PPP_Discussed_Count = CASE
             {
                 var param = new DynamicParameters();
                 param.Add("@opt", 4);
+                param.Add("@userid", 0);
+                param.Add("@branchid", 1);
+                param.Add("@orgid", 1);
+                param.Add("@id", 0);
+                param.Add("@fromdate", "");
+                param.Add("@todate", "");
+
+
+                param.Add("@bankid", 0);
+                param.Add("@mopid", 0);
+                param.Add("@applicantid", 0);
+                param.Add("@SupplierID", 0);
+                param.Add("@isDirector", 0);
+                param.Add("@PVPaymentId", 0);
+                param.Add("@claimidlog", claimid);
+                var list = await _connection.QueryAsync(ClaimAndPaymentDB.ClaimAndPaymentApproval, param, commandType: CommandType.StoredProcedure);
+
+                return new ResponseModel
+                {
+                    Data = list,
+                    Message = "Success",
+                    Status = true
+                };
+            }
+            catch (Exception)
+            {
+                return new ResponseModel
+                {
+                    Data = null,
+                    Message = "Error retrieving claims.",
+                    Status = false
+                };
+            }
+        }
+
+        public async Task<object> Getcommenthistory(int claimid)
+        {
+            try
+            {
+                var param = new DynamicParameters();
+                param.Add("@opt", 7);
                 param.Add("@userid", 0);
                 param.Add("@branchid", 1);
                 param.Add("@orgid", 1);
@@ -839,19 +898,19 @@ PPP_Discussed_Count = CASE
 
         }
 
-        public async Task<object> AcceptDiscussion(int claimid, string Comment, int Type, int isclaimant)
+        public async Task<object> AcceptDiscussion(int claimid,string Comment,int Type,int isclaimant,int userid)
         {
             try
             {
-                if (claimid > 0)
+                if (claimid >  0)
                 {
                     if (isclaimant == 1)
                     {
 
                         string updatedetails = @"update tbl_claimAndpayment_header set isclaimant_discussed=0,IsSubmitted=0,claim_comment='" + Comment + "', isdiscussionaccepted=" + 0 + "  where Claim_ID=@claimid and isdiscussionaccepted=1;";
-
+                         
                         await _connection.ExecuteAsync(updatedetails, new { Comment, ClaimId = claimid });
-
+                         
                     }
                     else
                     {
@@ -866,25 +925,25 @@ PPP_Discussed_Count = CASE
                         }
                         else
                         {
-                            string updatedetails = @"update tbl_claimAndpayment_header set claim_comment='" + Comment + "', isdiscussionaccepted=" + 0 + "  where summaryid=@claimid;";
+                            string updatedetails = @"update tbl_claimAndpayment_header set LastModifiedBY="+ userid + " ,claim_comment='" + Comment + "', isdiscussionaccepted=" + 0 + "  where summaryid=@claimid;";
 
-                            updatedetails += @"update tbl_claimAndpayment_header set  claim_comment='" + Comment + "', ppp_commissioner_discussedone=" + 0 + "  where summaryid=@claimid and ifnull(ppp_commissioner_discussedone,0)=1;";
+                            updatedetails += @"update tbl_claimAndpayment_header set  LastModifiedBY="+ userid + " ,claim_comment='" + Comment + "', ppp_commissioner_discussedone=" + 0 + "  where summaryid=@claimid and ifnull(ppp_commissioner_discussedone,0)=1;";
 
-                            updatedetails += @"update tbl_claimAndpayment_header set  claim_comment='" + Comment + "', ppp_gm_discussed=" + 0 + "  where summaryid=@claimid and ifnull(ppp_gm_discussed,0)=1;";
-                            updatedetails += @"update tbl_claimAndpayment_header set  claim_comment='" + Comment + "', ppp_director_discussed=" + 0 + "  where summaryid=@claimid and ifnull(ppp_director_discussed,0)=1;";
+                            updatedetails += @"update tbl_claimAndpayment_header set  LastModifiedBY="+ userid + " ,claim_comment='" + Comment + "', ppp_gm_discussed=" + 0 + "  where summaryid=@claimid and ifnull(ppp_gm_discussed,0)=1;";
+                            updatedetails += @"update tbl_claimAndpayment_header set  LastModifiedBY="+ userid + " ,claim_comment='" + Comment + "', ppp_director_discussed=" + 0 + "  where summaryid=@claimid and ifnull(ppp_director_discussed,0)=1;";
 
-                            updatedetails += @"update tbl_claimAndpayment_header set  claim_comment='" + Comment + "', ppp_pv_Commissioner_discussedone=" + 0 + "  where summaryid=@claimid and ifnull(ppp_pv_Commissioner_discussedone,0)=1;";
-                            updatedetails += @"update tbl_claimAndpayment_header set  claim_comment='" + Comment + "', ppp_pv_Director_discussed=" + 0 + "  where summaryid=@claimid and ifnull(ppp_pv_Director_discussed,0)=1;";
+                            updatedetails += @"update tbl_claimAndpayment_header set  LastModifiedBY="+ userid + " ,claim_comment='" + Comment + "', ppp_pv_Commissioner_discussedone=" + 0 + "  where summaryid=@claimid and ifnull(ppp_pv_Commissioner_discussedone,0)=1;";
+                            updatedetails += @"update tbl_claimAndpayment_header set  LastModifiedBY="+ userid + " ,claim_comment='" + Comment + "', ppp_pv_Director_discussed=" + 0 + "  where summaryid=@claimid and ifnull(ppp_pv_Director_discussed,0)=1;";
                             await _connection.ExecuteAsync(updatedetails, new { Comment, ClaimId = claimid });
 
                         }
                     }
-                    return new ResponseModel
-                    {
-                        Data = 1,
-                        Message = "Discussion Accepted Successfully",
-                        Status = true
-                    };
+                        return new ResponseModel
+                        {
+                            Data = 1,
+                            Message = "Discussion Accepted Successfully",
+                            Status = true
+                        };
                 }
                 else
                 {
@@ -894,7 +953,7 @@ PPP_Discussed_Count = CASE
                         Message = "Claim not available",
                         Status = true
                     };
-                }
+                }  
             }
             catch (Exception Ex)
             {

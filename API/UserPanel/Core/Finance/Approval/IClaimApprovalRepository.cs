@@ -19,7 +19,8 @@ namespace Core.Finance.Approval
         Task<object> GetPaymentSummarySeqNoAsync(int userid, int branchId, Int32 orgid);
         Task<object> GetRemarksList(int claimid);
         Task<object> GetDiscussionList(int userid, int branchId, Int32 orgid);
-        Task<object> AcceptDiscussion(int claimid, string Comment, int Type, int isclaimant);
+        Task<object> AcceptDiscussion(int claimid, string Comment, int Type, int isclaimant,int userid);
         Task<object> PPPApproveAsync(PPPApproval obj);
+        Task<object> Getcommenthistory(int claimid);
     }
 }

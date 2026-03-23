@@ -162,7 +162,7 @@ async def create_invoice(payload: CreateInvoiceRequest):
 
             # 1. Create Header
             header_query = text(f"""
-                INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_header 
+                INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_header 
                 (salesinvoicenbr, customerid, Salesinvoicesdate, TotalAmount, IsSubmitted, CalculatedPrice, createdby, OrgId, BranchId, IsManual, CreatedDate, isactive)
                 VALUES (:nbr, :cust, :date, 0, :submitted, 0, :user, :org, :branch, :manual, NOW(), 1)
             """)
@@ -199,7 +199,7 @@ async def create_invoice(payload: CreateInvoiceRequest):
 
                 # C. Insert Detail
                 detail_query = text(f"""
-                    INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_details
+                    INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_details
                     (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note)
                     VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note)
                 """)
@@ -223,7 +223,7 @@ async def create_invoice(payload: CreateInvoiceRequest):
 
             # 3. Update Header Totals
             update_header = text(f"""
-                UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header
+                UPDATE {DB_NAME_USER}.tbl_salesinvoices_header
                 SET TotalAmount = :total,
                     CalculatedPrice = :calc_price
                 WHERE id = :hid
@@ -285,7 +285,7 @@ async def update_invoice(payload: UpdateInvoiceRequest):
 
                 # Insert
                 detail_query = text(f"""
-                    INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_details
+                    INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_details
                     (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note)
                     VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note)
                 """)
@@ -309,7 +309,7 @@ async def update_invoice(payload: UpdateInvoiceRequest):
 
             # 3. Update Header Totals
             update_header = text(f"""
-                UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header
+                UPDATE {DB_NAME_USER}.tbl_salesinvoices_header
                 SET TotalAmount = :total,
                     CalculatedPrice = :calc_price,
                     salesinvoicenbr = :nbr,
@@ -454,7 +454,7 @@ async def create_invoice_from_do(payload: ConvertDORequest):
 
             # 2. Create Invoice Header
             header_query = text(f"""
-                INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_header 
+                INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_header 
                 (customerid, Salesinvoicesdate, TotalAmount, IsSubmitted, CalculatedPrice, createdby, invoice_type, isactive, CreatedDate)
                 VALUES (:cust, CURDATE(), 0, 0, 0, :user, 'DSI', 1, NOW())
             """)
@@ -488,7 +488,7 @@ async def create_invoice_from_do(payload: ConvertDORequest):
                     total_calculated_price += line_calc_price
                     
                     det_query = text(f"""
-                        INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_details
+                        INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_details
                         (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, DOnumber, Note)
                         VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :do_str, '')
                     """)
@@ -506,7 +506,7 @@ async def create_invoice_from_do(payload: ConvertDORequest):
 
             # 4. Update Header Totals
             update_header = text(f"""
-                UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header
+                UPDATE {DB_NAME_USER}.tbl_salesinvoices_header
                 SET TotalAmount = :total, CalculatedPrice = :calc_total
                 WHERE id = :hid
             """)

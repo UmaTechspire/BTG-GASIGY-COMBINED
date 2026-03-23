@@ -10,8 +10,6 @@ using System.Security.Cryptography;
 using System.Text;
 using Core.Models;
 using OfficeOpenXml.FormulaParsing.LexicalAnalysis;
-using Microsoft.Extensions.Logging;
-using MySql.Data.MySqlClient; // added to catch MySQL-specific exceptions
 
 namespace UserPanel.Controllers
 {
@@ -22,101 +20,22 @@ namespace UserPanel.Controllers
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly IConfiguration _configuration;
-        private readonly ILogger<AuthenticateController> _logger;
 
         public AuthenticateController(
             UserManager<ApplicationUser> userManager,
             RoleManager<IdentityRole> roleManager,
-            IConfiguration configuration,
-            ILogger<AuthenticateController> logger)
+            IConfiguration configuration)
         {
             _userManager = userManager;
             _roleManager = roleManager;
             _configuration = configuration;
-            _logger = logger;
         }
 
         [HttpPost]
         [Route("login")]
         public async Task<IActionResult> Login([FromBody] LoginModel model)
         {
-            _logger.LogInformation("Login attempt for: {Username}", model?.Username);
-
-            if (model == null || string.IsNullOrWhiteSpace(model.Username) || string.IsNullOrWhiteSpace(model.Password))
-            {
-                _logger.LogWarning("Login failed: missing username or password");
-                return Ok(new ResponseModel()
-                {
-                    Data = new
-                    {
-                        Token = "",
-                        RefreshToken = "",
-                        Expiration = "",
-                        UserId = "",
-                        IsAdmin = 0
-                    },
-                    Message = "Failure",
-                    Status = false
-                });
-            }
-
-            var usernameInput = model.Username.Trim();
-
-            ApplicationUser user = null;
-            try
-            {
-                user = await _userManager.FindByNameAsync(usernameInput);
-                if (user == null && usernameInput.Contains("@"))
-                {
-                    _logger.LogDebug("User not found by username, attempting FindByEmailAsync for {Username}", usernameInput);
-                    user = await _userManager.FindByEmailAsync(usernameInput);
-                }
-
-                if (user == null)
-                {
-                    _logger.LogInformation("User not found for login: {Username}", usernameInput);
-                }
-                else
-                {
-                    var passwordValid = await _userManager.CheckPasswordAsync(user, model.Password);
-                    _logger.LogInformation("User found. Password valid: {Valid}", passwordValid);
-                }
-            }
-            catch (MySqlException ex)
-            {
-                _logger.LogError(ex, "Database error during login for user {Username}", usernameInput);
-                return Ok(new ResponseModel()
-                {
-                    Data = new
-                    {
-                        Token = "",
-                        RefreshToken = "",
-                        Expiration = "",
-                        UserId = "",
-                        IsAdmin = 0
-                    },
-                    Message = "Database connection/authentication failed",
-                    Status = false
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unexpected error during login for user {Username}", usernameInput);
-                return Ok(new ResponseModel()
-                {
-                    Data = new
-                    {
-                        Token = "",
-                        RefreshToken = "",
-                        Expiration = "",
-                        UserId = "",
-                        IsAdmin = 0
-                    },
-                    Message = "An unexpected error occurred",
-                    Status = false
-                });
-            }
-
+            var user = await _userManager.FindByNameAsync(model.Username);
             if (user != null && await _userManager.CheckPasswordAsync(user, model.Password))
             {
                 var userRoles = await _userManager.GetRolesAsync(user);
@@ -177,25 +96,24 @@ namespace UserPanel.Controllers
                         Token = new JwtSecurityTokenHandler().WriteToken(token),
                         RefreshToken = refreshToken,
                         Expiration = token.ValidTo,
-                        UserId = user.Id,
-                        IsAdmin = IsAdmin,
-                        U_Id = user.UserId,
-                        SuperIsAdmin = SuperIsAdmin
+                        UserId=user.Id,
+                        IsAdmin= IsAdmin,
+                        U_Id=user.UserId,
+                        SuperIsAdmin= SuperIsAdmin
                     },
                     Message = "Success",
                     Status = true
                 });
             }
-            _logger.LogInformation("Login failed for: {Username}", model.Username);
             return Ok(new ResponseModel()
             {
                 Data = new
                 {
-                    Token = "",
+                    Token ="",
                     RefreshToken = "",
                     Expiration = "",
                     UserId = "",
-                    IsAdmin = 0
+                    IsAdmin=0
                 },
                 Message = "Failure",
                 Status = false
@@ -264,18 +182,18 @@ namespace UserPanel.Controllers
 
         [HttpPost]
         [Route("refresh-token")]
-        public async Task<IActionResult> RefreshToken(TokenModel tokenModel)
+        public async Task<IActionResult> RefreshToken(TokenModel tokenModel) 
         {
             if (tokenModel is null)
             {
                 return Ok(new ResponseModel()
                 {
-                    Data = null,
+                    Data =null,
                     Message = "Invalid client request",
                     Status = false
                 });
 
-
+                 
             }
 
             string? accessToken = tokenModel.AccessToken;
@@ -290,7 +208,7 @@ namespace UserPanel.Controllers
                     Message = "Invalid access token or refresh token",
                     Status = false
                 });
-
+                 
             }
 
 #pragma warning disable CS8600 // Converting null literal or possible null value to non-nullable type.
@@ -309,7 +227,7 @@ namespace UserPanel.Controllers
                     Message = "Invalid access token or refresh token",
                     Status = false
                 });
-
+                 
             }
 
             var newAccessToken = CreateToken(principal.Claims.ToList());
@@ -328,7 +246,7 @@ namespace UserPanel.Controllers
                 Message = "Success",
                 Status = true
             });
-
+             
         }
 
         [Authorize]
@@ -362,7 +280,7 @@ namespace UserPanel.Controllers
 
         private JwtSecurityToken CreateToken(List<Claim> authClaims)
         {
-
+            
             var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Secret"]));
             _ = int.TryParse(_configuration["JWT:TokenValidityInMinutes"], out int tokenValidityInMinutes);
             var data = DateTime.UtcNow.AddDays(tokenValidityInMinutes);

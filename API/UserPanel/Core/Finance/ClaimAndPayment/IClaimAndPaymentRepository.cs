@@ -14,6 +14,6 @@ namespace Core.Finance.ClaimAndPayment
         Task<object> GetSequencesNo(int branchId, int orgid,int userid);
         Task<object> GetClaimHistory(string fromdate, string todate, int branchid, int orgid);
         Task<object> DiscussClaim(DiscussClaim obj);
-        Task<object> ClaimComments(Int32 claimid, int level);
+        Task<object> ClaimComments(Int32 claimid, Int32 level);
     }
 }

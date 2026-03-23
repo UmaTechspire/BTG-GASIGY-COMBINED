@@ -23,7 +23,7 @@ namespace Application.Finance.ClaimAndPayment.AcceptDiscussion
         public async Task<object> Handle(AcceptDiscussionCommand command, CancellationToken cancellationToken)
         {
  
-            var data = await _repository.AcceptDiscussion(command.claimid,command.Comment,command.Type,command.isclaimant);
+            var data = await _repository.AcceptDiscussion(command.claimid,command.Comment,command.Type,command.isclaimant,command.userid);
             financedb.Commit();
             return data;
         }

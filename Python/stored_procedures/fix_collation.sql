@@ -12,7 +12,7 @@ BEGIN
         COALESCE(h.TotalAmount, 0) AS TotalAmount,
         COALESCE(h.CalculatedPrice, h.TotalAmount, 0) AS CalculatedPrice,
         CASE WHEN h.IsSubmitted = 1 THEN 'Posted' ELSE 'Saved' END AS Status
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     WHERE (h.salesinvoicenbr = p_input_val COLLATE utf8mb4_general_ci OR h.id = CAST(p_input_val AS UNSIGNED))
       AND h.isactive = 1;
@@ -26,7 +26,7 @@ CREATE PROCEDURE btggasify_finance_live.proc_DSI_CheckDuplicate(
     IN p_invoice_nbr VARCHAR(100), IN p_exclude_id INT
 )
 BEGIN
-    SELECT count(*) as cnt FROM btggasify_userpanel_live.tbl_salesinvoices_header 
+    SELECT count(*) as cnt FROM btggasify_live.tbl_salesinvoices_header 
     WHERE salesinvoicenbr = p_invoice_nbr COLLATE utf8mb4_general_ci AND isactive = 1
       AND (p_exclude_id = 0 OR id != p_exclude_id);
 END //
@@ -38,8 +38,8 @@ DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_DSI_CheckDOConverted(IN p_do_num VARCHAR(100))
 BEGIN
     SELECT h.salesinvoicenbr 
-    FROM btggasify_userpanel_live.tbl_salesinvoices_details d
-    JOIN btggasify_userpanel_live.tbl_salesinvoices_header h ON d.salesinvoicesheaderid = h.id
+    FROM btggasify_live.tbl_salesinvoices_details d
+    JOIN btggasify_live.tbl_salesinvoices_header h ON d.salesinvoicesheaderid = h.id
     WHERE d.DOnumber = p_do_num COLLATE utf8mb4_general_ci
       AND h.isactive = 1
     LIMIT 1;

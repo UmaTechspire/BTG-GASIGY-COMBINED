@@ -11,6 +11,7 @@ namespace Application.Finance.ClaimApproval.AcceptDiscussion
 {
     public class AcceptDiscussionCommand : IRequest<object>
     {
+        public int userid { get; set; }
         public Int32 claimid { get; set; }
         public string Comment { get; set; }
         public int Type { get; set; }

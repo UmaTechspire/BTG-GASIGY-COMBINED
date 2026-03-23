@@ -1,0 +1,3 @@
+D:\OFFICIAL\BTG\DOTNET\so-btg-dotnet\API\UserPanel\publish\BackEnd.dll
+D:\OFFICIAL\BTG\DOTNET\so-btg-dotnet\API\UserPanel\publish\BackEnd.deps.json
+D:\OFFICIAL\BTG\DOTNET\so-btg-dotnet\API\UserPanel\publish\BackEnd.pdb

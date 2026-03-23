@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DocumentFormat.OpenXml.Office2019.Drawing.Model3D;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -16,8 +17,19 @@ namespace Core.Finance.Approval
         public string GmComment { get; set; }
         public int level { get; set; }
     }
+
+    public class ClaimReply
+    {
+        public int userid { get; set; }
+        public int claimid { get; set; }
+        public string GmComment { get; set; }
+        public int level { get; set; }
+    }
     public class ClaimApproval
     {
+        //public int isreply { get; set; }
+        //public string approve_trans { get; set; }
+        //public int level { get; set; }
         public int userid { get; set; }
         public int claimid { get; set; }
         public bool ppp_commissioner_approvalone { get; set; }

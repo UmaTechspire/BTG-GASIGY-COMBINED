@@ -35,7 +35,7 @@ BEGIN
         COALESCE(c.CustomerName, 'Unknown') AS party_name,
         h.TotalAmount AS amount,
         COALESCE(h.CalculatedPrice, h.TotalAmount) AS amount_idr
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     WHERE h.isactive = 1 
       AND h.IsSubmitted = 1

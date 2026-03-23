@@ -11,7 +11,7 @@ BEGIN
         SUM(TotalAmount) as GrandTotal, 
         SUM(CalculatedPrice) as GrandTotalIDR,
         MIN(id) as PrimaryID
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header
+    FROM btggasify_live.tbl_salesinvoices_header
     WHERE salesinvoicenbr = p_invoice_nbr COLLATE utf8mb4_general_ci AND isactive = 1;
 END //
 DELIMITER ;
@@ -76,12 +76,12 @@ BEGIN
         0, 
         p_total_idr, 
         (SELECT COALESCE(d.Currencyid, 1) 
-         FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+         FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = h.id 
          LIMIT 1), 
         p_user_id, '127.0.0.1', NOW(), 
         1, 0
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     WHERE h.id = p_invoice_id;
 END //
@@ -98,7 +98,7 @@ BEGIN
       AND invoice_no != p_invoice_nbr COLLATE utf8mb4_general_ci
       AND invoice_no IN (
           SELECT DISTINCT DOnumber 
-          FROM btggasify_userpanel_live.tbl_salesinvoices_details 
+          FROM btggasify_live.tbl_salesinvoices_details 
           WHERE salesinvoicesheaderid = p_invoice_id 
             AND DOnumber IS NOT NULL 
             AND DOnumber != ''
@@ -111,7 +111,7 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_MarkHeaderAsAR;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_MarkHeaderAsAR(IN p_invoice_id INT)
 BEGIN
-    UPDATE btggasify_userpanel_live.tbl_salesinvoices_header 
+    UPDATE btggasify_live.tbl_salesinvoices_header 
     SET IsAR = 1 
     WHERE id = p_invoice_id;
 END //
@@ -134,7 +134,7 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_RevertHeaderPaidAmount
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_RevertHeaderPaidAmount(IN p_amount DECIMAL(18,2), IN p_invoice_id INT)
 BEGIN
-    UPDATE btggasify_userpanel_live.tbl_salesinvoices_header 
+    UPDATE btggasify_live.tbl_salesinvoices_header 
     SET PaidAmount = PaidAmount - p_amount 
     WHERE id = p_invoice_id;
 END //
@@ -167,7 +167,7 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_ApplyHeaderPaidAmount;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_ApplyHeaderPaidAmount(IN p_amount DECIMAL(18,2), IN p_invoice_id INT)
 BEGIN
-    UPDATE btggasify_userpanel_live.tbl_salesinvoices_header 
+    UPDATE btggasify_live.tbl_salesinvoices_header 
     SET PaidAmount = IFNULL(PaidAmount, 0) + p_amount 
     WHERE id = p_invoice_id;
 END //
@@ -268,7 +268,7 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_UpdateHeaderReference;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_UpdateHeaderReference(IN p_invoice_id INT, IN p_ref VARCHAR(100))
 BEGIN
-    UPDATE btggasify_userpanel_live.tbl_salesinvoices_header 
+    UPDATE btggasify_live.tbl_salesinvoices_header 
     SET salesinvoicenbr = p_ref COLLATE utf8mb4_general_ci
     WHERE id = p_invoice_id;
 END //
@@ -279,7 +279,7 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_BulkUpdatePreserveDO;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_BulkUpdatePreserveDO(IN p_ar_id INT, IN p_ref VARCHAR(100))
 BEGIN
-    UPDATE btggasify_userpanel_live.tbl_salesinvoices_details d
+    UPDATE btggasify_live.tbl_salesinvoices_details d
     INNER JOIN btggasify_finance_live.tbl_accounts_receivable ar 
         ON d.salesinvoicesheaderid = ar.invoice_id
     SET d.DOnumber = p_ref COLLATE utf8mb4_general_ci
@@ -303,7 +303,7 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_BulkUpdateSalesHeader;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_BulkUpdateSalesHeader(IN p_ar_id INT, IN p_ref VARCHAR(100))
 BEGIN
-    UPDATE btggasify_userpanel_live.tbl_salesinvoices_header
+    UPDATE btggasify_live.tbl_salesinvoices_header
     SET salesinvoicenbr = p_ref COLLATE utf8mb4_general_ci
     WHERE id IN (
         SELECT invoice_id 

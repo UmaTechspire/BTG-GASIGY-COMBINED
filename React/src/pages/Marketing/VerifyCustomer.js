@@ -371,19 +371,6 @@ const VerifyCustomer = () => {
     } catch (err) { toast.error("Failed to post verification."); }
   };
 
-  const handleFinalPost = async (rowData) => {
-    try {
-      // Use the general post endpoint from finance.py
-      await axios.put(`${PYTHON_API_URL}/AR/post/${rowData.receipt_id}`);
-      toast.success("Transaction Posted to Books Successfully!");
-
-      const storedUser = JSON.parse(localStorage.getItem("authUser"));
-      loadPendingList(customerList, storedUser?.id, storedUser?.department);
-    } catch (err) {
-      toast.error("Failed to post transaction.");
-      console.error(err);
-    }
-  };
 
   // --- HELPER: GET BANK NAME ---
   const getBankName = () => {

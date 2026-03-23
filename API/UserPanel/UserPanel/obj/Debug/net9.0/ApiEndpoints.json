@@ -1,21 +1,5 @@
 [
   {
-    "ContainingType": "Program\u002B\u003C\u003Ec",
-    "Method": "\u003C\u003CMain\u003E$\u003Eb__0_7",
-    "RelativePath": "",
-    "HttpMethod": "GET",
-    "IsController": false,
-    "Order": 0,
-    "Parameters": [],
-    "ReturnTypes": [
-      {
-        "Type": "System.Void",
-        "MediaTypes": [],
-        "StatusCode": 200
-      }
-    ]
-  },
-  {
     "ContainingType": "UserPanel.Controllers.AcessRights.AccessRightsController",
     "Method": "GetAccessRightsById",
     "RelativePath": "api/AccessRights/GetAccessRightsById",
@@ -236,100 +220,6 @@
     "ReturnTypes": []
   },
   {
-    "ContainingType": "UserPanel.Controllers.Financenew.ARController",
-    "Method": "Create",
-    "RelativePath": "api/AR/create",
-    "HttpMethod": "POST",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "command",
-        "Type": "Application.Financenew.AR.Create.CreateARCommand",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.Financenew.ARController",
-    "Method": "GetById",
-    "RelativePath": "api/AR/get-by-id",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "customerid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "orgId",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "branchId",
-        "Type": "System.Int32",
-        "IsRequired": false
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.Financenew.ARController",
-    "Method": "getARBook",
-    "RelativePath": "api/AR/getARBook",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "orgid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "branchid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "customer_id",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "from_date",
-        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=9.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
-        "IsRequired": false
-      },
-      {
-        "Name": "to_date",
-        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=9.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
-        "IsRequired": false
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.Financenew.ARController",
-    "Method": "Update",
-    "RelativePath": "api/AR/update",
-    "HttpMethod": "PUT",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "command",
-        "Type": "Application.Financenew.AR.Update.UpdateARCommand",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
     "ContainingType": "UserPanel.Controllers.AuthenticateController",
     "Method": "Login",
     "RelativePath": "api/Authenticate/login",
@@ -423,42 +313,6 @@
     "ContainingType": "UserPanel.Controllers.FinanceModule.BankBookController",
     "Method": "GetListBankBookAsync",
     "RelativePath": "api/BankBook/list",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "orgid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "branchid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "fromDate",
-        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=9.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
-        "IsRequired": false
-      },
-      {
-        "Name": "toDate",
-        "Type": "System.Nullable\u00601[[System.DateTime, System.Private.CoreLib, Version=9.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
-        "IsRequired": false
-      },
-      {
-        "Name": "bankid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.FinanceModule.BankReconciliationController",
-    "Method": "GetCashBookList",
-    "RelativePath": "api/BankReconciliation/list",
     "HttpMethod": "GET",
     "IsController": true,
     "Order": 0,
@@ -746,6 +600,27 @@
       },
       {
         "Name": "userid",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": []
+  },
+  {
+    "ContainingType": "UserPanel.Controllers.Finance.ClaimAndPaymentController",
+    "Method": "getcommentreply",
+    "RelativePath": "api/ClaimAndPayment/getcommentreply",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "claimid",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "level",
         "Type": "System.Int32",
         "IsRequired": false
       }
@@ -2299,89 +2174,6 @@
         "Name": "command",
         "Type": "Application.Master.DepartmentItem.UpdateDepartmentItem.UpdateDepartmentItemCommand",
         "IsRequired": true
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.Master.ErrorLogController",
-    "Method": "Create",
-    "RelativePath": "api/ErrorLog/Create",
-    "HttpMethod": "POST",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "command",
-        "Type": "Application.OrderMngMaster.Master.ErrorLogMaster.CreateErrorLogCommand",
-        "IsRequired": true
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.FinanceModule.FinanceReportController",
-    "Method": "ProfitAndLossReport",
-    "RelativePath": "api/FinanceReport/ProfitAndLossReport",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "orgid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "fromDate",
-        "Type": "System.String",
-        "IsRequired": false
-      },
-      {
-        "Name": "toDate",
-        "Type": "System.String",
-        "IsRequired": false
-      },
-      {
-        "Name": "currencyid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.FinanceModule.FinanceReportController",
-    "Method": "SalesReport",
-    "RelativePath": "api/FinanceReport/SalesReport",
-    "HttpMethod": "GET",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "orgid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "fromDate",
-        "Type": "System.String",
-        "IsRequired": false
-      },
-      {
-        "Name": "toDate",
-        "Type": "System.String",
-        "IsRequired": false
-      },
-      {
-        "Name": "customerid",
-        "Type": "System.Int32",
-        "IsRequired": false
-      },
-      {
-        "Name": "gasid",
-        "Type": "System.Int32",
-        "IsRequired": false
       }
     ],
     "ReturnTypes": []
@@ -8634,22 +8426,6 @@
         "Name": "userid",
         "Type": "System.Int32",
         "IsRequired": false
-      }
-    ],
-    "ReturnTypes": []
-  },
-  {
-    "ContainingType": "UserPanel.Controllers.Master.TransactionLogController",
-    "Method": "Create",
-    "RelativePath": "api/TransactionLog/Create",
-    "HttpMethod": "POST",
-    "IsController": true,
-    "Order": 0,
-    "Parameters": [
-      {
-        "Name": "command",
-        "Type": "Application.OrderMngMaster.Master.TransactionLogMaster.CreateTransactionLogCommand",
-        "IsRequired": true
       }
     ],
     "ReturnTypes": []

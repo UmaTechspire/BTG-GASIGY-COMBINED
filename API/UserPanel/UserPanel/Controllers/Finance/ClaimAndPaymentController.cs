@@ -5,6 +5,7 @@ using Application.Finance.ClaimAndPayment.GetById;
 using Application.Finance.ClaimAndPayment.GetList;
 using Application.Finance.ClaimAndPayment.GetSequencesNumber;
 using Application.Finance.ClaimAndPayment.Update;
+using Application.Finance.ClaimApproval.ClaimComments;
 using Application.Finance.ClaimHistory;
 using Core.Models;
 using MediatR;
@@ -166,6 +167,13 @@ namespace UserPanel.Controllers.Finance
             if (result == null)
                 return NotFound();
 
+            return Ok(result);
+        }
+
+         [HttpGet("getcommentreply")]
+        public async Task<IActionResult> getcommentreply(Int32 claimid, Int32 level)
+        {
+            var result = await _mediator.Send(new ClaimCommentsCommand() { claimid=claimid,level=level });
             return Ok(result);
         }
     }

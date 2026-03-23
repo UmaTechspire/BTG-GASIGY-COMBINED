@@ -172,5 +172,19 @@ namespace UserPanel.Controllers.Finance
             return File(fileBytes, mimeType, fileName);
         }
 
+        [HttpGet("GetPaymentdetails")]
+        public async Task<ActionResult> GetPaymentdetails(string poid,int orgid)
+        {
+
+            var result = await _mediator.Send(new CreateCommonClaimAndPaymentCommand()
+            {
+                opt = 10,
+                searchtext = poid,
+               orgid= orgid
+
+            });
+            return Ok(result);
+        }
+
     }
 }

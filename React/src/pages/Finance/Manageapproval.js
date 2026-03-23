@@ -39,7 +39,7 @@ import {
   Getclaimremarksdetails,
   DownloadFileById, ClaimAndPaymentGetById, Getclaimapprovaldetails,
   Getclaimhistorydetails, SaveClaimApprove, GetApprovalSettings, ClaimReject, getClaimDetailsById
-  , GetPRNoBySupplierAndCurrency, GetByIdPurchaseOrder, GetByIdPurchaseRequisition, AutoApprove, GetBankList
+  , GetPRNoBySupplierAndCurrency, GetByIdPurchaseOrder, GetByIdPurchaseRequisition, AutoApprove, GetPVHistoryDetails
 } from "common/data/mastersapi";
 
 import Swal from 'sweetalert2';
@@ -116,6 +116,10 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
   const [historyMode, setHistoryMode] = useState("HOD");
   const [senderRole, setSenderRole] = useState("");
+
+  // PPP PV History state
+  const [pvHistoryModalOpen, setPvHistoryModalOpen] = useState(false);
+  const [pvHistoryData, setPvHistoryData] = useState([]);
 
   const handleHodDiscuss = (rowData) => {
     setHistoryClaimId(rowData.id);
@@ -233,6 +237,35 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     setRemarkModalOpen(!remarkModalOpen);
   };
 
+  // PPP PV History handler
+  const handleViewPVHistory = async (summaryId) => {
+    try {
+      const res = await GetPVHistoryDetails(summaryId, UserData?.branchid || 1, UserData?.orgid || 1);
+      console.log("PV History raw response:", JSON.stringify(res));
+
+      // Handle different response structures from .NET API
+      let historyItems = [];
+      if (res?.data && Array.isArray(res.data)) {
+        historyItems = res.data;
+      } else if (res?.Data && Array.isArray(res.Data)) {
+        historyItems = res.Data;
+      } else if (Array.isArray(res)) {
+        historyItems = res;
+      } else if (res?.data?.data && Array.isArray(res.data.data)) {
+        historyItems = res.data.data;
+      }
+
+      console.log("PV History parsed items:", historyItems);
+
+      // Always open the modal so user can see the history
+      setPvHistoryData(historyItems);
+      setPvHistoryModalOpen(true);
+    } catch (err) {
+      console.error("Failed to load PV history:", err);
+      Swal.fire("Error", "Failed to fetch PV history.", "error");
+    }
+  };
+
 
   const handleViewRemarks = async (claimId) => {
     try {
@@ -337,7 +370,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     const payload = {
       approve: {
         approve: [],
-        userId: UserData.id,
+        userId: UserData?.u_id,
         orgid: UserData.orgid,
         branchid: UserData.branchid,
         type: type,
@@ -557,123 +590,83 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
 
   const load = async () => {
-    try {
-      // 1. Fetch Banks
-      let bankMap = {};
-      try {
-        // Use current user ID and branch 1
-        const banks = await GetBankList(UserData?.u_id || 1, 1);
-        console.log("DEBUG: GetBankList response:", banks);
-        if (banks && Array.isArray(banks)) {
-          banks.forEach(b => {
-            bankMap[b.value] = b.BankName;
-          });
+    const res = await Getclaimapprovaldetails(1, 1, 1, UserData?.u_id);
+    if (res.status) {
+      // res.data.push(
+      //   { isSelected: false, approvedone: 1, discussedone: 0, approvedtwo: 1, discussedtwo: 0, comment: "", type: "PPV", id: 5, claimno: "CLM0000122", date: "25‑Jun‑25", name: "Shafiq", dept: "HR", amount: "376.80", curr: "MYR", transactions: "Txn E" },
+      //   { isSelected: false, approvedone: 1, discussedone: 0, approvedtwo: 1, discussedtwo: 0, comment: "", type: "PPV", id: 6, claimno: "CLM0000132", date: "26‑Jun‑25", name: "Sandy", dept: "Sales & Marketing", amount: "433.00", curr: "IDR", transactions: "Txn F" },
+      //   { isSelected: false, approvedone: 1, discussedone: 0, approvedtwo: 1, discussedtwo: 0, comment: "", type: "PPV PV", id: 5, claimno: "CLM0000122", date: "25‑Jun‑25", name: "Shafiq", dept: "HR", amount: "376.80", curr: "MYR", transactions: "Txn E" },
+      //   { isSelected: false, approvedone: 1, discussedone: 0, approvedtwo: 1, discussedtwo: 0, comment: "", type: "PPV PV", id: 6, claimno: "CLM0000132", date: "26‑Jun‑25", name: "Sandy", dept: "Sales & Marketing", amount: "433.00", curr: "IDR", transactions: "Txn F" });
+
+      setclaims(res.data);
+      const initialAction1 = {};
+      const initialAction2 = {};
+      const initialAction3 = {};
+      const initialPPPAction1 = {};
+      const initialPPPAction2 = {};
+      const initialPPPAction3 = {};
+
+      const initialPPPPVAction1 = {};
+      const initialPPPPVAction2 = {};
+
+      res.data.forEach((claim) => {
+        // For normal claim approvals (GM)
+        if (claim.approvedone) initialAction1[claim.id] = 'approve';
+        else if (claim.discussedone) initialAction1[claim.id] = 'discuss';
+
+        // For normal claim approvals (Director)
+        if (claim.approvedtwo) initialAction2[claim.id] = 'approve';
+        else if (claim.discussedtwo) initialAction2[claim.id] = 'discuss';
+
+        // For normal claim approvals (Director)
+        if (claim.approvedeight) initialAction3[claim.id] = 'approve';
+        else if (claim.discussedeight) initialAction3[claim.id] = 'discuss';
+
+        // For PPP approvals (GM)
+        if (claim.ppp_gm_approvalone) initialPPPAction1[claim.id] = 'approve';
+        else if (claim.ppp_gm_discussed) initialPPPAction1[claim.id] = 'discuss'; // if you have a discussed flag for PPP GM
+
+        // For PPP approvals (Director)
+        if (claim.ppp_director_approvalone) initialPPPAction2[claim.id] = 'approve';
+        else if (claim.ppp_director_discussed) initialPPPAction2[claim.id] = 'discuss'; // if exists
+
+        // For PPP approvals (Commissioner)
+        if (claim.ppp_commissioner_approvalone) initialPPPAction3[claim.id] = 'approve';
+        else if (claim.ppp_commissioner_discussed) initialPPPAction3[claim.id] = 'discuss'; // if exists
+
+        // For PPP PV approvals (Commissioner)
+        if (claim.PPP_PV_Commissioner_approveone) {
+          initialPPPPVAction2[claim.id] = 'approve';
+        } else if (claim.ppp_pv_Commissioner_discussedone) {
+          initialPPPPVAction2[claim.id] = 'discuss';
         }
-      } catch (err) {
-        console.error("Failed to fetch bank list", err);
-      }
-      console.log("DEBUG: Constructed BankMap:", bankMap);
-
-      // 2. Fetch Claims
-      const res = await Getclaimapprovaldetails(1, 1, 1, UserData?.u_id);
-
-      if (res.status) {
-        console.log("DEBUG: Claims Data Sample:", res.data && res.data[0]);
-
-        setclaims(res.data);
-        const initialAction1 = {};
-        const initialAction2 = {};
-        const initialAction3 = {};
-        const initialPPPAction1 = {};
-        const initialPPPAction2 = {};
-        const initialPPPAction3 = {};
-
-        const initialPPPPVAction1 = {};
-        const initialPPPPVAction2 = {};
-
-        res.data.forEach((claim) => {
-          // Normalize Bank Name
-          if (!claim.BankName) {
-            if (claim.bankname) claim.BankName = claim.bankname;
-            else if (claim.bankName) claim.BankName = claim.bankName;
-          }
-
-          // Map from ID if BankName is still missing
-          if (!claim.BankName) {
-            const bId = claim.BankId || claim.bankid || claim.bank_id || claim.deposit_bank_id;
-            if (bId && bankMap[bId]) {
-              claim.BankName = bankMap[bId];
-            } else if (bId) {
-              console.log("DEBUG: Found ID", bId, "but not in map. Type:", typeof bId);
-            }
-          }
 
 
-          // For normal claim approvals (GM)
-          if (claim.approvedone) initialAction1[claim.id] = 'approve';
-          else if (claim.discussedone) initialAction1[claim.id] = 'discuss';
-
-          // For normal claim approvals (Director)
-          if (claim.approvedtwo) initialAction2[claim.id] = 'approve';
-          else if (claim.discussedtwo) initialAction2[claim.id] = 'discuss';
-
-          // For normal claim approvals (Director)
-          if (claim.approvedeight) initialAction3[claim.id] = 'approve';
-          else if (claim.discussedeight) initialAction3[claim.id] = 'discuss';
-
-          // For PPP approvals (GM)
-          if (claim.ppp_gm_approvalone) initialPPPAction1[claim.id] = 'approve';
-          else if (claim.ppp_gm_discussed) initialPPPAction1[claim.id] = 'discuss'; // if you have a discussed flag for PPP GM
-
-          // For PPP approvals (Director)
-          if (claim.ppp_director_approvalone) initialPPPAction2[claim.id] = 'approve';
-          else if (claim.ppp_director_discussed) initialPPPAction2[claim.id] = 'discuss'; // if exists
-
-          // For PPP approvals (Commissioner)
-          if (claim.ppp_commissioner_approvalone) initialPPPAction3[claim.id] = 'approve';
-          else if (claim.ppp_commissioner_discussed) initialPPPAction3[claim.id] = 'discuss'; // if exists
-
-          // For PPP PV approvals (Commissioner)
-          if (claim.PPP_PV_Commissioner_approveone) {
-            initialPPPPVAction2[claim.id] = 'approve';
-          } else if (claim.ppp_pv_Commissioner_discussedone) {
-            initialPPPPVAction2[claim.id] = 'discuss';
-          }
+        if (claim.PPP_PV_Director_approve) {
+          initialPPPPVAction1[claim.id] = 'approve';
+        } else if (claim.ppp_pv_Director_discussed) {
+          initialPPPPVAction1[claim.id] = 'discuss';
+        }
 
 
-          if (claim.PPP_PV_Director_approve) {
-            initialPPPPVAction1[claim.id] = 'approve';
-          } else if (claim.ppp_pv_Director_discussed) {
-            initialPPPPVAction1[claim.id] = 'discuss';
-          }
+      });
+      debugger
+      // Set the states accordingly
+      setAction1(initialAction1);
+      setAction2(initialAction2);
+      setAction3(initialAction3);
+      setPPPAction1(initialPPPAction1);
+      setPPPAction2(initialPPPAction2);
+      setPPPAction3(initialPPPAction3);
 
 
-        });
-        debugger
-        // Set the states accordingly
-        setAction1(initialAction1);
-        setAction2(initialAction2);
-        setAction3(initialAction3);
-        setPPPAction1(initialPPPAction1);
-        setPPPAction2(initialPPPAction2);
-        setPPPAction3(initialPPPAction3);
-
-
-        setPPPPVAction1(initialPPPPVAction1);
-        setPPPPVAction2(initialPPPPVAction2);
-      } else {
-        Swal.fire({
-          icon: 'error',
-          title: 'Initial Load Failed',
-          text: res.message || 'Unable to fetch claim approve data.',
-        });
-      }
-    } catch (error) {
-      console.error("Load failed", error);
+      setPPPPVAction1(initialPPPPVAction1);
+      setPPPPVAction2(initialPPPPVAction2);
+    } else {
       Swal.fire({
         icon: 'error',
-        title: 'Error',
-        text: 'Failed to load data.'
+        title: 'Initial Load Failed',
+        text: res.message || 'Unable to fetch claim approve data.',
       });
     }
   };
@@ -714,7 +707,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     if (data.ppp_IsRejected != 1) {
       const payload = {
         approve: {
-          userId: UserData.id,
+          userId: UserData?.u_id,
           claimid: id,
           isapproved: action == "approve" ? true : false,
           isdiscussed: action == "discuss" ? true : false,
@@ -743,7 +736,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     if (data.ppp_IsRejected != 1) {
       const payload = {
         approve: {
-          userId: UserData.id,
+          userId: UserData?.u_id,
           claimid: id,
           isapproved: action == "approve" ? true : false,
           isdiscussed: action == "discuss" ? true : false,
@@ -779,7 +772,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     if (data.ppp_IsRejected != 1) {
       const payload = {
         approve: {
-          userId: UserData.id,
+          userId: UserData?.u_id,
           claimid: id,
           isapproved: action == "approve" ? true : false,
           isdiscussed: action == "discuss" ? true : false,
@@ -1147,7 +1140,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
         const payload = {
           approve: {
-            userId: UserData.id,
+            userId: UserData?.u_id,
             claimid: selectedClaim.id,
             isapproved: false,
             isdiscussed: true,
@@ -1183,7 +1176,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
         const payload = {
           approve: {
-            userId: UserData.id,
+            userId: UserData?.u_id,
             claimid: selectedClaim.id,
             isapproved: false,
             isdiscussed: true,
@@ -1239,27 +1232,6 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
   const actionpoBodyTemplate = (rowData) => {
     return <span style={{ cursor: "pointer", color: "blue" }} className="btn-rounded btn btn-link"
       onClick={() => handleShowPODetails(rowData)}>{rowData.pono}</span>;
-  };
-
-  const actionprBodyTemplate = (rowData) => {
-    const prNo = rowData.prnumber || rowData.PR_NUMBER;
-    if (!prNo || prNo === 'NA') return <span>{prNo || 'NA'}</span>;
-
-    return (
-      <span
-        style={{ cursor: "pointer", color: "blue" }}
-        className="btn-rounded btn btn-link"
-        onClick={() => {
-          if (rowData.prid) {
-            handlePRClick(rowData.prid);
-          } else {
-            console.warn("No PR ID found for", prNo);
-          }
-        }}
-      >
-        {prNo}
-      </span>
-    );
   };
 
   const handlePRClick = async (prid) => {
@@ -1442,61 +1414,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     console.log("Response data.details:", res.data?.details);
 
     if (res.status) {
-      let details = res.data?.details || [];
-
-      // Extract unique PO IDs that are valid
-      const uniquePOIds = [...new Set(details.map(d => d.poid).filter(id => id && id > 0))];
-
-      if (uniquePOIds.length > 0) {
-        // Create a map to store PO ID -> PR Info
-        const poToPrMap = {};
-
-        // Fetch PO details for each unique PO
-        await Promise.all(uniquePOIds.map(async (poid) => {
-          try {
-            const poRes = await GetByIdPurchaseOrder(poid, 1, 1);
-
-            if (poRes?.status && poRes.data?.Requisition) {
-              const prNumbers = poRes.data.Requisition
-                .map(req => req.prnumber)
-                .filter(Boolean); // Filter out null/undefined/empty strings
-
-              // Join unique PR numbers
-              const prConcat = [...new Set(prNumbers)].join(", ");
-
-              // Also store the first PRID found for clicking purposes
-              const firstPrId = poRes.data.Requisition.find(req => req.prid > 0)?.prid;
-
-              poToPrMap[poid] = {
-                prnumber: prConcat || "NA",
-                prid: firstPrId
-              };
-            }
-          } catch (err) {
-            console.error(`Failed to fetch details for PO ${poid}`, err);
-          }
-        }));
-
-        // Enrich details with PR info
-        details = details.map(d => {
-          if (d.poid && poToPrMap[d.poid]) {
-            return {
-              ...d,
-              prnumber: poToPrMap[d.poid].prnumber,
-              prid: poToPrMap[d.poid].prid
-            };
-          }
-          return { ...d, prnumber: "NA" };
-        });
-      }
-
-      if (res.data && res.data.header) {
-        res.data.header.paymentmethodname = row.PaymentMethod;
-      }
-      setSelectedDetail({
-        ...res.data,
-        details: details
-      });
+      setSelectedDetail(res.data);
       setDetailVisible(true);
       setPreviewUrl(res.data?.header?.AttachmentPath || "");
       setFileName(res.data?.header?.AttachmentName || "");
@@ -1950,7 +1868,7 @@ word-break: break-word;
     .reduce((acc, item) => {
       const key = item.SummaryId;
       if (!acc[key]) acc[key] = {
-        PPP_PV_Commissioner_approveone: item.PPP_PV_Commissioner_approveone, PPP_PV_Director_approve: item.PPP_PV_Director_approve, type: item.type, PaymentNo: item.PaymentNo, PaymentPlanDate: item.PaymentPlanDate, cashInHand: item.cashInHand, cashFromSalesAtFactory: item.cashFromSalesAtFactory,
+        pv_dis_count: item.pv_dis_count, PPP_PV_Commissioner_approveone: item.PPP_PV_Commissioner_approveone, PPP_PV_Director_approve: item.PPP_PV_Director_approve, type: item.type, PaymentNo: item.PaymentNo, PaymentPlanDate: item.PaymentPlanDate, cashInHand: item.cashInHand, cashFromSalesAtFactory: item.cashFromSalesAtFactory,
         FromDate: item.FromDate, ToDate: item.ToDate, InHand_CNY: item.InHand_CNY, InHand_USD: item.InHand_USD, InHand_SGD: item.InHand_SGD, InHand_IDR: item.InHand_IDR,
         InHand_MYR: item.InHand_MYR, Sales_CNY: item.Sales_CNY, Sales_USD: item.Sales_USD, Sales_SGD: item.Sales_SGD, Sales_IDR: item.Sales_IDR, Sales_MYR: item.Sales_MYR,
         rows: []
@@ -2284,6 +2202,7 @@ word-break: break-word;
                                   cleardata={cleardata}
                                   setSelectedSummaryId={setSelectedSummaryId}
                                   setShowDiscussModal={setShowDiscussModal}
+                                  handleViewPVHistory={handleViewPVHistory}
                                 />
                               </Card>
                             ))
@@ -2329,6 +2248,7 @@ word-break: break-word;
                               setSelectedSummaryId={setSelectedSummaryId}
                               setShowDiscussModal={setShowDiscussModal}
                               setRemarks={setRemarks}
+                              handleViewPVHistory={handleViewPVHistory}
                             />
                           )
                         }
@@ -2563,6 +2483,65 @@ word-break: break-word;
         </ModalFooter>
       </Modal>
 
+      {/* PPP PV History Modal */}
+      <Modal isOpen={pvHistoryModalOpen} toggle={() => setPvHistoryModalOpen(false)} size="lg" centered>
+        <ModalHeader toggle={() => setPvHistoryModalOpen(false)}>PPP PV Discussion History</ModalHeader>
+        <ModalBody style={{ maxHeight: '60vh', overflowY: 'auto', backgroundColor: '#f8f9fa' }}>
+          <div className="history-container p-3">
+            {pvHistoryData && pvHistoryData.length > 0 ? (
+              pvHistoryData.map((item, index) => {
+                // Handle different possible field names from the API (case-insensitive)
+                const getField = (obj, ...keys) => {
+                  for (const key of keys) {
+                    if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+                    // Try case-insensitive
+                    const found = Object.keys(obj).find(k => k.toLowerCase() === key.toLowerCase());
+                    if (found && obj[found] !== undefined && obj[found] !== null) return obj[found];
+                  }
+                  return "";
+                };
+
+                const senderName = getField(item, "username", "Username", "UserName", "user_name", "applicantname", "name", "FullName");
+                const logDate = getField(item, "logdate", "LogDate", "log_date", "createddate", "CreatedDate", "transactiondate");
+                const logTime = getField(item, "logtime", "LogTime", "log_time");
+                const comment = getField(item, "claim_comment", "Claim_Comment", "ClaimComment", "comment", "Comment", "remarks", "Remarks");
+
+                const currentUserName = UserData?.username || UserData?.FullName || "";
+                const isMe = currentUserName && senderName?.toLowerCase() === currentUserName.toLowerCase();
+                return (
+                  <div key={index} className={`d-flex ${isMe ? 'justify-content-end' : 'justify-content-start'} mb-3`}>
+                    <div
+                      className="p-3 shadow-sm"
+                      style={{
+                        maxWidth: '75%',
+                        borderRadius: '15px',
+                        backgroundColor: isMe ? '#5b73e8' : '#ffffff',
+                        color: isMe ? '#ffffff' : '#000000',
+                        borderBottomRightRadius: isMe ? '0' : '15px',
+                        borderBottomLeftRadius: !isMe ? '0' : '15px'
+                      }}
+                    >
+                      <div className="d-flex justify-content-between align-items-center mb-1">
+                        <small className="fw-bold me-3" style={{ opacity: 0.9 }}>{senderName || "Unknown"}</small>
+                        <small style={{ fontSize: '0.75rem', opacity: 0.8 }}>{logDate} {logTime}</small>
+                      </div>
+                      <p className="mb-0" style={{ whiteSpace: 'pre-wrap', fontFamily: 'Inter, sans-serif', fontSize: '14px' }}>
+                        {comment || "(No comment)"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center text-muted">No discussion history yet.</div>
+            )}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="btn btn-secondary" onClick={() => setPvHistoryModalOpen(false)}>Close</button>
+        </ModalFooter>
+      </Modal>
+
       <Modal isOpen={convertModalVisible} className="modal-fullscreen" toggle={() => setConvertModalVisible(false)}>
 
         <ModalHeader toggle={() => setConvertModalVisible(false)}>
@@ -2711,50 +2690,7 @@ word-break: break-word;
                 </tr>
               );
 
-              // Cash in Hand row
-              const cashInHandMopRow = (
-                <tr style={{ backgroundColor: "#e8f4ff", fontWeight: "bold" }}>
-                  <td style={{ textAlign: "left" }}>Cash in Hand</td>
-                  {currencies.map(curr => {
-                    const cihValue = parseFloat(cashInHand[curr] || 0) + parseFloat(cashFromSales[curr] || 0);
-                    return (
-                      <td style={{ textAlign: "right" }} key={`cash-in-hand-mop-${curr}`}>
-                        {cihValue.toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-
-              // Cash Needed row
-              const cashNeededMopRow = (
-                <tr style={{ fontWeight: "bold" }}>
-                  <td style={{ textAlign: "left" }}>Cash Needed</td>
-                  {currencies.map(curr => {
-                    const modeOfCashTotal = data
-                      .filter(r => (r.PaymentMethod || "").toLowerCase().includes("cash"))
-                      .filter(r => r.curr === curr)
-                      .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-                    
-                    const cihValue = parseFloat(cashInHand[curr] || 0) + parseFloat(cashFromSales[curr] || 0);
-                    const needed = modeOfCashTotal - cihValue;
-
-                    return (
-                      <td style={{ textAlign: "right" }} key={`cash-needed-mop-${curr}`}>
-                        {needed.toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-
-              return [...rows, cashInHandMopRow, cashNeededMopRow, totalRow]; // Return rows, cash in hand, cash needed, and total row
+              return [...rows, totalRow]; // Return both the rows and the total row
             };
 
 
@@ -3070,6 +3006,9 @@ word-break: break-word;
                   ["Application No", selectedDetail.header?.ApplicationNo],
                   ["Department ", selectedDetail.header?.departmentname],
                   ["Applicant ", selectedDetail.header?.applicantname],
+                  ["Job Title", selectedDetail.header?.JobTitle],
+                  ["HOD", selectedDetail.header?.HOD_Name],
+                  ["Trans Currency ", selectedDetail.header?.transactioncurrency],
                   ["Attachment ", selectedDetail.header?.AttachmentName ? (
                     <button
                       type="button"
@@ -3101,15 +3040,14 @@ word-break: break-word;
                     "No Attachment"
                   )
                   ],
-                  ["Trans Currency ", selectedDetail.header?.transactioncurrency],
-                  ["HOD", selectedDetail.header?.HOD_Name],
-                  ["Supplier", selectedDetail.header?.SupplierName],
+
+
                   ["Cost Center", selectedDetail.header?.CostCenter],
                   ["Claim Amt in TC", <span key="amtintc"> {selectedDetail.header?.ClaimAmountInTC?.toLocaleString('en-US', {
                     style: 'decimal',
                     minimumFractionDigits: 2
                   })}</span>],
-                  ["Payment Mode", selectedDetail.header?.paymentmethodname],
+                  ["Supplier", selectedDetail.header?.SupplierName],
                 ].map(([label, val], i) => (
                   <Col md="4" key={i} className="form-group row ">
                     <Label className="col-sm-4 col-form-label bold">{label}</Label>
@@ -3130,15 +3068,6 @@ word-break: break-word;
                     className="text-left"
                     style={{ width: "10%" }}
                     body={actionpoBodyTemplate}
-                  />
-                )}
-                {(selectedDetail.header?.ClaimCategoryId === 3) && (
-                  <Column
-                    field="prnumber"
-                    header="PR No"
-                    className="text-left"
-                    style={{ width: "10%" }}
-                    body={actionprBodyTemplate}
                   />
                 )}
 
@@ -3295,7 +3224,25 @@ word-break: break-word;
 
                                 return (
                                   <span key={index}>
-                                    <span style={{ color: "#666" }}>{cleanPR}</span>
+                                    {prid ? (
+                                      <a
+                                        href="#"
+                                        style={{
+                                          color: "#007bff",
+                                          textDecoration: "underline",
+                                          cursor: "pointer",
+                                        }}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          handlePRClick(prid); // Opens correct PR
+                                        }}
+                                        title={`View ${cleanPR}`}
+                                      >
+                                        {cleanPR}
+                                      </a>
+                                    ) : (
+                                      <span style={{ color: "#666" }}>{cleanPR}</span>
+                                    )}
                                     {!isLast && ", "}
                                   </span>
                                 );
@@ -3518,6 +3465,9 @@ word-break: break-word;
             onChange={(e) => setRemarks(e.target.value)}
             placeholder="Enter remarks..."
           />
+          {selectedSummaryId?.pv_dis_count == 2 && (
+            <span style={{ color: "red" }}>Cancel The Transaction</span>
+          )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={() => setShowDiscussModal(false)}>
@@ -3585,7 +3535,7 @@ const ApprovalTable = ({
   handlePPPClick2, handlePPPClick3, handleVoucherClick, handlePPPPVClick3, handlePPPPVDirector, handleClickgmapprovan
   , selectedPPPRows, confirmRemove, handleRemove, updateselectedrows, PaymentSummaryTable, groupedBySummary, handlePVSave, pvgroupedBySummary, handleViewRemarks, FilterMatchMode, FilterOperator, cleardata,
   setSelectedSummaryId, setShowDiscussModal, setRemarks,
-  access
+  access, handleViewPVHistory
 }) => {
 
   const [filters, setFilters] = useState({
@@ -4515,6 +4465,10 @@ const ApprovalTable = ({
 
                 <div className="text-end" style={{ width: "50%", float: "right" }}>
 
+                  <span onClick={() => handleViewPVHistory(summaryId)} title="View PV History" style={{ cursor: 'pointer', marginRight: '10px', verticalAlign: 'middle' }}>
+                    <i className="mdi mdi-comment-text-outline" style={{ fontSize: '1.5rem', color: '#17a2b8' }}></i>
+                  </span>
+
                   {group.PPP_PV_Director_approve === 0 && ApproverSix === true ? (
                     <>
                       <button type="button" className="btn btn-primary" onClick={() => handlePVSave(summaryId, 1, 1)}>
@@ -4524,7 +4478,7 @@ const ApprovalTable = ({
 
                       <button type="button" className="btn btn-warning" onClick={() => {
                         // handlePVSave(summaryId, 1,2)
-                        setSelectedSummaryId({ summaryId: summaryId, type: 1, operation: 2 }); // or row.id, depending on your data
+                        setSelectedSummaryId({ pv_dis_count: group.pv_dis_count, summaryId: summaryId, type: 1, operation: 2 }); // or row.id, depending on your data
                         setShowDiscussModal(true);
                       }
                       }>
@@ -4557,7 +4511,7 @@ const ApprovalTable = ({
                             <button type="button" data-access="save" className="btn btn-warning" onClick={() => {
 
                               // handlePVSave(summaryId, 2,2);
-                              setSelectedSummaryId({ summaryId: summaryId, type: 2, operation: 2 }); // or row.id, depending on your data
+                              setSelectedSummaryId({ pv_dis_count: group.pv_dis_count, summaryId: summaryId, type: 2, operation: 2 }); // or row.id, depending on your data
                               setShowDiscussModal(true);
                               setRemarks("");
 
@@ -4573,8 +4527,6 @@ const ApprovalTable = ({
                 </div>
               </div>
               <div className="text-end mb-2">
-
-
               </div>
 
               {/* Dynamic tables */}

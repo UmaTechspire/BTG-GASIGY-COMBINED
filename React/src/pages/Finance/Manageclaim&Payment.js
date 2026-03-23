@@ -197,6 +197,8 @@ const ManageClaimsPayment = () => {
     const [selectedClaim, setSelectedClaim] = useState(null);
     const [isPOOpenedFromDetail, setIsPOOpenedFromDetail] = useState(false);
 
+    const [selectedpoids, setselectedpoids] = useState([]);
+
     const toggleRemarkModal = () => {
         setRemarkModalOpen(!remarkModalOpen);
     };
@@ -640,15 +642,14 @@ const ManageClaimsPayment = () => {
 
         // If claim needs to be cancelled (3rd discussion reached), only enable delete button
         const isCancelled = rowData?.is_delete_required === 1 || rowData?.isDeleteRequired === 1;
-        const canEdit = !isCancelled && rowData?.Status !== 'Posted';
         const canDelete = isCancelled || (rowData?.Status !== 'Posted' && (rowData?.IsReject === 1 || rowData?.isSubmitted == 0 || rowData?.candelete == 1));
 
         return (
             <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 {/* Edit Button */}
                 {
-                    // Logic: If user is a Super Admin (or user 158) AND the record is not cancelled
-                    !isCancelled && (UserData?.superAdmin || String(UserData?.u_id) === '158') ? (
+                    // Super Admin (user ID 158) can edit if canedit === 1 (even Posted claims)
+                    rowData.canedit === 1 && UserData?.u_id === 158 ? (
                         <span
                             onClick={() => editRow(rowData)}
                             title="Edit"
@@ -657,7 +658,7 @@ const ManageClaimsPayment = () => {
                             <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
                         </span>
                     ) :
-                        // Logic: Regular user can only edit if status is NOT 'Posted'
+                        // Regular user can edit only if status is NOT 'Posted' and not cancelled
                         !isCancelled && rowData.Status !== 'Posted' ? (
                             <span
                                 onClick={() => editRow(rowData)}
@@ -667,10 +668,10 @@ const ManageClaimsPayment = () => {
                                 <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
                             </span>
                         ) : (
-                            // Logic: Disable edit icon for regular users on Posted claims
+                            // Disabled edit icon for regular users on Posted/cancelled claims
                             <span
                                 style={{ color: "gray", display: 'flex', alignItems: 'center' }}
-                                title="Edit"
+                                title="Edit (Disabled)"
                             >
                                 <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
                             </span>
@@ -1013,6 +1014,12 @@ const ManageClaimsPayment = () => {
 
             // Extract unique PO IDs that are valid
             const uniquePOIds = [...new Set(details.map(d => d.poid).filter(id => id && id > 0))];
+            if (uniquePOIds.length > 0) {
+                setselectedpoids(uniquePOIds);
+            }
+            else {
+                setselectedpoids([]);
+            }
 
             if (uniquePOIds.length > 0) {
                 // Create a map to store PO ID -> PR Info
@@ -1032,16 +1039,12 @@ const ManageClaimsPayment = () => {
                             // Join unique PR numbers
                             const prConcat = [...new Set(prNumbers)].join(", ");
 
-                            // Store all unique PR IDs for individual clicking
-                            const prIdsInOrder = poRes.data.Requisition
-                                .map(r => r.prid)
-                                .filter(id => id && id > 0);
-                            const uniquePrIds = [...new Set(prIdsInOrder)];
+                            // Also store the first PRID found for clicking purposes
+                            const firstPrId = poRes.data.Requisition.find(req => req.prid > 0)?.prid;
 
                             poToPrMap[poid] = {
                                 prnumber: prConcat || "NA",
-                                prid: uniquePrIds[0],
-                                prIdsList: uniquePrIds
+                                prid: firstPrId
                             };
                         }
                     } catch (err) {
@@ -1055,8 +1058,7 @@ const ManageClaimsPayment = () => {
                         return {
                             ...d,
                             prnumber: poToPrMap[d.poid].prnumber,
-                            prid: poToPrMap[d.poid].prid,
-                            prIdsList: poToPrMap[d.poid].prIdsList || []
+                            prid: poToPrMap[d.poid].prid
                         };
                     }
                     return { ...d, prnumber: "NA" };
@@ -1542,48 +1544,43 @@ const ManageClaimsPayment = () => {
         `;
 
         const headerInfo = `
-        <div style="padding:20px; display: flex; justify-content: space-between; align-items: flex-start;">
-          <div style="flex: 1; text-align: center;">
-            <h2 style="margin: 0; padding-left: 100px;">Claim Details</h2>
-          </div>
-          <div style="font-size: 10px; text-align: right;">
-            ${detail.header?.ClaimCategoryId === 3 ? '<div style="font-weight: bold; color: #333; font-size: 12px; margin-bottom: 5px;">F-BTG-PUR-05 (Rev.03)</div>' : ''}
-            <div>Printed on: ${formattedDateTime}</div>
-          </div>
-        </div>
-    <table class="info-table">
-        <tr>
-            <td class="label">Category Type</td><td>${detail.header?.claimcategory || ''}</td>
-            <td class="label">Application Date</td><td>${detail.header?.ApplicationDatevw || ''}</td>
-        </tr>
-        <tr>
-            <td class="label">Application No</td><td>${detail.header?.ApplicationNo || ''}</td>
-            <td class="label">Applicant</td><td>${detail.header?.applicantname || ''}</td>
-        </tr>
-        <tr>
-            <td class="label">Department</td><td>${detail.header?.departmentname || ''}</td>
-            <td class="label">Attachment</td><td>${detail.header?.AttachmentName || 'No Attachment'}</td>
-        </tr>
-        <tr>
-            <td class="label">Currency</td><td>${detail.header?.transactioncurrency || ''}</td>
-            <td class="label">Cost Center</td><td>${detail.header?.CostCenter || ''}</td>
-        </tr>
-        <tr>
-            <td class="label">Payment Mode</td><td>${detail.header?.paymentmethodname || ''}</td>
-            <td class="label">Claim Amt in TC</td><td>${detail.header?.ClaimAmountInTC?.toLocaleString('en-US', {
+        <div style="padding:20px; display: flex; justify-content: space-between; align-items: center;">
+    <h2 style="margin: 0 auto;padding-left:100px;">Claim Details</h2>
+    <div style="font-size: 10px; text-align: right;">Printed on: ${formattedDateTime}</div>
+  </div>
+          <table class="info-table">
+            <tr>
+              <td class="label">Category Type</td><td>${detail.header?.claimcategory || ''}</td>
+              <td class="label">Application Date</td><td>${detail.header?.ApplicationDatevw || ''}</td>
+            </tr>
+            <tr>
+              <td class="label">Application No</td><td>${detail.header?.ApplicationNo || ''}</td>
+              <td class="label">Applicant</td><td>${detail.header?.applicantname || ''}</td>
+            </tr>
+            <tr>
+              <td class="label">Department</td><td>${detail.header?.departmentname || ''}</td>
+              <td class="label">Attachment</td><td>${detail.header?.AttachmentName || 'No Attachment'}</td>
+            </tr>
+            <tr>
+              <td class="label">Currency</td><td>${detail.header?.transactioncurrency || ''}</td>
+              <td class="label">Cost Center</td><td>${detail.header?.CostCenter || ''}</td>
+            </tr>
+            <tr>
+              <td class="label">Payment Mode</td><td>${detail.header?.paymentmethodname || ''}</td>
+              <td class="label">Claim Amt in TC</td><td>${detail.header?.ClaimAmountInTC?.toLocaleString('en-US', {
             style: 'decimal',
             minimumFractionDigits: 2
         }) || ''}</td>
-        </tr>
-        <tr>
-            <td class="label">HOD</td><td>${detail.header?.HOD_Name || ''}</td>
-            <td class="label">Supplier</td><td>${detail.header?.SupplierName || ''}</td>
-        </tr>
-    </table>
-`;
+            </tr>
+            <tr>
+              <td class="label">HOD</td><td>${detail.header?.HOD_Name || ''}</td>
+              <td class="label">Supplier</td><td>${detail.header?.SupplierName || ''}</td>
+            </tr>
+          </table>
+        `;
 
         const detailRows = detail.details.map((row, index) => `
-    <tr>
+          <tr>
             <td>${index + 1}</td>
             <td>${row.claimtype || ''}</td>
             <td>${row.PaymentDescription || ''}</td>
@@ -1591,37 +1588,37 @@ const ManageClaimsPayment = () => {
             <td>${row.ExpenseDatevw || ''}</td>
             <td>${row.Purpose || ''}</td>
           </tr>
-    `).join('');
+        `).join('');
 
         const claimTable = `
-    <div style = "border-bottom: 1px solid #ccc;padding-top:5px;" ></div>
-        <table class="claim-table">
+        <div style="border-bottom: 1px solid #ccc;padding-top:5px;"></div>
+           <table class="claim-table">
             <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Claim Type</th>
-                    <th>Description</th>
-                    <th>Amount</th>
-                    <th>Expense Date</th>
-                    <th>Purpose</th>
-                </tr>
+              <tr>
+                <th>#</th>
+                <th>Claim Type</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Expense Date</th>
+                <th>Purpose</th>
+              </tr>
             </thead>
             <tbody>
-                ${detailRows}
+              ${detailRows}
             </tbody>
-        </table>
-`;
+          </table>
+        `;
 
         const remarksSection = `
-    <div class="section-title" > Remarks</div>
-        <div class="remarks-box">
+          <div class="section-title">Remarks</div>
+          <div class="remarks-box">
             ${detail.header?.Remarks || ''}
-        </div>
-`;
+          </div>
+        `;
 
         const statusIndicators = `
-
-    <table class="status-table" >
+        
+         <table class="status-table">
           <thead>
            <tr class="status-header">
           <th colspan="3">Claim</th>
@@ -1652,18 +1649,18 @@ const ManageClaimsPayment = () => {
         </tr>
           </tbody>
         </table>
+       
+         <div class="legend" style="margin-top: 10px; font-size: 10px;">
+          <span>✔ Approved</span>
+          <span>✖ Discussed</span>
+          <span>⏳ Yet to Act</span>
+        </div>
 
-    <div class="legend" style="margin-top: 10px; font-size: 10px;">
-        <span>✔ Approved</span>
-        <span>✖ Discussed</span>
-        <span>⏳ Yet to Act</span>
-    </div>
-
-`;
+      `;
 
 
         printWindow.document.write(`
-    <html>
+          <html>
             <head>
               <title>Claim Details</title>
               ${printStyles}
@@ -1676,7 +1673,7 @@ const ManageClaimsPayment = () => {
               
             </body>
           </html>
-    `);
+        `);
 
 
         printWindow.document.close();
@@ -1686,36 +1683,27 @@ const ManageClaimsPayment = () => {
     };
 
     const actionprBodyTemplate = (rowData) => {
-        const prNo = rowData.prnumber || rowData.PR_NUMBER;
+        const prNo = rowData.prnumber || rowData.PR_NUMBER; // Adjust based on actual API response field
         if (!prNo || prNo === 'NA') return <span>{prNo || 'NA'}</span>;
 
-        const prNumbers = prNo.split(',').map(p => p.trim()).filter(Boolean);
-        const prIdsList = rowData.prIdsList || [];
-
         return (
-            <span>
-                {prNumbers.map((pr, index) => {
-                    const prid = prIdsList[index];
-                    const isLast = index === prNumbers.length - 1;
-                    return (
-                        <span key={index}>
-                            {prid ? (
-                                <span
-                                    style={{ cursor: "pointer", color: "blue", fontWeight: "bold" }}
-                                    onMouseEnter={(e) => e.target.style.textDecoration = "underline"}
-                                    onMouseLeave={(e) => e.target.style.textDecoration = "none"}
-                                    onClick={() => handlePRClick(prid)}
-                                    title={`View ${pr}`}
-                                >
-                                    {pr}
-                                </span>
-                            ) : (
-                                <span style={{ color: "#666" }}>{pr}</span>
-                            )}
-                            {!isLast && ", "}
-                        </span>
-                    );
-                })}
+            <span
+                style={{ cursor: "pointer", color: "blue" }}
+                className="btn-rounded btn btn-link"
+                onClick={() => {
+                    // Assuming rowData has prid or we can derive it. 
+                    // If the API for Claim Details doesn't return PRID, we might need to rely on just the number 
+                    // or fetch it. existing handlePRClick needs an ID.
+                    // Checking if rowData has prid
+                    if (rowData.prid) {
+                        handlePRClick(rowData.prid);
+                    } else {
+                        // Fallback or just show text if no ID
+                        console.warn("No PR ID found for", prNo);
+                    }
+                }}
+            >
+                {prNo}
             </span>
         );
     };
@@ -1747,7 +1735,7 @@ const ManageClaimsPayment = () => {
                     icon="pi pi-comment"
 
                     className={`  btn-circle p-button-rounded ${rowData.isclaimant_discussed === 1 ? 'p-button-warning' : 'p-button-outlined'
-                        } `}
+                        }`}
                     style={{ padding: "4px" }}
                     onClick={() => {
                         setCurrentClaimId(rowData.Claim_ID);
@@ -1764,7 +1752,7 @@ const ManageClaimsPayment = () => {
                     icon="pi pi-comment"
                     disabled={true}
                     className={`  btn-circle p-button-rounded ${rowData.isclaimant_discussed === 1 ? 'p-button-warning' : 'p-button-outlined'
-                        } `}
+                        }`}
                     style={{ padding: "4px" }}
 
                 > </PButton>
@@ -1859,7 +1847,7 @@ const ManageClaimsPayment = () => {
                                                         <Select
                                                             name="filtervalue"
                                                             options={autoSuggestionscate.map(f => ({ label: f.label, value: f.value }))}
-                                                            placeholder={`Search ${getDynamicLabel()} `}
+                                                            placeholder={`Search ${getDynamicLabel()}`}
                                                             classNamePrefix="select"
                                                             isClearable
                                                             value={selectedAutoItem}
@@ -1869,7 +1857,7 @@ const ManageClaimsPayment = () => {
                                                         <Select
                                                             name="filtervalue"
                                                             options={autoSuggestionscurr.map(f => ({ label: f.Currency, value: f.currencyid }))}
-                                                            placeholder={`Search ${getDynamicLabel()} `}
+                                                            placeholder={`Search ${getDynamicLabel()}`}
                                                             classNamePrefix="select"
                                                             isClearable
                                                             value={selectedAutoItem}
@@ -1880,7 +1868,7 @@ const ManageClaimsPayment = () => {
                                                         <Select
                                                             name="filtervalue"
                                                             options={autoSuggestionsclaimtype.map(f => ({ label: f.label, value: f.value }))}
-                                                            placeholder={`Search ${getDynamicLabel()} `}
+                                                            placeholder={`Search ${getDynamicLabel()}`}
                                                             classNamePrefix="select"
                                                             isClearable
                                                             value={selectedAutoItem}
@@ -1892,7 +1880,7 @@ const ManageClaimsPayment = () => {
                                                             <Select
                                                                 name="filtervalue"
                                                                 options={autoSuggestionsdept.map(f => ({ label: f.label, value: f.value }))}
-                                                                placeholder={`Search ${getDynamicLabel()} `}
+                                                                placeholder={`Search ${getDynamicLabel()}`}
                                                                 classNamePrefix="select"
                                                                 isClearable
                                                                 value={selectedAutoItem}
@@ -2418,15 +2406,15 @@ const ManageClaimsPayment = () => {
 
                                             </tr>
                                             <tr>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmhodStatus)} `} /></td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmhodStatus)}`} /></td>
 
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmgmStatus)} `} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmDrStatus)} `} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPgmStatus)} `} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPDrStatus)} `} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPCEOStatus)} `} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouCmrStatus)} `} /> </td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouDrStatus)} `} /> </td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmgmStatus)}`} /></td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmDrStatus)}`} /></td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPgmStatus)}`} /></td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPDrStatus)}`} /></td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPCEOStatus)}`} /></td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouCmrStatus)}`} /> </td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouDrStatus)}`} /> </td>
                                             </tr>
                                         </tbody>
                                     </Table>
@@ -2489,11 +2477,10 @@ const ManageClaimsPayment = () => {
             <Modal isOpen={showPaymentHistoryModal} toggle={togglePaymentHistoryModal} size="xl">
                 <ModalHeader toggle={togglePaymentHistoryModal}>Payment History</ModalHeader>
                 <ModalBody>
-                    {selectedSupplierForHistory ? (
+                    {selectedpoids ? (
                         <PaymentHistory
-                            irnId={selectedSupplierForHistory}
-                            poNo={selectedDetail?.header?.PONo}
-                            supplierName={selectedDetail?.header?.SupplierName}
+                            poId={selectedpoids}
+
                         />
                     ) : (
                         <div>No supplier selected.</div>
@@ -2569,7 +2556,7 @@ const ManageClaimsPayment = () => {
                                                                                         handlePRClick(prid); // Opens correct PR
                                                                                     }
                                                                                 }}
-                                                                                title={`View ${cleanPR} `}
+                                                                                title={`View ${cleanPR}`}
                                                                             >
                                                                                 {cleanPR}
                                                                             </a>
@@ -2615,10 +2602,7 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.unitprice?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
-                                    bodyStyle={{ textAlign: "right" }}
-                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.unitprice?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                    footerStyle={{ textAlign: "right" }}
                                 />
 
                                 <Column
@@ -2627,13 +2611,10 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.discountvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
-                                    bodyStyle={{ textAlign: "right" }}
-                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.discountvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                    footerStyle={{ textAlign: "right" }}
                                 />
 
-                                <Column field="taxperc" header="Tax %" bodyStyle={{ textAlign: "right" }} headerStyle={{ textAlign: "right" }} />
+                                <Column field="taxperc" header="Tax %" />
 
                                 <Column
                                     field="taxvalue"
@@ -2641,13 +2622,10 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.taxvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
-                                    bodyStyle={{ textAlign: "right" }}
-                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.taxvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                    footerStyle={{ textAlign: "right" }}
                                 />
 
-                                <Column field="vatperc" header="VAT %" bodyStyle={{ textAlign: "right" }} headerStyle={{ textAlign: "right" }} />
+                                <Column field="vatperc" header="VAT %" />
 
                                 <Column
                                     field="vatvalue"
@@ -2655,10 +2633,7 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.vatvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
-                                    bodyStyle={{ textAlign: "right" }}
-                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.vatvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                    footerStyle={{ textAlign: "right" }}
                                 />
 
                                 <Column
@@ -2667,10 +2642,9 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         <span style={{ color: "#ff5a00" }}>{rowData.nettotal?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
                                     }
-                                    bodyStyle={{ color: "#ff5a00", textAlign: "right" }}
-                                    headerStyle={{ textAlign: "right" }}
+                                    bodyStyle={{ color: "#ff5a00" }}
                                     footer={<b style={{ color: "#ff5a00" }}>{selectedPODetail.Header?.nettotal?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</b>}
-                                    footerStyle={{ color: "#ff5a00", textAlign: "right" }}
+                                    footerStyle={{ color: "#ff5a00" }}
                                 />
                             </DataTable>
 

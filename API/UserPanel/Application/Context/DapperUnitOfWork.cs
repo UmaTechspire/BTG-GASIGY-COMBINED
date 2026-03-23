@@ -1,4 +1,5 @@
-﻿using System.Data;
+﻿ 
+using System.Data;
 using Core.Abstractions;
 using MySql.Data.MySqlClient;
 using UserPanel.Core.Abstractions;
@@ -17,7 +18,6 @@ public class DapperUnitOfWork : IUnitOfWorkDB1, IUnitOfWorkDB2, IUnitOfWorkDB3 ,
         _connectionFactory = connectionFactory;
     }
 
-    // Return an open connection but do NOT start a transaction automatically.
     public IDbConnection Connection
     {
         get
@@ -26,13 +26,12 @@ public class DapperUnitOfWork : IUnitOfWorkDB1, IUnitOfWorkDB2, IUnitOfWorkDB3 ,
             {
                 _connection = _connectionFactory.CreateConnection();
                 _connection.Open();
-                // do not begin transaction automatically - callers should call BeginTransaction when needed
+                _transaction = _connection.BeginTransaction();
             }
             return _connection;
         }
     }
 
-    // Lazy transaction access (may be null if not started)
     public IDbTransaction Transaction
     {
         get
@@ -40,19 +39,6 @@ public class DapperUnitOfWork : IUnitOfWorkDB1, IUnitOfWorkDB2, IUnitOfWorkDB3 ,
             _ = Connection; // Ensures connection is initialized
             return _transaction!;
         }
-    }
-
-    // Explicitly start a transaction when needed
-    public void BeginTransaction(IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
-    {
-        if (_connection == null)
-            _connection = _connectionFactory.CreateConnection();
-
-        if (_connection.State != ConnectionState.Open)
-            _connection.Open();
-
-        if (_transaction == null)
-            _transaction = _connection.BeginTransaction(isolationLevel);
     }
 
     public int Commit()
@@ -66,13 +52,13 @@ public class DapperUnitOfWork : IUnitOfWorkDB1, IUnitOfWorkDB2, IUnitOfWorkDB3 ,
         }
         catch
         {
-            try { _transaction.Rollback(); } catch { }
+            _transaction.Rollback();
             return 0;
         }
         finally
         {
             _transaction.Dispose();
-            _transaction = null; // do not automatically start a new transaction
+            _transaction = _connection?.BeginTransaction();
         }
     }
 
@@ -80,22 +66,19 @@ public class DapperUnitOfWork : IUnitOfWorkDB1, IUnitOfWorkDB2, IUnitOfWorkDB3 ,
     {
         if (_disposed) return;
 
-        // Do NOT auto-commit on dispose. If a transaction remains, roll it back to avoid locking.
         try
         {
-            if (_transaction != null)
-            {
-                try { _transaction.Rollback(); } catch { }
-                _transaction.Dispose();
-                _transaction = null;
-            }
+            _transaction?.Commit();
         }
-        finally
+        catch
         {
-            try { _connection?.Close(); } catch { }
-            try { _connection?.Dispose(); } catch { }
-            _connection = null;
-            _disposed = true;
+            _transaction?.Rollback();
         }
+
+        _transaction?.Dispose();
+        _connection?.Close();
+        _connection?.Dispose();
+
+        _disposed = true;
     }
 }

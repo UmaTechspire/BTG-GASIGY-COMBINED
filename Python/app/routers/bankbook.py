@@ -292,6 +292,13 @@ async def update_receipt(receipt_id: int, payload: CreateReceiptRequest, db: Asy
 
         entry.customer_id = data.customer_id
         entry.deposit_bank_id = str(data.deposit_bank_id)
+        
+        is_cleared_status = False
+        if data.deposit_bank_id and str(data.deposit_bank_id) != "0" and str(data.deposit_bank_id).strip() != "":
+            is_cleared_status = True
+            
+        entry.flag = is_cleared_status
+        entry.is_cleared = is_cleared_status
 
         if data.receipt_date:
             entry.receipt_date = data.receipt_date 
@@ -301,19 +308,11 @@ async def update_receipt(receipt_id: int, payload: CreateReceiptRequest, db: Asy
         entry.reference_no = data.reference_no
         entry.sales_person_id = data.sales_person_id
         entry.send_notification = data.send_notification
-        entry.status = data.status
-        
-        # 🟢 Persistent new fields
         entry.cash_amount = data.cash_amount
         entry.bank_payment_via = data.bank_payment_via
         entry.cheque_number = data.cheque_number
-        
-        if data.status == "Posted":
-            entry.is_posted = True
-            entry.pending_verification = True
-        else:
-            entry.is_posted = False
-            
+        # NOTE: is_posted, pending_verification, and is_submitted are intentionally
+        # NOT updated here — those are controlled exclusively by submit/post endpoints.
         entry.updated_by = str(payload.userId)
 
         await db.commit()

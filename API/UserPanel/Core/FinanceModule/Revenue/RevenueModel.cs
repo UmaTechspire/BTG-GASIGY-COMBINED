@@ -6,11 +6,6 @@
     }
     public class RevenueHeader
     {
-
-        public int? bankid { get; set; }
-        public int? payment_method { get; set; }
-        public decimal? Amount { get; set; }
-        public int? currencyid { get; set; }
         public int? RevenueId { get; set; }
         public string VoucherNo { get; set; }
         public DateTime ReceivedDate { get; set; }

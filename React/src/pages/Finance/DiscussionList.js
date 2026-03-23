@@ -16,7 +16,10 @@ import { Tooltip } from "primereact/tooltip";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import { useRef } from "react";
-import { GetDiscussionlist, UpdateDiscussion, ClaimAndPaymentGetById, GetByIdPurchaseRequisition, DownloadFileById, GetPRNoBySupplierAndCurrency, GetByIdPurchaseOrder } from "common/data/mastersapi";
+import {
+    GetDiscussionlist, UpdateDiscussion, ClaimAndPaymentGetById, GetByIdPurchaseRequisition,
+    DownloadFileById, GetPRNoBySupplierAndCurrency, GetByIdPurchaseOrder
+} from "common/data/mastersapi";
 import Swal from 'sweetalert2';
 import Breadcrumbs from "../../components/Common/Breadcrumb";
 import useAccess from "../../common/access/useAccess";
@@ -126,7 +129,7 @@ const DiscussionList = () => {
                 updatedBy: UserData?.u_id || 0
             };
 
-            const res = await UpdateDiscussion(selectedRow.paymentplanid, "Clarified : " + remarks, selectedRow.isclaim, selectedRow.type);
+            const res = await UpdateDiscussion(selectedRow.paymentplanid, "Clarified : " + remarks, selectedRow.isclaim, selectedRow.type, UserData?.u_id || 0);
             if (res?.status) {
                 Swal.fire("Success", "Discussion updated successfully.", "success");
                 setAcceptModalOpen(false);

@@ -6,6 +6,7 @@ using Application.Finance.ClaimApproval.Approval;
 using Application.Finance.ClaimApproval.AutoApproval;
 using Application.Finance.ClaimApproval.GetAll;
 using Application.Finance.ClaimApproval.GetHistory;
+using Application.Finance.ClaimApproval.GetPVHistory;
 using Application.Finance.ClaimApproval.Reject;
 using Application.Finance.ClaimApproval.Remarks;
 using Application.Finance.ClaimApproval.SeqNo;
@@ -98,9 +99,16 @@ namespace UserPanel.Controllers.Finance
             return Ok(result);
         }
         [HttpPut("AcceptDiscussion")]
-        public async Task<IActionResult> AcceptDiscussion(Int32 ClaimId,string Comment, int Type, int isclaimant)
+        public async Task<IActionResult> AcceptDiscussion(Int32 ClaimId,string Comment, int Type, int isclaimant,int userid)
         {
-            var result = await _mediator.Send(new AcceptDiscussionCommand() { claimid = ClaimId,Comment= Comment, Type=Type, isclaimant= isclaimant });
+            var result = await _mediator.Send(new AcceptDiscussionCommand() { userid= userid, claimid = ClaimId,Comment= Comment, Type=Type, isclaimant= isclaimant });
+            return Ok(result);
+        }
+
+        [HttpGet("GetPVHistory")]
+        public async Task<IActionResult> GetPVHistory(Int32 SummaryId,   Int32 BranchId, Int32 orgid)
+        {
+            var result = await _mediator.Send(new GetPVHistoryApproveCommand() { BranchId = BranchId, OrgId = orgid, id = SummaryId });
             return Ok(result);
         }
     }

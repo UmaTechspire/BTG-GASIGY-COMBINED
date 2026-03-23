@@ -147,7 +147,7 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_DSI_GetDONumberString;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_DSI_GetDONumberString(IN p_do_id INT)
 BEGIN
-    SELECT salesinvoicenbr FROM btggasify_userpanel_live.tbl_salesinvoices_header WHERE id = p_do_id;
+    SELECT salesinvoicenbr FROM btggasify_live.tbl_salesinvoices_header WHERE id = p_do_id;
 END //
 DELIMITER ;
 
@@ -156,8 +156,8 @@ DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_DSI_CheckDOConverted(IN p_do_num VARCHAR(100))
 BEGIN
     SELECT h.salesinvoicenbr 
-    FROM btggasify_userpanel_live.tbl_salesinvoices_details d
-    JOIN btggasify_userpanel_live.tbl_salesinvoices_header h ON d.salesinvoicesheaderid = h.id
+    FROM btggasify_live.tbl_salesinvoices_details d
+    JOIN btggasify_live.tbl_salesinvoices_header h ON d.salesinvoicesheaderid = h.id
     WHERE d.DOnumber = p_do_num COLLATE utf8mb4_general_ci
       AND h.isactive = 1
     LIMIT 1;
@@ -169,7 +169,7 @@ DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_DSI_GetDODetailsForConvert(IN p_do_id INT)
 BEGIN
     SELECT gascodeid, PickedQty, UnitPrice, Currencyid, ExchangeRate 
-    FROM btggasify_userpanel_live.tbl_salesinvoices_details 
+    FROM btggasify_live.tbl_salesinvoices_details 
     WHERE salesinvoicesheaderid = p_do_id;
 END //
 DELIMITER ;

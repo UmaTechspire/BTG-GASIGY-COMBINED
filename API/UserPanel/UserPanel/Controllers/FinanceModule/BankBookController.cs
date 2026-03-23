@@ -17,15 +17,14 @@ namespace UserPanel.Controllers.FinanceModule
 
         [HttpGet("list")]
         public async Task<IActionResult> GetListBankBookAsync([FromQuery] int orgid, [FromQuery] int branchid,
-            [FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate,int bankid)
+            [FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate)
         {
             var result = await _mediator.Send(new GetListBankBookQuery
             {
                 OrgId = orgid,
                 BranchId = branchid,
                 FromDate = fromDate,
-                ToDate = toDate,
-                bankid= bankid
+                ToDate = toDate
             });
 
             return Ok(result);

@@ -1,3 +1,0 @@
-C:\Users\USER\Downloads\BTG-GASIGY-COMBINED\API\UserPanel\publish\BackEnd.dll
-C:\Users\USER\Downloads\BTG-GASIGY-COMBINED\API\UserPanel\publish\BackEnd.deps.json
-C:\Users\USER\Downloads\BTG-GASIGY-COMBINED\API\UserPanel\publish\BackEnd.pdb

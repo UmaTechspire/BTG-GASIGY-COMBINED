@@ -54,8 +54,6 @@ namespace Core.Procurement.PurchaseRequisition
         public decimal TaxValue { get; set; }
         public decimal VatValue { get; set; }
         public decimal NetTotal { get; set; }
-        public string? user_reply { get; set; }
-        public string? reply_timestamp { get; set; }
 
 
     }

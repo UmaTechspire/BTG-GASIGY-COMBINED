@@ -1,12 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "TUIQJQVO7u8=",
+  "dgSpecHash": "oWA7ACw0UO8=",
   "success": true,
-  "projectFilePath": "C:\\Users\\USER\\Downloads\\BTG-GASIGY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
+  "projectFilePath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\USER\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.12\\microsoft.windowsdesktop.app.ref.9.0.12.nupkg.sha512",
-    "C:\\Users\\USER\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.12\\microsoft.netcore.app.ref.9.0.12.nupkg.sha512",
-    "C:\\Users\\USER\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\9.0.12\\microsoft.aspnetcore.app.ref.9.0.12.nupkg.sha512"
+    "C:\\Users\\melwi\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.11\\microsoft.netcore.app.ref.9.0.11.nupkg.sha512",
+    "C:\\Users\\melwi\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.11\\microsoft.windowsdesktop.app.ref.9.0.11.nupkg.sha512",
+    "C:\\Users\\melwi\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\9.0.11\\microsoft.aspnetcore.app.ref.9.0.11.nupkg.sha512"
   ],
   "logs": []
 }

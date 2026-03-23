@@ -281,10 +281,29 @@ namespace Infrastructure.Repositories
                 //UPDATE tbl_claimAndpayment_header SET isdiscussionaccepted=1,isclaimant_discussed=1, claim_comment = '" + obj.Comment + "'   WHERE Claim_ID = " + obj.ClaimId + " and ifnull(isclaimant_discussed,0)=0 and ifnull(claim_gm_isdiscussed,0)=0 and ifnull(claim_gm_isapproved,0)=0;";
 
                 string updateHeaderSql = @"
-            UPDATE tbl_claimAndpayment_header SET claim_gm_isdiscussed=0,issubmitted=1,claim_comment = '" + obj.Comment + "', LastModifiedBY="+obj.DiscussedBy+"   WHERE Claim_ID = " + obj.ClaimId + " and   ifnull(claim_gm_isdiscussed,0)=1 and ifnull(claim_gm_isapproved,0)=0 and isactive=1;";
+            UPDATE tbl_claimAndpayment_header SET claim_hod_isdiscussed=0,claim_gm_isdiscussed=0,issubmitted=1,claim_comment = '" + obj.Comment + "', LastModifiedBY="+obj.DiscussedBy+"   WHERE Claim_ID = " + obj.ClaimId + " and  ( ifnull(claim_hod_isdiscussed,0)=1 or ifnull(claim_gm_isdiscussed,0)=1) and ifnull(claim_gm_isapproved,0)=0 and isactive=1;";
 
                 await _connection.ExecuteAsync(updateHeaderSql);
 
+
+                var UpdateSeq = "call proc_claimhodapproval(@claimId); ";
+                var Result = await _connection.ExecuteAsync(UpdateSeq, new { claimId = obj.ClaimId });
+
+                var IsHod = "select ifnull(is_Hod_created,0) as is_Hod_created from tbl_claimAndpayment_header where Claim_Id=@claimId; ";
+                var IsHod_Result = await _connection.ExecuteScalarAsync<int>(IsHod, new { claimId = obj.ClaimId });
+
+                await _connection.ExecuteAsync(
+     "CALL proc_insert_discussion(@claimid, @remarks, @userid,@level,@trans)",
+     new
+     {
+         claimid = obj.ClaimId,
+         remarks = obj.Comment,
+         userid = obj.DiscussedBy,
+         level = IsHod_Result==0 ? 3 : 1,
+         trans = "approve"
+
+     }
+ );
 
 
                 return new ResponseModel
@@ -481,14 +500,17 @@ namespace Infrastructure.Repositories
         {
             try
             {
-              
-                var UpdateSeq = "call proc_approver_replies(@claimid); ";
-                var Result = await _connection.ExecuteAsync(UpdateSeq, new { claimid= claimid });
+                var UpdateSeq = "call proc_approver_replies(1,@claimid,@level); ";
+                var Result = await _connection.QueryMultipleAsync(UpdateSeq, new { claimid= claimid, level= level });
 
+              
+                var details = Result.Read().ToList();
+                var header = Result.ReadFirstOrDefault();
+               
 
                 return new ResponseModel
                 {
-                    Data = Result,
+                    Data = new { Header = header, Details = details },
                     Message = "Success",
                     Status = true
                 };

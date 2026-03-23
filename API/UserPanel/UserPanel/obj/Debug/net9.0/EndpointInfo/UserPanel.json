@@ -342,163 +342,6 @@
         }
       }
     },
-    "/api/AR/create": {
-      "post": {
-        "tags": [
-          "AR"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateARCommand"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateARCommand"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateARCommand"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/AR/update": {
-      "put": {
-        "tags": [
-          "AR"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateARCommand"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateARCommand"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateARCommand"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/AR/get-by-id": {
-      "get": {
-        "tags": [
-          "AR"
-        ],
-        "parameters": [
-          {
-            "name": "customerid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "orgId",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "branchId",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/AR/getARBook": {
-      "get": {
-        "tags": [
-          "AR"
-        ],
-        "parameters": [
-          {
-            "name": "orgid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "default": 1
-            }
-          },
-          {
-            "name": "branchid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "default": 1
-            }
-          },
-          {
-            "name": "customer_id",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "default": 0
-            }
-          },
-          {
-            "name": "from_date",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            }
-          },
-          {
-            "name": "to_date",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/api/Authenticate/login": {
       "post": {
         "tags": [
@@ -661,60 +504,6 @@
       "get": {
         "tags": [
           "BankBook"
-        ],
-        "parameters": [
-          {
-            "name": "orgid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "branchid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "fromDate",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            }
-          },
-          {
-            "name": "toDate",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            }
-          },
-          {
-            "name": "bankid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/BankReconciliation/list": {
-      "get": {
-        "tags": [
-          "BankReconciliation"
         ],
         "parameters": [
           {
@@ -1238,6 +1027,36 @@
           },
           {
             "name": "orgId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/ClaimAndPayment/getcommentreply": {
+      "get": {
+        "tags": [
+          "ClaimAndPayment"
+        ],
+        "parameters": [
+          {
+            "name": "claimid",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "level",
             "in": "query",
             "schema": {
               "type": "integer",
@@ -3547,133 +3366,6 @@
             }
           }
         },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/ErrorLog/Create": {
-      "post": {
-        "tags": [
-          "ErrorLog"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateErrorLogCommand"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateErrorLogCommand"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateErrorLogCommand"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/FinanceReport/SalesReport": {
-      "get": {
-        "tags": [
-          "FinanceReport"
-        ],
-        "parameters": [
-          {
-            "name": "orgid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "fromDate",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "toDate",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "customerid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "gasid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/FinanceReport/ProfitAndLossReport": {
-      "get": {
-        "tags": [
-          "FinanceReport"
-        ],
-        "parameters": [
-          {
-            "name": "orgid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "fromDate",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "toDate",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "currencyid",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -13305,37 +12997,6 @@
         }
       }
     },
-    "/api/TransactionLog/Create": {
-      "post": {
-        "tags": [
-          "TransactionLog"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTransactionLogCommand"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTransactionLogCommand"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTransactionLogCommand"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/api/Units/get-all": {
       "get": {
         "tags": [
@@ -13508,18 +13169,6 @@
         }
       }
     },
-    "/": {
-      "get": {
-        "tags": [
-          "UserPanel"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/WeatherForecast": {
       "get": {
         "tags": [
@@ -13657,72 +13306,6 @@
         "properties": {
           "approve": {
             "$ref": "#/components/schemas/RequisitionApprovalHdr"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ArReceiptInput": {
-        "type": "object",
-        "properties": {
-          "receipt_id": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "payment_amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "ar_id": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "cash_amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "bank_amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "contra_amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "tax_rate": {
-            "type": "number",
-            "format": "double"
-          },
-          "bank_payment_via": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "bank_name": {
-            "type": "string",
-            "nullable": true
-          },
-          "cheque_number": {
-            "type": "string",
-            "nullable": true
-          },
-          "giro_number": {
-            "type": "string",
-            "nullable": true
-          },
-          "deposit_bank_id": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "deposit_account_number": {
-            "type": "string",
-            "nullable": true
-          },
-          "contra_reference": {
-            "type": "string",
-            "nullable": true
-          },
-          "proof_missing": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -13981,6 +13564,18 @@
       "ClaimApproval": {
         "type": "object",
         "properties": {
+          "isreply": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approve_trans": {
+            "type": "string",
+            "nullable": true
+          },
+          "level": {
+            "type": "integer",
+            "format": "int32"
+          },
           "userid": {
             "type": "integer",
             "format": "int32"
@@ -14171,36 +13766,6 @@
         },
         "additionalProperties": false
       },
-      "CreateARCommand": {
-        "type": "object",
-        "properties": {
-          "orgId": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "branchId": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "userId": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "userIp": {
-            "type": "string",
-            "nullable": true
-          },
-          "invoiceId": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "typeid": {
-            "type": "integer",
-            "format": "int32"
-          }
-        },
-        "additionalProperties": false
-      },
       "CreateClaimAndPaymentCommand": {
         "type": "object",
         "properties": {
@@ -14289,15 +13854,6 @@
         "properties": {
           "header": {
             "$ref": "#/components/schemas/DepartmentItemHeader"
-          }
-        },
-        "additionalProperties": false
-      },
-      "CreateErrorLogCommand": {
-        "type": "object",
-        "properties": {
-          "errorLog": {
-            "$ref": "#/components/schemas/ErrorLogMasterModel"
           }
         },
         "additionalProperties": false
@@ -14692,15 +14248,6 @@
         },
         "additionalProperties": false
       },
-      "CreateTransactionLogCommand": {
-        "type": "object",
-        "properties": {
-          "transactionLog": {
-            "$ref": "#/components/schemas/UserTransactionLogModel"
-          }
-        },
-        "additionalProperties": false
-      },
       "CreateUnitsItemCommand": {
         "type": "object",
         "properties": {
@@ -15001,87 +14548,6 @@
         "properties": {
           "discuss": {
             "$ref": "#/components/schemas/DiscussClaim"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ErrorLogMasterModel": {
-        "type": "object",
-        "properties": {
-          "errorMessage": {
-            "type": "string",
-            "nullable": true
-          },
-          "errorType": {
-            "type": "string",
-            "nullable": true
-          },
-          "stackTrace": {
-            "type": "string",
-            "nullable": true
-          },
-          "source": {
-            "type": "string",
-            "nullable": true
-          },
-          "method_Function": {
-            "type": "string",
-            "nullable": true
-          },
-          "innerException": {
-            "type": "string",
-            "nullable": true
-          },
-          "userId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "screenId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "screenName": {
-            "type": "string",
-            "nullable": true
-          },
-          "moduleId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "moduleName": {
-            "type": "string",
-            "nullable": true
-          },
-          "requestData_Payload": {
-            "type": "string",
-            "nullable": true
-          },
-          "createdDate": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "modifiedDate": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "isActive": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "environment": {
-            "type": "string",
-            "nullable": true
-          },
-          "serverName": {
-            "type": "string",
-            "nullable": true
-          },
-          "errorCode": {
-            "type": "string",
-            "nullable": true
           }
         },
         "additionalProperties": false
@@ -16318,31 +15784,6 @@
       "OverDraftHeader": {
         "type": "object",
         "properties": {
-          "currencyid": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "bankid": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "payment_method": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "odAmount": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
-          },
-          "finalSettlementAmountIDR": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
-          },
           "overDraftId": {
             "type": "integer",
             "format": "int32",
@@ -17362,8 +16803,8 @@
             "format": "date-time"
           },
           "expenseType": {
-            "type": "integer",
-            "format": "int32"
+            "type": "string",
+            "nullable": true
           },
           "billNumber": {
             "type": "string",
@@ -17389,25 +16830,13 @@
             "type": "string",
             "nullable": true
           },
-          "currencyid": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "exchangeRate": {
-            "type": "number",
-            "format": "double"
-          },
           "amountIDR": {
             "type": "number",
             "format": "double"
           },
           "expenseDescriptionId": {
-            "type": "string",
-            "nullable": true
+            "type": "integer",
+            "format": "int32"
           },
           "isActive": {
             "type": "boolean"
@@ -18157,14 +17586,6 @@
           "netTotal": {
             "type": "number",
             "format": "double"
-          },
-          "user_reply": {
-            "type": "string",
-            "nullable": true
-          },
-          "reply_timestamp": {
-            "type": "string",
-            "nullable": true
           }
         },
         "additionalProperties": false
@@ -18700,26 +18121,6 @@
       "RevenueHeader": {
         "type": "object",
         "properties": {
-          "bankid": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "payment_method": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "amount": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
-          },
-          "currencyid": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
           "revenueId": {
             "type": "integer",
             "format": "int32",
@@ -19140,35 +18541,6 @@
           "branchId": {
             "type": "integer",
             "format": "int32"
-          }
-        },
-        "additionalProperties": false
-      },
-      "UpdateARCommand": {
-        "type": "object",
-        "properties": {
-          "orgId": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "branchId": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "userId": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "userIp": {
-            "type": "string",
-            "nullable": true
-          },
-          "header": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ArReceiptInput"
-            },
-            "nullable": true
           }
         },
         "additionalProperties": false
@@ -19730,122 +19102,6 @@
             "type": "boolean"
           },
           "branchId": {
-            "type": "integer",
-            "format": "int32"
-          }
-        },
-        "additionalProperties": false
-      },
-      "UserTransactionLogModel": {
-        "type": "object",
-        "properties": {
-          "transactionLogId": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "transactionId": {
-            "type": "string",
-            "nullable": true
-          },
-          "moduleId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "screenId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "moduleName": {
-            "type": "string",
-            "nullable": true
-          },
-          "screenName": {
-            "type": "string",
-            "nullable": true
-          },
-          "orgId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "branchId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "userId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "roleId": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "userName": {
-            "type": "string",
-            "nullable": true
-          },
-          "roleName": {
-            "type": "string",
-            "nullable": true
-          },
-          "actionType": {
-            "type": "string",
-            "nullable": true
-          },
-          "actionDescription": {
-            "type": "string",
-            "nullable": true
-          },
-          "tableName": {
-            "type": "string",
-            "nullable": true
-          },
-          "oldValue": {
-            "type": "string",
-            "nullable": true
-          },
-          "newValue": {
-            "type": "string",
-            "nullable": true
-          },
-          "ipAddress": {
-            "type": "string",
-            "nullable": true
-          },
-          "machineName": {
-            "type": "string",
-            "nullable": true
-          },
-          "browserInfo": {
-            "type": "string",
-            "nullable": true
-          },
-          "createdBy": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "createdDate": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "modifiedBy": {
-            "type": "string",
-            "nullable": true
-          },
-          "modifiedDate": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "isActive": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "dbLog": {
             "type": "integer",
             "format": "int32"
           }

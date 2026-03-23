@@ -25,7 +25,7 @@ BEGIN
         c.CustomerName as customer_name, 
         ar.ar_no, 
         ar.invoice_no, 
-        (SELECT d.PONumber FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
         ar.inv_amount as invoice_amount, 
         NULL as receipt_no, 
@@ -72,7 +72,7 @@ BEGIN
         ar.invoice_no, 
         0 as invoice_amount, 
         r.reference_no as receipt_no, 
-        (SELECT d.PONumber FROM btggasify_userpanel_live.tbl_salesinvoices_details d 
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
         ra.payment_amount as receipt_amount, 
         0 as debit_note_amount, 
@@ -247,7 +247,7 @@ BEGIN
         DATE_FORMAT(h.Salesinvoicesdate, '%d-%m-%Y') as invoice_date,
         h.TotalAmount as total_amount,
         (h.TotalAmount - IFNULL(h.PaidAmount, 0)) as balance_due
-    FROM btggasify_userpanel_live.tbl_salesinvoices_header h
+    FROM btggasify_live.tbl_salesinvoices_header h
     WHERE h.customerid = p_customer_id
       AND (h.TotalAmount - IFNULL(h.PaidAmount, 0)) > 0
       AND h.IsSubmitted = 1

@@ -51,7 +51,7 @@ namespace Infrastructure.Repositories
                 return new SharedModelWithResponse()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -225,7 +225,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -268,7 +268,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -338,7 +338,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -412,7 +412,7 @@ namespace Infrastructure.Repositories
 
 
 
-                
+                 
 
                 const string requistionsql = @"UPDATE tbl_purchaseorder_requisition SET IsActive = 0 WHERE poid = @poid; update tbl_PurchaseRequisition_Header  as a inner join tbl_purchaseorder_requisitions as b on a.prid=b.prid and b.isactive=1 set IsPOUtil=1 where b.poid=@poid ";
                 await _connection.ExecuteAsync(deleteDetailsSql, new {  poid });
@@ -484,7 +484,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -526,7 +526,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -597,7 +597,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -639,7 +639,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -681,7 +681,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -719,7 +719,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -763,7 +763,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -826,7 +826,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }
@@ -868,7 +868,7 @@ namespace Infrastructure.Repositories
                 return new ResponseModel()
                 {
                     Data = null,
-                    Message = "Something went wrong: " + Ex.Message,
+                    Message = "Something went wrong",
                     Status = false
                 };
             }

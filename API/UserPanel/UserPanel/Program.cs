@@ -9,8 +9,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using System;
-using System.Linq;
 //using Core.Shared.Tenant_DB;
  
 
@@ -23,14 +21,7 @@ ConfigurationManager configuration = builder.Configuration;
 var connection = configuration.GetConnectionString("DBConnection");
 
 // For Entity Framework
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-{
-    options.UseMySQL(configuration.GetConnectionString("DBConnection"));
-    if (builder.Environment.IsDevelopment())
-    {
-        options.EnableSensitiveDataLogging();
-    }
-});
+builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseMySQL(configuration.GetConnectionString("DBConnection")));
 
 // For Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
@@ -124,26 +115,30 @@ app.UseCors(devCorsPolicy);
 //app.UseWebSockets();
 ////}
 
-// Only enable HTTPS redirection when an HTTPS URL is configured.
-// This prevents the middleware warning when the server is only listening on HTTP.
-bool hasHttps = app.Urls.Any(u => u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                || builder.Configuration.GetValue<string>("ASPNETCORE_URLS")?.Split(';').Any(s => s.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) == true;
+//app.Use(async (context, next) =>
+//{
+//    if (context.Request.Path == "/ws")
+//    {
+//        if (context.WebSockets.IsWebSocketRequest)
+//        {
+//            var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+//            await wsc.HandleWebSocketConnection(webSocket);
+//        }
+//        else
+//        {
+//            context.Response.StatusCode = 400; // Bad Request
+//        }
+//    }
+//    else
+//    {
+//        await next();
+//    }
+//});
 
-if (hasHttps)
-{
-    app.UseHttpsRedirection();
-}
-else
-{
-    Console.WriteLine("Skipping HTTPS redirection because no HTTPS URL configured.");
-}
-
+app.UseHttpsRedirection();
 app.UseAuthentication();
 
 app.UseAuthorization();
-
-// Map root to swagger UI so browsing to http://localhost:{port} shows the API documentation.
-app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.MapControllers();
 

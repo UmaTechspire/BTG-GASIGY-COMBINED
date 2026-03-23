@@ -9,18 +9,15 @@
         public int? PettyCashId { get; set; }
         public string VoucherNo { get; set; }
         public DateTime ExpDate { get; set; }
-        public int ExpenseType { get; set; }
+        public string? ExpenseType { get; set; }
         public string BillNumber { get; set; }
         public string ExpenseFileName { get; set; }
         public string ExpenseFilePath { get; set; }
         public DateTime FileUpdatedDate { get; set; }
         public string Who { get; set; }
         public string Whom { get; set; }
-        public int currencyid { get; set; }
-        public decimal Amount { get; set; }
-        public decimal exchangeRate { get; set; }
         public decimal AmountIDR { get; set; }
-        public string ExpenseDescriptionId { get; set; }
+        public int ExpenseDescriptionId { get; set; }
         public bool IsActive { get; set; }
         public int userid { get; set; }
         public string CreatedIP { get; set; }
