@@ -49,7 +49,8 @@ BEGIN
         '-' as remarks,
         0 as receipt_id, 
         0 as deposit_bank_id, 
-        ar.invoice_id as real_invoice_id
+        ar.invoice_id as real_invoice_id,
+        0 as total_receipt_amount
     FROM btggasify_finance_live.tbl_accounts_receivable ar 
     JOIN btggasify_live.master_customer c ON ar.customer_id = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId 
@@ -60,7 +61,7 @@ BEGIN
 
     UNION ALL
 
-    -- Receipts (Allocated)
+    -- Receipts (Allocated via Link Table)
     SELECT 
         r.receipt_id as transaction_id, 
         ar.customer_id as customer_id, 
@@ -72,7 +73,7 @@ BEGIN
         ar.invoice_no, 
         (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
-        0 as invoice_amount, 
+        ar.inv_amount as invoice_amount, 
         r.reference_no as receipt_no, 
         ra.payment_amount as receipt_amount, 
         0 as debit_note_amount, 
@@ -82,14 +83,52 @@ BEGIN
         '-' as remarks,
         r.receipt_id, 
         IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
-        ar.invoice_id as real_invoice_id
+        ar.invoice_id as real_invoice_id,
+        (r.cash_amount + r.bank_amount) as total_receipt_amount
     FROM btggasify_finance_live.tbl_receipt_ag_ar ra 
     JOIN btggasify_finance_live.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id 
     JOIN btggasify_finance_live.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id 
     LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId 
     JOIN btggasify_live.master_customer c ON ar.customer_id = c.Id 
-    WHERE ar.is_active = 1 AND ar.orgid = p_org_id AND ar.branchid = p_branch_id
+    WHERE ar.is_active = 1 AND ra.is_active = 1 AND ar.orgid = p_org_id AND ar.branchid = p_branch_id
       AND (p_customer_id = 0 OR ar.customer_id = p_customer_id)
+      AND (p_from_date IS NULL OR r.receipt_date >= p_from_date)
+      AND (p_to_date IS NULL OR r.receipt_date <= p_to_date)
+      AND IFNULL(r.is_submitted, 0) = 1
+
+    UNION ALL
+
+    -- Receipts (Allocated via direct ar_id, fallback for single-invoice legacy data)
+    SELECT 
+        r.receipt_id as transaction_id, 
+        ar.customer_id as customer_id, 
+        ar.invoice_amt_idr as invoice_amount_idr, 
+        cur.CurrencyCode as currencycode, 
+        r.receipt_date as ledger_date, 
+        c.CustomerName as customer_name, 
+        ar.ar_no, 
+        ar.invoice_no, 
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
+         WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
+        ar.inv_amount as invoice_amount, 
+        r.reference_no as receipt_no, 
+        (r.cash_amount + r.bank_amount) as receipt_amount, 
+        0 as debit_note_amount, 
+        0 as credit_note_amount, 
+        ar.balance_amount as balance, 
+        CASE WHEN(IFNULL(r.bank_amount,0) > 0) THEN 'Bank' ELSE 'Cash' END as payment_mode, 
+        'Direct AR Mapping' as remarks,
+        r.receipt_id, 
+        IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
+        ar.invoice_id as real_invoice_id,
+        (r.cash_amount + r.bank_amount) as total_receipt_amount
+    FROM btggasify_finance_live.tbl_ar_receipt r
+    JOIN btggasify_finance_live.tbl_accounts_receivable ar ON r.ar_id = ar.ar_id 
+    LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId 
+    JOIN btggasify_live.master_customer c ON ar.customer_id = c.Id 
+    WHERE r.is_active = 1 AND r.orgid = p_org_id AND r.branchid = p_branch_id
+      AND NOT EXISTS (SELECT 1 FROM btggasify_finance_live.tbl_receipt_ag_ar ra3 WHERE ra3.receipt_id = r.receipt_id AND ra3.is_active = 1)
+      AND (p_customer_id = 0 OR r.customer_id = p_customer_id)
       AND (p_from_date IS NULL OR r.receipt_date >= p_from_date)
       AND (p_to_date IS NULL OR r.receipt_date <= p_to_date)
       AND IFNULL(r.is_submitted, 0) = 1
@@ -116,7 +155,8 @@ BEGIN
         'Debit Note' as payment_mode, 
         dn.Description as remarks,
         0 as receipt_id, 0 as deposit_bank_id, 
-        dn.DebitNoteId as real_invoice_id
+        dn.DebitNoteId as real_invoice_id,
+        0 as total_receipt_amount
     FROM btggasify_finance_live.Debit_Notes dn 
     JOIN btggasify_live.master_customer c ON dn.CustomerId = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON dn.CurrencyId = cur.CurrencyId 
@@ -148,7 +188,8 @@ BEGIN
         'Credit Note' as payment_mode, 
         cn.Description as remarks,
         0 as receipt_id, 0 as deposit_bank_id, 
-        cn.CreditNoteId as real_invoice_id
+        cn.CreditNoteId as real_invoice_id,
+        0 as total_receipt_amount
     FROM btggasify_finance_live.Credit_Notes cn 
     JOIN btggasify_live.master_customer c ON cn.CustomerId = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON cn.CurrencyId = cur.CurrencyId 
@@ -160,7 +201,7 @@ BEGIN
 
     UNION ALL
 
-    -- Unallocated Receipts
+    -- Unallocated Receipts (Portion not linked to any Invoice)
     SELECT 
         r.receipt_id as transaction_id, 
         r.customer_id as customer_id, 
@@ -173,23 +214,26 @@ BEGIN
         '' as po_no,
         0 as invoice_amount, 
         r.receipt_no as receipt_no, 
-        (r.cash_amount + r.bank_amount) as receipt_amount, 
+        ((r.cash_amount + r.bank_amount) - IFNULL((SELECT SUM(ra2.payment_amount) FROM btggasify_finance_live.tbl_receipt_ag_ar ra2 WHERE ra2.receipt_id = r.receipt_id AND ra2.is_active = 1), 0)) as receipt_amount, 
         0 as debit_note_amount, 
         0 as credit_note_amount, 
-        -(r.cash_amount + r.bank_amount) as balance, 
+        -((r.cash_amount + r.bank_amount) - IFNULL((SELECT SUM(ra2.payment_amount) FROM btggasify_finance_live.tbl_receipt_ag_ar ra2 WHERE ra2.receipt_id = r.receipt_id AND ra2.is_active = 1), 0)) as balance, 
         CASE WHEN(IFNULL(r.bank_amount,0) > 0) THEN 'Bank' ELSE 'Cash' END as payment_mode, 
-        'Standalone Receipt' as remarks, 
+        'Standalone/Partial Receipt' as remarks, 
         r.receipt_id, 
         IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
-        '0' as real_invoice_id
+        '0' as real_invoice_id,
+        (r.cash_amount + r.bank_amount) as total_receipt_amount
     FROM btggasify_finance_live.tbl_ar_receipt r 
     JOIN btggasify_live.master_customer c ON r.customer_id = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON r.currencyid = cur.CurrencyId 
-    WHERE r.is_active = 1 AND r.ar_id IS NULL AND r.orgid = p_org_id AND r.branchid = p_branch_id
+    WHERE r.is_active = 1 AND r.orgid = p_org_id AND r.branchid = p_branch_id
+      AND r.ar_id IS NULL
       AND (p_customer_id = 0 OR r.customer_id = p_customer_id)
       AND (p_from_date IS NULL OR r.receipt_date >= p_from_date)
       AND (p_to_date IS NULL OR r.receipt_date <= p_to_date)
       AND IFNULL(r.is_submitted, 0) = 1
+      AND ((r.cash_amount + r.bank_amount) - IFNULL((SELECT SUM(ra2.payment_amount) FROM btggasify_finance_live.tbl_receipt_ag_ar ra2 WHERE ra2.receipt_id = r.receipt_id AND ra2.is_active = 1), 0)) > 0.01
 
     ORDER BY customer_name, ledger_date, ar_no;
 END //
@@ -216,15 +260,22 @@ BEGIN
         (SELECT COALESCE(SUM(ra.payment_amount), 0) 
          FROM btggasify_finance_live.tbl_receipt_ag_ar ra 
          JOIN btggasify_finance_live.tbl_accounts_receivable ar_link ON ra.ar_id = ar_link.ar_id
-         WHERE ar_link.invoice_id = h.id AND ra.receipt_id = p_receipt_id AND ra.is_active = 1
+         WHERE TRIM(ar_link.invoice_no) = TRIM(h.salesinvoicenbr) 
+           AND ra.receipt_id = p_receipt_id AND ra.is_active = 1
         ) as allocated_here,
-        (h.TotalAmount - (IFNULL(h.PaidAmount, 0) - 
-            (SELECT COALESCE(SUM(ra.payment_amount), 0) 
-             FROM btggasify_finance_live.tbl_receipt_ag_ar ra 
-             JOIN btggasify_finance_live.tbl_accounts_receivable ar_link ON ra.ar_id = ar_link.ar_id
-             WHERE ar_link.invoice_id = h.id AND ra.receipt_id = p_receipt_id AND ra.is_active = 1
-            )
-        )) as balance_due
+        (h.TotalAmount - 
+            (SELECT COALESCE(SUM(ra3.payment_amount), 0) 
+             FROM btggasify_finance_live.tbl_receipt_ag_ar ra3 
+             JOIN btggasify_finance_live.tbl_accounts_receivable ar_link3 ON ra3.ar_id = ar_link3.ar_id
+             WHERE TRIM(ar_link3.invoice_no) = TRIM(h.salesinvoicenbr) 
+               AND ra3.is_active = 1
+               AND (ra3.receipt_id != p_receipt_id OR p_receipt_id IS NULL)
+            ) -
+            (SELECT COALESCE(SUM(cn.Amount), 0) 
+             FROM btggasify_finance_live.credit_invoice ci 
+             JOIN btggasify_finance_live.Credit_Notes cn ON ci.CreditNoteId = cn.CreditNoteId 
+             WHERE TRIM(ci.InvoiceNo) = TRIM(h.salesinvoicenbr) AND cn.IsSubmitted = 1)
+        ) as balance_due
     FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_finance_live.tbl_accounts_receivable ar ON TRIM(h.salesinvoicenbr) = TRIM(ar.invoice_no)
     LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId
@@ -234,12 +285,25 @@ BEGIN
       AND h.IsSubmitted = 1
       AND h.IsAR = 1
       AND (
-          (h.TotalAmount - IFNULL(h.PaidAmount, 0)) > 0
+          (h.TotalAmount - 
+              (SELECT COALESCE(SUM(ra4.payment_amount), 0) 
+               FROM btggasify_finance_live.tbl_receipt_ag_ar ra4 
+               JOIN btggasify_finance_live.tbl_accounts_receivable ar_link4 ON ra4.ar_id = ar_link4.ar_id
+               WHERE TRIM(ar_link4.invoice_no) = TRIM(h.salesinvoicenbr) AND ra4.is_active = 1
+              ) -
+              (SELECT COALESCE(SUM(cn2.Amount), 0) 
+               FROM btggasify_finance_live.credit_invoice ci2 
+               JOIN btggasify_finance_live.Credit_Notes cn2 ON ci2.CreditNoteId = cn2.CreditNoteId 
+               WHERE TRIM(ci2.InvoiceNo) = TRIM(h.salesinvoicenbr) AND cn2.IsSubmitted = 1)
+          ) > 0.01
           OR 
-          h.id IN (SELECT ar_link2.invoice_id 
-                   FROM btggasify_finance_live.tbl_receipt_ag_ar ra2
-                   JOIN btggasify_finance_live.tbl_accounts_receivable ar_link2 ON ra2.ar_id = ar_link2.ar_id
-                   WHERE ra2.receipt_id = p_receipt_id AND ra2.is_active = 1)
+          -- Match by Invoice Number in link table (override for current receipt)
+          EXISTS (
+              SELECT 1 FROM btggasify_finance_live.tbl_receipt_ag_ar ra2
+              JOIN btggasify_finance_live.tbl_accounts_receivable ar_link2 ON ra2.ar_id = ar_link2.ar_id
+              WHERE TRIM(ar_link2.invoice_no) = TRIM(h.salesinvoicenbr)
+                AND ra2.receipt_id = p_receipt_id AND ra2.is_active = 1
+          )
       )
       AND h.salesinvoicenbr NOT IN (
           SELECT DISTINCT DOnumber 
@@ -320,7 +384,11 @@ BEGIN
         r.receipt_id,
         COALESCE(r.receipt_date, r.created_date) as date,
         r.customer_id,
+        r.transaction_type,
         CASE 
+            WHEN r.transaction_type = 'Bank transfer' THEN COALESCE(pb.BankName, 'Unknown Bank')
+            WHEN r.transaction_type = 'Bank Interest' THEN 'N/A'
+            WHEN LOWER(r.transaction_type) = 'cash deposit' THEN 'Cash Deposit'
             WHEN r.bank_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
             WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
             ELSE COALESCE(c.CustomerName, 'Unknown Customer')
@@ -342,11 +410,14 @@ BEGIN
         COALESCE(b.BankName, 'Unknown Bank') as bank_name,
         COALESCE(mc.CurrencyCode, 'IDR') as CurrencyCode,
         r.bank_charges,
-        r.currencyid
+        r.currencyid,
+        r.combine_group_id,
+        r.custom_voucher_no
     FROM btggasify_finance_live.tbl_ar_receipt r
     LEFT JOIN btggasify_live.master_customer c ON r.customer_id = c.Id
     LEFT JOIN btggasify_masterpanel_live.master_supplier s ON r.customer_id = s.SupplierId
     LEFT JOIN btggasify_masterpanel_live.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
+    LEFT JOIN btggasify_masterpanel_live.master_bank pb ON r.customer_id = pb.BankId
     LEFT JOIN btggasify_live.master_currency mc ON r.currencyid = mc.CurrencyId
     WHERE r.bank_amount != 0
       AND r.is_active = 1
@@ -419,6 +490,7 @@ BEGIN
         COALESCE(r.receipt_date, r.created_date) as date,
         r.customer_id,
         CASE 
+            WHEN LOWER(r.transaction_type) = 'cash deposit' THEN 'Cash Deposit'
             WHEN r.cash_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
             WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
             ELSE COALESCE(c.CustomerName, 'Unknown Customer')

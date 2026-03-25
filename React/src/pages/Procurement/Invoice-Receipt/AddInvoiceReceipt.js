@@ -38,10 +38,10 @@ import "primereact/resources/primereact.min.css";
 import "primeicons/primeicons.css";
 import { useHistory } from "react-router-dom";
 import {
-  GetPaymentMethods,
+  GetPaymentMethods, GetSupplierById,
   GetPurchaseRequisitionSupplierList, GetGRNList, GetSupplierList, GetIRList, SaveIRN, EditIRN, UpdateIRN, GetInvoiceReceiptAddDetails, SaveAddIRNGRNDet, GenerateSPC, GetAllIRNList, uploadIRNAttachment, GetGRNById, DownloadInvoiceReceiptFile, IRNGetBy
-
 } from "common/data/mastersapi";
+
 import Swal from "sweetalert2";
 import { startOfWeek, endOfWeek } from "date-fns";
 // const poOptions = [...new Set(sampleItems.map((i) => i.poNo))].map((po) => ({
@@ -127,6 +127,12 @@ const AddInvoiceReceipt = () => {
             is: (grnId) => selectedItems.includes(grnId),
             then: (schema) =>
               schema.required("Invoice Date is required").typeError("Invalid date"),
+            otherwise: (schema) => schema.nullable(),
+          }),
+          irnDate: Yup.date().nullable().when("grnId", {
+            is: (grnId) => selectedItems.includes(grnId),
+            then: (schema) =>
+              schema.required("IRN Date is required").typeError("Invalid date"),
             otherwise: (schema) => schema.nullable(),
           }),
           modeOfPaymentId: Yup.number()
@@ -247,6 +253,7 @@ const AddInvoiceReceipt = () => {
                 grnDate: header.grndate,
                 invoiceNo: header.invoice_no,
                 invoiceDate: header.invoice_dt ? new Date(header.invoice_dt) : null,
+                irnDate: header.receipt_Date ? new Date(header.receipt_Date) : new Date(),
                 dueDate: header.due_dt ? new Date(header.due_dt) : null,
                 balanceAmount: header.balance_payment,
                 oribal: header.oribal,
@@ -938,6 +945,37 @@ const AddInvoiceReceipt = () => {
     });
   };
 
+  const handleIRNDateChange = async (date, index, setFieldValue, values) => {
+    if (!date) return;
+    const item = values.items[index];
+    const supplierId = item.supplierId;
+
+    try {
+      // Default to 1 day if something goes wrong
+      let days = 1;
+
+      // Fetch supplier details to get payment term
+      const res = await GetSupplierById(supplierId, orgId, branchId);
+      if (res?.status && res.data?.[0]) {
+        const paymentTerm = res.data[0].paymentterm || "";
+        const match = paymentTerm.match(/\d+/);
+        if (match) {
+          days = parseInt(match[0], 10);
+        }
+      }
+
+      const dueDate = new Date(date);
+      dueDate.setDate(dueDate.getDate() + days);
+      setFieldValue(`items[${index}].dueDate`, dueDate);
+    } catch (error) {
+      console.error("Error calculating due date:", error);
+      // Fallback: IRN Date + 1 day
+      const dueDate = new Date(date);
+      dueDate.setDate(dueDate.getDate() + 1);
+      setFieldValue(`items[${index}].dueDate`, dueDate);
+    }
+  };
+
   const handleSearch = async (from, to) => {
     const fromDate = searchFormatDate(from);
     const toDate = searchFormatDate(to);
@@ -958,6 +996,7 @@ const AddInvoiceReceipt = () => {
           supplierName: item.suppliername,
           invoiceNo: item.invoiceno,
           invoiceDate: item.invoicedate ? new Date(item.invoicedate) : null,
+          irnDate: new Date(),
           dueDate: item.duedate ? new Date(item.duedate) : null,
           balanceAmount: item.balance_payment ? parseFloat(item.balance_payment).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00',
           oribal: item.oribal,
@@ -1214,6 +1253,7 @@ const AddInvoiceReceipt = () => {
           supplierid: row.supplierId,
           invoiceno: row.invoiceNo || "",
           invoicedate: searchFormatDate(row.invoiceDate) || "",
+          receipt_Date: searchFormatDate(row.irnDate) || "",
           duedate: searchFormatDate(row.dueDate) || "",
           balance_payment: parseAmount(row.balanceAmount),
           po_amount: parseAmount(row.poAmount),
@@ -1438,10 +1478,12 @@ const AddInvoiceReceipt = () => {
                           <thead>
                             <tr>
                               <th>S.No</th>
+                              <th style={{ width: "6%" }}>IRN Date</th>
                               <th>Supplier</th>
                               <th>PO No.</th>
                               <th>GRN No.</th>
                               <th style={{ width: "6%" }}>Invoice No.</th>
+
                               <th style={{ width: "6%" }}>Invoice Date</th>
                               <th style={{ width: "6%" }}>Due Date</th>
                               <th style={{ width: "10%" }}>Mode of Payment</th>
@@ -1464,9 +1506,31 @@ const AddInvoiceReceipt = () => {
                           <tbody>
                             {values?.items.map((item, index) => (
                               <tr key={index}>
-                                {/* Row checkbox */}
-
                                 <td>{index + 1}</td>
+                                <td>
+                                  <Flatpickr
+                                    className={`form-control ${errors.items?.[index]?.irnDate && touched.items?.[index]?.irnDate
+                                      ? "is-invalid"
+                                      : ""
+                                      }`}
+                                    value={item.irnDate || null}
+                                    placeholder="DD-MM-YYYY"
+                                    onChange={(date) => {
+                                      setFieldValue(`items[${index}].irnDate`, date[0]);
+                                      handleIRNDateChange(date[0], index, setFieldValue, values);
+                                    }}
+                                    options={{
+                                      altInput: true,
+                                      altFormat: "d-M-Y",
+                                      dateFormat: "Y-m-d",
+                                    }}
+                                  />
+                                  <ErrorMessage
+                                    name={`items[${index}].irnDate`}
+                                    component="div"
+                                    className="invalid-feedback"
+                                  />
+                                </td>
                                 <td>{item.supplierName}</td>
                                 {/* PO No → Link */}
                                 <td>{item.pono}</td>

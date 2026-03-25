@@ -1885,7 +1885,7 @@ const AddPurchaseRequisition = () => {
                                                                     options={paymentTerms}
                                                                     onChange={(option) => setFieldValue("paymentTerm", option)}
                                                                     isClearable
-
+                                                                    isDisabled={true}
                                                                 />
                                                             </FormGroup>
                                                         </Col>

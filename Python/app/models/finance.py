@@ -7,6 +7,7 @@ class ARReceipt(Base):
 
     # Primary Key
     receipt_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    transaction_type = Column(String(50), nullable=True, default='Receipt')
     
     ar_id = Column(Integer, nullable=True) 
 
@@ -26,6 +27,7 @@ class ARReceipt(Base):
     sales_person_id = Column(Integer, nullable=True)
     send_notification = Column(Boolean, default=False)
     is_posted = Column(Boolean, default=False)
+    linked_receipt_id = Column(Integer, nullable=True)
     # ------------------------------
 
     # Bank Details
@@ -48,6 +50,8 @@ class ARReceipt(Base):
     branchid = Column(Integer, nullable=True)
     
     # Audit Fields
+    combine_group_id = Column(Integer, nullable=True)
+    custom_voucher_no = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_date = Column(DateTime(timezone=True), server_default=func.now())
     created_by = Column(String(50), nullable=False)

@@ -30,45 +30,132 @@ async def create_ar_receipt(db: AsyncSession, command: schemas.CreateARCommand):
 
         # --- WORKFLOW LOGIC ---
         is_posted = item.is_posted
-        pending_verification = True if is_posted else False
+        
+        # Only 'Receipt' type goes to Marketing Verification
+        is_receipt = (item.transaction_type == 'Receipt')
+        
+        pending_verification = (is_posted and is_receipt)
+        is_submitted = (is_posted and not is_receipt)
 
-        db_receipt = ARReceipt(
-            orgid=command.orgId,
-            branchid=command.branchId,
-            created_by=str(command.userId),
-            created_ip=command.userIp,
+        if item.transaction_type == 'Bank transfer':
+            # 1. Source Bank (Outflow -> Negative)
+            cash_amount = -abs(item.cash_amount) if item.cash_amount else 0
+            bank_amount = -abs(item.bank_amount) if item.bank_amount else 0
             
-            # 🟢 FIX: Use the User-Selected Date (Transaction Date), NOT Today's Date
-            receipt_date=item.receipt_date, 
+            # 2. Destination Bank (Inflow -> Positive)
+            b_cash_amount = abs(item.cash_amount) if item.cash_amount else 0
+            b_bank_amount = abs(item.bank_amount) if item.bank_amount else 0
             
-            customer_id=item.customer_id,
-            bank_amount=item.bank_amount,
-            bank_charges=item.bank_charges,
-            deposit_bank_id=str(item.deposit_bank_id),
+            dest_deposit_bank_id = str(item.customer_id) if item.customer_id else "0"
+            dest_customer_id = int(item.deposit_bank_id) if item.deposit_bank_id and str(item.deposit_bank_id).isdigit() else 0
             
-            # New Fields
-            reference_no=item.reference_no,
-            sales_person_id=item.sales_person_id,
-            send_notification=item.send_notification,
+            is_cleared_status_b = False
+            if dest_deposit_bank_id and dest_deposit_bank_id != "0" and dest_deposit_bank_id.strip() != "":
+                is_cleared_status_b = True
 
-            # 🟢 Persist Cash/Cheque/Via
-            cash_amount=item.cash_amount,
-            bank_payment_via=item.bank_payment_via,
-            cheque_number=item.cheque_number,
+            record_a = ARReceipt(
+                orgid=command.orgId, branchid=command.branchId, created_by=str(command.userId),
+                created_ip=command.userIp, receipt_date=item.receipt_date,
+                customer_id=item.customer_id, transaction_type=item.transaction_type,
+                bank_amount=bank_amount, bank_charges=item.bank_charges,
+                deposit_bank_id=str(item.deposit_bank_id), reference_no=item.reference_no,
+                sales_person_id=item.sales_person_id, send_notification=item.send_notification,
+                cash_amount=cash_amount, bank_payment_via=item.bank_payment_via,
+                cheque_number=item.cheque_number, is_posted=is_posted,
+                pending_verification=pending_verification, is_submitted=is_submitted,
+                flag=is_cleared_status, is_cleared=is_cleared_status, is_active=True
+            )
             
-            # --- STATUS FLAGS ---
-            is_posted=is_posted,
-            pending_verification=pending_verification, 
-            is_submitted=False,
+            record_b = ARReceipt(
+                orgid=command.orgId, branchid=command.branchId, created_by=str(command.userId),
+                created_ip=command.userIp, receipt_date=item.receipt_date,
+                customer_id=dest_customer_id, transaction_type=item.transaction_type,
+                bank_amount=b_bank_amount, bank_charges=item.bank_charges,
+                deposit_bank_id=dest_deposit_bank_id, reference_no=item.reference_no,
+                sales_person_id=item.sales_person_id, send_notification=item.send_notification,
+                cash_amount=b_cash_amount, bank_payment_via=item.bank_payment_via,
+                cheque_number=item.cheque_number, is_posted=is_posted,
+                pending_verification=pending_verification, is_submitted=is_submitted,
+                flag=is_cleared_status_b, is_cleared=is_cleared_status_b, is_active=True
+            )
             
-            # ... other fields ...
-            flag=is_cleared_status, 
-            is_cleared=is_cleared_status,
-            is_active=True,
+            db.add(record_a)
+            db.add(record_b)
+            await db.flush()
             
-        )
-        db.add(db_receipt)
-        created_records.append(db_receipt)
+            record_a.linked_receipt_id = record_b.receipt_id
+            record_b.linked_receipt_id = record_a.receipt_id
+            created_records.extend([record_a, record_b])
+        elif item.transaction_type == 'Cash Deposit':
+            amt = abs(item.bank_amount) if item.bank_amount else (abs(item.cash_amount) if item.cash_amount else 0)
+            cash_amount = amt
+            bank_amount = amt
+            
+            db_receipt = ARReceipt(
+                orgid=command.orgId,
+                branchid=command.branchId,
+                created_by=str(command.userId),
+                created_ip=command.userIp,
+                receipt_date=item.receipt_date, 
+                customer_id=0,
+                transaction_type=item.transaction_type,
+                bank_amount=bank_amount,
+                bank_charges=item.bank_charges,
+                deposit_bank_id=str(item.deposit_bank_id),
+                reference_no=item.reference_no,
+                sales_person_id=item.sales_person_id,
+                send_notification=item.send_notification,
+                cash_amount=cash_amount,
+                bank_payment_via=4,
+                cheque_number=item.cheque_number,
+                is_posted=is_posted,
+                pending_verification=pending_verification, 
+                is_submitted=is_submitted,
+                flag=is_cleared_status, 
+                is_cleared=is_cleared_status,
+                is_active=True,
+            )
+            db.add(db_receipt)
+            created_records.append(db_receipt)
+        else:
+            db_receipt = ARReceipt(
+                orgid=command.orgId,
+                branchid=command.branchId,
+                created_by=str(command.userId),
+                created_ip=command.userIp,
+                
+                # 🟢 FIX: Use the User-Selected Date (Transaction Date), NOT Today's Date
+                receipt_date=item.receipt_date, 
+                
+                customer_id=item.customer_id,
+                transaction_type=item.transaction_type,
+                bank_amount=item.bank_amount,
+                bank_charges=item.bank_charges,
+                deposit_bank_id=str(item.deposit_bank_id),
+                
+                # New Fields
+                reference_no=item.reference_no,
+                sales_person_id=item.sales_person_id,
+                send_notification=item.send_notification,
+    
+                # 🟢 Persist Cash/Cheque/Via
+                cash_amount=item.cash_amount,
+                bank_payment_via=item.bank_payment_via,
+                cheque_number=item.cheque_number,
+                
+                # --- STATUS FLAGS ---
+                is_posted=is_posted,
+                pending_verification=pending_verification, 
+                is_submitted=is_submitted,
+                
+                # ... other fields ...
+                flag=is_cleared_status, 
+                is_cleared=is_cleared_status,
+                is_active=True,
+                
+            )
+            db.add(db_receipt)
+            created_records.append(db_receipt)
 
     await db.commit()
     for record in created_records:
@@ -126,8 +213,8 @@ async def update_customer_and_verify(
     # 3. PROCESS ALLOCATIONS (Idempotent)
     linked_invoices = await _process_receipt_allocations(db, record, data)
 
-    # 4. Update Reference with Linked Invoices
-    await _update_receipt_reference(record, data.reply_message, linked_invoices)
+    # 4. Update Reference with Reply Message only (DEFER Invoices to Step 3)
+    await _update_receipt_reference(record, data.reply_message, [])
 
     record.pending_verification = False
     record.modified_on = datetime.now()
@@ -157,17 +244,57 @@ async def get_verified_unsubmitted_books(db: AsyncSession):
 # ----------------------------------------------------------
 # 6. SUBMIT RECEIPT
 # ----------------------------------------------------------
-async def submit_receipt(db: AsyncSession, receipt_id: int):
-    stmt = (
-        update(ARReceipt)
-        .where(ARReceipt.receipt_id == receipt_id)
-        .values(is_submitted=True, pending_verification=True)
-        .execution_options(synchronize_session="fetch")
-    )
-    
-    result = await db.execute(stmt)
-    await db.commit()
-    return result.rowcount > 0
+async def finalize_receipt_and_update_ref(db: AsyncSession, receipt_id: int):
+    """Final Step: Set is_submitted=True and append linked invoices to description."""
+    try:
+        # 1. Fetch the Receipt
+        stmt = select(ARReceipt).where(ARReceipt.receipt_id == receipt_id)
+        result = await db.execute(stmt)
+        record = result.scalar_one_or_none()
+
+        if not record:
+            return False
+
+        # 2. Get Linked Invoices from the allocation table (Raw SQL for robustness)
+        get_inv_sql = text("""
+            SELECT DISTINCT ar.invoice_no 
+            FROM btggasify_finance_live.tbl_receipt_ag_ar ra
+            JOIN btggasify_finance_live.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id
+            WHERE ra.receipt_id = :rid AND ra.is_active = 1
+        """)
+        inv_res = await db.execute(get_inv_sql, {"rid": receipt_id})
+        rows = inv_res.fetchall()
+        linked_invoices = [str(row[0]) for row in rows if row[0]]
+        
+        # Log for debugging (will show in terminal)
+        print(f"DEBUG Step 3: rid={receipt_id}, found_invoices={linked_invoices}")
+
+        # 3. Update Reference with the actual linked invoices
+        await _update_receipt_reference(record, None, linked_invoices)
+
+        # 4. Finalize status (in object)
+        record.is_submitted = True
+        record.pending_verification = False
+        
+        # 5. Backup robust update (in case ORM sync has issues)
+        final_ref = record.reference_no
+        print(f"DEBUG Step 3: rid={receipt_id}, final_ref='{final_ref}'")
+        
+        update_sql = text("""
+            UPDATE btggasify_finance_live.tbl_ar_receipt 
+            SET reference_no = :ref, is_submitted = 1, pending_verification = 0, updated_date = NOW()
+            WHERE receipt_id = :rid
+        """)
+        await db.execute(update_sql, {"ref": final_ref, "rid": receipt_id})
+
+        await db.commit()
+        return True
+    except Exception as e:
+        import traceback
+        print(f"Error finalizing receipt {receipt_id}: {e}")
+        traceback.print_exc()
+        await db.rollback()
+        return False
 
 
 # ----------------------------------------------------------
@@ -175,75 +302,72 @@ async def submit_receipt(db: AsyncSession, receipt_id: int):
 # ----------------------------------------------------------
 async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARRequest):
     try:
-        # 1. Get the Invoice Number for the requested ID
+        # 1. Fetch Invoice Number (Trimmed)
         get_nbr_sql = text("CALL proc_DSI_GetDONumberString(:inv_id)")
-        nbr_res = await db.execute(get_nbr_sql, {"inv_id": str(request.invoiceId)})
+        # Explicit integer casting to avoid mismatch
+        nbr_res = await db.execute(get_nbr_sql, {"inv_id": int(request.invoiceId)})
         invoice_number = nbr_res.scalar()
 
         if not invoice_number:
+            print(f"ERROR: Invoice No not found for ID {request.invoiceId}")
             return False
+            
+        invoice_number = invoice_number.strip()
 
-        # 2. Calculate the GRAND TOTAL for this Invoice Number (Aggregation)
-        # We sum up ALL active headers that share this Invoice Number (e.g. 8008 + 8009 + ... + 8014)
+        # 2. Fetch Aggregated Totals
         sum_sql = text("CALL proc_CRUD_GetInvoiceGrandTotal(:nbr)")
         sum_res = await db.execute(sum_sql, {"nbr": invoice_number})
-        totals = sum_res.fetchone()
+        totals = sum_res.mappings().first()
         
-        grand_total = totals.GrandTotal or 0
-        grand_total_idr = totals.GrandTotalIDR or 0
-        primary_id = totals.PrimaryID or request.invoiceId
+        if not totals:
+            print(f"ERROR: No items found for Invoice {invoice_number}")
+            return False
 
-        # 3. Check if AR entry already exists for this Invoice NUMBER
+        grand_total = totals["GrandTotal"] or 0
+        grand_total_idr = totals["GrandTotalIDR"] or 0
+        primary_id = totals["PrimaryID"] or request.invoiceId
+
+        # 3. Check for existence in AR
         check_sql = text("CALL proc_CRUD_CheckExistingAR(:nbr)")
         result = await db.execute(check_sql, {"nbr": invoice_number})
-        existing_row = result.fetchone()
+        existing_row = result.mappings().first()
 
         if existing_row:
-            # --- UPDATE SCENARIO (Upsert / Aggregation Fix) ---
+            # --- UPDATE SCENARIO ---
             print(f"Aggregating AR record for Invoice No: {invoice_number}. New Total: {grand_total}")
-            
             update_ar_sql = text("CALL proc_CRUD_UpdateARSum(:nbr, :total, :total_idr, :userId)")
-            
             await db.execute(update_ar_sql, {
+                "nbr": invoice_number,
                 "total": grand_total,
                 "total_idr": grand_total_idr,
-                "userId": request.userId,
-                "nbr": invoice_number
+                "userId": str(request.userId)
             })
-
         else:
             # --- INSERT SCENARIO ---
             print(f"Inserting new AR record for Invoice No: {invoice_number}")
-            
             insert_sql = text("CALL proc_CRUD_InsertARFromInvoice(:orgId, :branchId, :userId, :inv_id, :primary_id, :total, :total_idr)")
-            
             await db.execute(insert_sql, {
                 "orgId": request.orgId, 
                 "branchId": request.branchId, 
-                "userId": request.userId, 
-                "inv_id": str(request.invoiceId),
-                "primary_id": str(primary_id),
+                "userId": str(request.userId), 
+                "inv_id": int(request.invoiceId),
+                "primary_id": int(primary_id),
                 "total": grand_total,
                 "total_idr": grand_total_idr
             })
 
-        # ---------------------------------------------------------
-        # 4. Deactivate relevant DOs from AR Book
-        # ---------------------------------------------------------
+        # 4. Cleanup & Secondary Operations
         deactivate_dos_sql = text("CALL proc_CRUD_DeactivateOldDOsInAR(:inv_id, :inv_no)")
-        await db.execute(deactivate_dos_sql, {"inv_id": str(request.invoiceId), "inv_no": invoice_number})
+        await db.execute(deactivate_dos_sql, {"inv_id": int(request.invoiceId), "inv_no": invoice_number})
 
-        # ---------------------------------------------------------
-        # 5. UPDATE HEADER FLAG (For the specific ID posted)
-        # ---------------------------------------------------------
         update_header_flag_sql = text("CALL proc_CRUD_MarkHeaderAsAR(:inv_id)")
-        
-        await db.execute(update_header_flag_sql, {"inv_id": str(request.invoiceId)})
+        await db.execute(update_header_flag_sql, {"inv_id": int(request.invoiceId)})
 
         await db.commit()
         return True
 
     except Exception as e:
+        # LOG THE ACTUAL ERROR FOR DEBUGGING
         print(f"CRITICAL ERROR in post_invoice_to_ar: {str(e)}")
         await db.rollback()
         return False
@@ -262,10 +386,21 @@ async def update_ar_receipt(db: AsyncSession, command: schemas.CreateARCommand):
         is_posted = item.is_posted
         pending_verification = True if is_posted else False
 
+        if item.transaction_type == 'Bank transfer':
+            cash_amount = -abs(item.cash_amount) if item.cash_amount else 0
+            bank_amount = -abs(item.bank_amount) if item.bank_amount else 0
+        elif item.transaction_type == 'Cash Deposit':
+            amt = abs(item.bank_amount) if item.bank_amount else (abs(item.cash_amount) if item.cash_amount else 0)
+            cash_amount = amt
+            bank_amount = amt
+        else:
+            cash_amount = item.cash_amount
+            bank_amount = item.bank_amount
+
         values_to_update = {
             "customer_id": item.customer_id,
-            "bank_amount": item.bank_amount,
-            "cash_amount": item.cash_amount,
+            "bank_amount": bank_amount,
+            "cash_amount": cash_amount,
             "contra_amount": item.contra_amount,
             "bank_charges": item.bank_charges,
             "tax_rate": item.tax_rate,
@@ -283,7 +418,6 @@ async def update_ar_receipt(db: AsyncSession, command: schemas.CreateARCommand):
             "is_cleared": is_cleared_status,
             "proof_missing": item.proof_missing,
             "contra_reference": item.contra_reference,
-            # 🟢 FIX: Update receipt_date on Edit too
             "receipt_date": item.receipt_date
         }
 
@@ -295,6 +429,39 @@ async def update_ar_receipt(db: AsyncSession, command: schemas.CreateARCommand):
         )
         result = await db.execute(stmt)
         updated_count += result.rowcount
+
+        # 🟢 SYNCHRONIZE LINKED RECEIPT IF IT'S A BANK TRANSFER
+        if item.transaction_type == 'Bank transfer':
+            select_stmt = select(ARReceipt.linked_receipt_id).where(ARReceipt.receipt_id == item.receipt_id)
+            linked_res = await db.execute(select_stmt)
+            linked_id = linked_res.scalar_one_or_none()
+            
+            if linked_id:
+                b_cash_amount = abs(item.cash_amount) if item.cash_amount else 0
+                b_bank_amount = abs(item.bank_amount) if item.bank_amount else 0
+                dest_deposit_bank_id = str(item.customer_id) if item.customer_id else "0"
+                dest_customer_id = int(item.deposit_bank_id) if item.deposit_bank_id and str(item.deposit_bank_id).isdigit() else 0
+                
+                is_cleared_status_b = False
+                if dest_deposit_bank_id and str(dest_deposit_bank_id) != "0" and str(dest_deposit_bank_id).strip() != "":
+                    is_cleared_status_b = True
+                    
+                linked_values = values_to_update.copy()
+                linked_values["bank_amount"] = b_bank_amount
+                linked_values["cash_amount"] = b_cash_amount
+                linked_values["deposit_bank_id"] = dest_deposit_bank_id
+                linked_values["customer_id"] = dest_customer_id
+                linked_values["flag"] = is_cleared_status_b
+                linked_values["is_cleared"] = is_cleared_status_b
+
+                linked_stmt = (
+                    update(ARReceipt)
+                    .where(ARReceipt.receipt_id == linked_id)
+                    .values(**linked_values)
+                    .execution_options(synchronize_session="fetch")
+                )
+                linked_result = await db.execute(linked_stmt)
+                updated_count += linked_result.rowcount
 
     await db.commit()
     return updated_count > 0
@@ -332,8 +499,8 @@ async def save_verification_draft(db: AsyncSession, receipt_id: int, data: schem
     # 3. PROCESS ALLOCATIONS (NEW for Save Draft)
     linked_invoices = await _process_receipt_allocations(db, record, data)
 
-    # 4. Update Reference with Linked Invoices
-    await _update_receipt_reference(record, data.reply_message, linked_invoices)
+    # 4. Update Reference (Defer invoices until Step 3)
+    await _update_receipt_reference(record, data.reply_message, [])
     
     record.modified_on = datetime.now()
     
@@ -402,6 +569,14 @@ async def _process_receipt_allocations(db: AsyncSession, record: ARReceipt, data
 async def _update_receipt_reference(record: ARReceipt, reply_message: Optional[str], linked_invoices: List[str]):
     """Helper to construct the reference string with linked invoices."""
     current_desc = record.reference_no or ""
+    
+    # Extract existing Reply: if no new reply_message is provided
+    final_reply = reply_message
+    if final_reply is None:
+        match = re.search(r'\(Reply:\s*(.*?)\)', current_desc, flags=re.IGNORECASE)
+        if match:
+            final_reply = match.group(1)
+
     # Clean up standard formats
     current_desc = re.sub(r'\s*\|\s*Inv:.*', '', current_desc, flags=re.IGNORECASE)
     current_desc = re.sub(r'\s*\|\s*Reply:.*', '', current_desc, flags=re.IGNORECASE)
@@ -410,11 +585,11 @@ async def _update_receipt_reference(record: ARReceipt, reply_message: Optional[s
     current_desc = current_desc.strip()
     
     additional_info = []
-    if reply_message: additional_info.append(f"(Reply: {reply_message})")
+    if final_reply: additional_info.append(f"(Reply: {final_reply})")
     if linked_invoices: additional_info.append(f"(Inv: {', '.join(linked_invoices)})")
         
-    if additional_info:
-        record.reference_no = f"{current_desc} {' '.join(additional_info)}".strip()
+    new_val = f"{current_desc} {' '.join(additional_info)}".strip()
+    record.reference_no = new_val
 
 # ----------------------------------------------------------
 # UPDATE REFERENCE NUMBER (For AR Book Editing)
@@ -459,6 +634,55 @@ async def bulk_update_ar_reference(db: AsyncSession, ar_ids: List[int], new_refe
 
         await db.commit()
         return updated_count
+
+    except Exception as e:
+        print(f"CRITICAL DB ERROR in bulk_update: {str(e)}")
+        await db.rollback()
+        return -1
+
+# ----------------------------------------------------------
+# 9. COMBINE VOUCHERS (Logical Grouping)
+# ----------------------------------------------------------
+async def combine_receipts(db: AsyncSession, request: schemas.CombineVouchersRequest):
+    """
+    Logically groups multiple receipts for display in Bank Book Entries.
+    Does NOT delete originals or move allocations, ensuring they show separately in the Bank Book report.
+    """
+    try:
+        # 1. Fetch all original receipts
+        stmt = select(ARReceipt).where(ARReceipt.receipt_id.in_(request.receipt_ids), ARReceipt.is_active == True)
+        result = await db.execute(stmt)
+        originals = result.scalars().all()
+        
+        if not originals or len(originals) < 2:
+            print(f"Combine failed: Found {len(originals)} active receipts for IDs {request.receipt_ids}")
+            return None
+        
+        # 2. Generate a Group ID (using current timestamp for uniqueness)
+        import time
+        group_id = int(time.time() % 1000000000) # Ensure it fits in INT
+        
+        # 3. Update all records with the group_id
+        for r in originals:
+            r.combine_group_id = group_id
+            r.custom_voucher_no = request.custom_voucher_no
+            if request.new_reference:
+                # Append custom reference if provided, keeping it clean
+                if r.reference_no:
+                    if request.new_reference not in r.reference_no:
+                        r.reference_no = f"{r.reference_no} | {request.new_reference}"
+                else:
+                    r.reference_no = request.new_reference
+            
+        await db.commit()
+        return originals[0] # Return first record as proxy for success
+        
+    except Exception as e:
+        import traceback
+        print(f"CRITICAL ERROR in combine_receipts (Logical): {str(e)}")
+        traceback.print_exc()
+        await db.rollback()
+        return None
 
     except Exception as e:
         print(f"CRITICAL DB ERROR in bulk_update: {str(e)}")

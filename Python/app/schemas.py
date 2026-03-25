@@ -23,6 +23,7 @@ class ArReceiptInput(BaseModel):
     bank_charges: float = 0
     pending_verification: bool = False
     customer_id: int
+    transaction_type: Optional[str] = 'Receipt'
     
     # --- NEW FIELDS ---
     reference_no: Optional[str] = None
@@ -77,3 +78,12 @@ class PostInvoiceToARRequest(BaseModel):
     branchId: int
     userId: int
     invoiceId: int
+
+class CombineVouchersRequest(BaseModel):
+    receipt_ids: List[int]
+    new_reference: Optional[str] = None
+    custom_voucher_no: Optional[str] = None
+    userId: int
+    orgId: int
+    branchId: int
+    userIp: str

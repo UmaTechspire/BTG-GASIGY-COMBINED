@@ -82,14 +82,26 @@ const formatDatePrint = (dateInput) => {
     return `${day}-${month}-${year}`;
 };
 
-// --- HELPER: Parse Invoices from Reference ---
+// --- HELPER: Parse Invoices from Reference (handles combined pipes as well) ---
 const parseInvoices = (refNo) => {
     if (!refNo) return [];
-    const match = refNo.match(/\(Inv:\s*(.*?)\)/);
-    const invoices = match && match[1] ? match[1].split(',').map(i => i.trim()).filter(i => i) : [];
-    // If no (Inv: ...) but reference exists, return reference as single item
-    if (invoices.length === 0 && refNo) return [refNo];
-    return invoices;
+    
+    // Split by pipe for combined vouchers: "Ref1 | Ref2"
+    const parts = refNo.split('|').map(p => p.trim());
+    let allInvoices = [];
+    
+    parts.forEach(part => {
+        const match = part.match(/\(Inv:\s*(.*?)\)/);
+        if (match && match[1]) {
+            const invoices = match[1].split(',').map(i => i.trim()).filter(i => i);
+            allInvoices = [...allInvoices, ...invoices];
+        } else if (part) {
+            allInvoices.push(part);
+        }
+    });
+
+    // Remove duplicates
+    return [...new Set(allInvoices)];
 };
 
 const AddBankBook = () => {
@@ -122,9 +134,15 @@ const AddBankBook = () => {
     const [invoiceList, setInvoiceList] = useState([]);
     const [loadingInvoices, setLoadingInvoices] = useState(false);
 
-    // --- PRINT MODAL STATES ---
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [printRecord, setPrintRecord] = useState(null);
+
+    // --- COMBINE VOUCHERS STATES ---
+    const [selectedVouchers, setSelectedVouchers] = useState([]);
+    const [isCombineModalOpen, setIsCombineModalOpen] = useState(false);
+    const [combineReference, setCombineReference] = useState("");
+    const [customVoucherNo, setCustomVoucherNo] = useState("");
+    const [isCombining, setIsCombining] = useState(false);
 
     // --- INITIAL LOAD ---
     useEffect(() => {
@@ -178,7 +196,7 @@ const AddBankBook = () => {
     useEffect(() => {
         const t = rows.reduce((acc, row) => {
             const amt = parseFloat(row.amount || 0);
-            if (row.type === 'Receipt' || row.type === 'Other Income') acc.receipt += amt;
+            if (row.type === 'Receipt' || row.type === 'Other Income' || row.type === 'Bank transfer' || row.type === 'Bank Interest' || row.type === 'Cash Deposit') acc.receipt += amt;
             else acc.payment += amt;
             return acc;
         }, { receipt: 0, payment: 0 });
@@ -208,15 +226,25 @@ const AddBankBook = () => {
         try {
             const response = await axios.get(`${PYTHON_API_URL}/AR/get-daily-entries`);
             if (response.data?.status === "success" && Array.isArray(response.data.data)) {
-                const mapped = response.data.data.map(item => ({
-                    ...item,
-                    bankName: item.bank_name || bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || item.deposit_bank_id,
-                    customerName: customerList.find(c => c.value === item.customer_id)?.label || item.customer_id,
-                    displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
-                    verificationStatus: item.verification_status,
-                    customerId: item.customer_id,
-                    currencyCode: currencyList.find(c => c.value === item.currencyid)?.label || ""
-                }));
+                const mapped = response.data.data.map(item => {
+                    let cName = item.customerName;
+                    if (item.transaction_type === 'Bank transfer' || item.transaction_type === 'Bank Interest' || item.transaction_type === 'Cash Deposit') {
+                        cName = bankList.find(b => b.value === item.customer_id)?.label || item.customerName;
+                    } else if (item.customer_id !== 0) {
+                        const cust = customerList.find(c => c.value === item.customer_id) || supplierList.find(s => s.value === item.customer_id);
+                        if (cust) cName = cust.label;
+                    }
+                    
+                    return {
+                        ...item,
+                        bankName: bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || item.bank_name || item.deposit_bank_id,
+                        customerName: cName,
+                        displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
+                        verificationStatus: item.verification_status,
+                        customerId: item.customer_id,
+                        currencyCode: currencyList.find(c => c.value === item.currencyid)?.label || ""
+                    };
+                });
                 setEntryList(mapped);
             }
         } catch (err) { console.error(err); }
@@ -251,6 +279,9 @@ const AddBankBook = () => {
     const getOptionsForType = (type) => {
         if (type === 'Receipt' || type === 'Other Income') return customerList;
         if (type === 'Payment') return supplierList;
+        if (type === 'Bank transfer') {
+            return bankList.filter(b => Number(b.value) !== Number(selectedBank?.value));
+        }
         return [];
     };
 
@@ -355,7 +386,8 @@ const AddBankBook = () => {
 
                 return {
                     receipt_id: row.rowId || 0,
-                    customer_id: row.type === 'Bank Charges' ? 0 : parseInt(row.customerId || 0),
+                    transaction_type: row.type,
+                    customer_id: (row.type === 'Bank Charges' || row.type === 'Bank Interest' || row.type === 'Cash Deposit') ? 0 : parseInt(row.customerId || 0),
                     bank_amount: finalAmount,
                     bank_charges: parseFloat(row.bankCharges) || 0,
                     deposit_bank_id: parseInt(selectedBank.value),
@@ -425,27 +457,121 @@ const AddBankBook = () => {
     };
 
     const handlePreview = async (rowData) => {
-        setSelectedEntry(rowData);
-        setIsPreviewOpen(true);
-        setLoadingInvoices(true);
-        setInvoiceList([]);
+        setInvoiceList([]); // Clear previous invoices immediately
 
         if (rowData.customerId && parseFloat(rowData.bank_amount) > 0) { // Only preview for receipts
+            if (rowData.verificationStatus !== "Completed") {
+                toast.warn("Allocations can only be previewed after Marketing Verification.");
+                return;
+            }
+
+            setLoadingInvoices(true);
+            setIsPreviewOpen(true);
+            setSelectedEntry(rowData);
             try {
-                const response = await axios.get(`${PYTHON_API_URL}/AR/get-outstanding-invoices/${rowData.customerId}`, {
-                    params: { receipt_id: rowData.receipt_id }
-                });
-                if (response.data && response.data.status === "success") {
-                    setInvoiceList(response.data.data);
-                } else {
-                    setInvoiceList([]);
+                let receiptsToFetch = [rowData]; // Default to single
+                if (rowData.is_combined && rowData.grouped_receipt_ids && rowData.grouped_receipt_ids.length > 0) {
+                    receiptsToFetch = rowData.grouped_receipt_ids.map(id => ({
+                        ...rowData,
+                        receipt_id: id // Override with specific ID for fetch
+                    }));
                 }
+
+                let allInvoices = [];
+                await Promise.all(receiptsToFetch.map(async (rec) => {
+                    try {
+                        const response = await axios.get(`${PYTHON_API_URL}/AR/get-outstanding-invoices/${rec.customerId || rec.customer_id}`, {
+                            params: {
+                                receipt_id: rec.receipt_id,
+                                only_allocated: true
+                            }
+                        });
+                        if (response.data && response.data.status === "success") {
+                            // Add parent context
+                            const invs = response.data.data.map(inv => ({
+                                ...inv,
+                                parent_receipt_id: rec.receipt_id
+                            }));
+                            allInvoices = [...allInvoices, ...invs];
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch invoices for receipt", rec.receipt_id, err);
+                    }
+                }));
+
+                setInvoiceList(allInvoices);
             } catch (error) {
                 console.error("Error fetching outstanding invoices:", error);
                 toast.error("Failed to fetch invoice details");
+            } finally {
+                setLoadingInvoices(false);
             }
+        } else {
+            // If not a receipt or no customer, just open modal without loading invoices
+            setSelectedEntry(rowData);
+            setIsPreviewOpen(true);
+            setLoadingInvoices(false);
         }
-        setLoadingInvoices(false);
+    };
+
+    const handleCombineVouchers = async () => {
+        if (selectedVouchers.length < 2) {
+            toast.warning("Please select at least two vouchers to combine.");
+            return;
+        }
+
+        // Basic consistency check: Same Date, Party, Bank
+        const first = selectedVouchers[0];
+        const mismatch = selectedVouchers.some(v => 
+            v.receipt_date !== first.receipt_date || 
+            v.customer_id !== first.customer_id || 
+            v.deposit_bank_id !== first.deposit_bank_id
+        );
+
+        if (mismatch) {
+            toast.error("Combined vouchers must have the same Date, Party, and Bank Account.");
+            return;
+        }
+
+        const isReceipt = selectedVouchers.every(v => v.transaction_type === "Receipt");
+        if (!isReceipt) {
+            toast.error("Only 'Receipt' type vouchers can be combined at this time.");
+            return;
+        }
+
+        const notVerified = selectedVouchers.some(v => v.verificationStatus !== "Completed");
+        if (notVerified) {
+            toast.error("Only verified receipts can be combined. Please verify the receipts first.");
+            return;
+        }
+
+        setIsCombining(true);
+        try {
+            const payload = {
+                receipt_ids: selectedVouchers.map(v => v.receipt_id),
+                new_reference: combineReference,
+                custom_voucher_no: customVoucherNo,
+                userId: 505, 
+                orgId: 1,
+                branchId: 1,
+                userIp: "127.0.0.1"
+            };
+
+            const res = await axios.post(`${PYTHON_API_URL}/AR/combine-vouchers`, payload);
+            if (res.data?.status === "success") {
+                toast.success("Vouchers combined successfully!");
+                setIsCombineModalOpen(false);
+                setSelectedVouchers([]);
+                setCombineReference("");
+                setCustomVoucherNo("");
+                loadEntryList();
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error(err.response?.data?.detail || "Failed to combine vouchers.");
+        } finally {
+            setIsCombining(false);
+        }
     };
 
     const handleGenerateVerification = async () => {
@@ -461,9 +587,40 @@ const AddBankBook = () => {
     };
 
     // --- PRINT RECEIPT FUNCTIONS ---
-    const handlePrintPreview = (rowData) => {
+    const handlePrintPreview = async (rowData) => {
         setPrintRecord(rowData);
         setIsPrintModalOpen(true);
+
+        // Fetch allocated invoices for the printout to populate "Being Payment Of"
+        if (rowData.customerId && parseFloat(rowData.bank_amount) > 0) {
+            try {
+                let receiptsToFetch = [rowData];
+                if (rowData.is_combined && rowData.grouped_receipt_ids && rowData.grouped_receipt_ids.length > 0) {
+                    receiptsToFetch = rowData.grouped_receipt_ids.map(id => ({
+                        ...rowData,
+                        receipt_id: id
+                    }));
+                }
+
+                let allInvoices = [];
+                await Promise.all(receiptsToFetch.map(async (rec) => {
+                    try {
+                        const response = await axios.get(`${PYTHON_API_URL}/AR/get-outstanding-invoices/${rec.customerId || rec.customer_id}`, {
+                            params: { receipt_id: rec.receipt_id, only_allocated: true }
+                        });
+                        if (response.data && response.data.status === "success") {
+                            allInvoices = [...allInvoices, ...response.data.data];
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch invoices for print", rec.receipt_id, err);
+                    }
+                }));
+
+                setPrintRecord(prev => ({ ...prev, fetched_invoices: allInvoices }));
+            } catch (error) {
+                console.error("Error fetching outstanding invoices for print:", error);
+            }
+        }
     };
 
     const getPrintBankName = () => {
@@ -511,14 +668,14 @@ const AddBankBook = () => {
                     <style>
                         @page { size: ${pageSize}; margin: 10mm; }
                         body { font-family: 'Times New Roman', serif; margin: 0; padding: 10px; }
-                        .receipt-container { 
-                            border: 2px solid #1a2c5b; 
-                            padding: 24px 28px; 
-                            position: relative; 
-                            width: 100%; 
-                            max-width: ${containerMaxWidth}; 
-                            margin: auto; 
-                            box-sizing: border-box; 
+                        .receipt-container {
+                            border: 2px solid #1a2c5b;
+                            padding: 24px 28px;
+                            position: relative;
+                            width: 100%;
+                            max-width: ${containerMaxWidth};
+                            margin: auto;
+                            box-sizing: border-box;
                             min-height: ${isA4 ? '260mm' : 'auto'};
                         }
                         .header { display: flex; align-items: center; border-bottom: 2px solid #1a2c5b; padding-bottom: 6px; margin-bottom: 12px; }
@@ -638,17 +795,20 @@ const AddBankBook = () => {
 
     const actionBodyTemplate = (rowData) => {
         const isEditable = rowData.verificationStatus !== 'Completed';
-        const isPreviewable = true;
         const isActionable = rowData.verificationStatus === 'Completed';
+        const isVerified = rowData.verificationStatus === 'Completed';
 
         return (
             <div className="d-flex justify-content-center gap-3 align-items-center table-actions">
                 <button className={`btn-icon ${isEditable ? 'text-primary' : 'text-muted'}`} onClick={() => { if (isEditable) openEditModal(rowData); }} disabled={!isEditable} title="Edit">
                     <i className="bx bx-pencil font-size-18"></i>
                 </button>
-                <button className={`btn-icon ${isPreviewable ? 'text-info' : 'text-muted'}`} onClick={() => { if (isPreviewable) handlePreview(rowData); }} disabled={!isPreviewable} title="Preview Invoice">
-                    <i className="bx bx-show font-size-18"></i>
-                </button>
+                <i
+                    className={`bx bx-show action-link preview ${!isVerified ? 'text-muted opacity-50' : ''}`}
+                    title={isVerified ? "Preview Invoices" : "Verification Pending"}
+                    onClick={isVerified ? () => handlePreview(rowData) : null}
+                    style={{ cursor: isVerified ? 'pointer' : 'not-allowed', fontSize: '18px' }}
+                ></i>
                 <button className={`btn-icon ${isActionable ? 'text-success' : 'text-muted'}`} onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }} disabled={!isActionable} title="Post">
                     <i className="bx bx-check-circle font-size-18"></i>
                 </button>
@@ -672,6 +832,11 @@ const AddBankBook = () => {
                     <h5 className="page-heading mb-0">BANK BOOK ENTRY</h5>
                     <div className="d-flex align-items-center">
                         <div className="d-flex gap-2">
+                            {selectedVouchers.length >= 2 && (
+                                <button className="btn-toolbar btn-combine-blue" onClick={() => setIsCombineModalOpen(true)}>
+                                    <i className="bx bx-git-merge"></i> Combine Selected ({selectedVouchers.length})
+                                </button>
+                            )}
                             <button className="btn-toolbar btn-new-green" onClick={openNewModal}><i className="bx bx-plus"></i> New Entry</button>
                         </div>
                     </div>
@@ -679,8 +844,8 @@ const AddBankBook = () => {
 
                 <Card className="main-card border-0">
                     <CardBody>
-                        {/* --- LEGENDS SECTION (Moved to Top) --- */}
-                        <div className="d-flex gap-4 mb-3 pb-2 border-bottom">
+                        {/* --- LEGENDS SECTION (Moved to Right) --- */}
+                        <div className="d-flex justify-content-end gap-4 mb-3 pb-2 border-bottom">
                             <div className="d-flex align-items-center gap-2">
                                 <span className="fw-bold small text-muted">Status:</span>
                                 <span className="circle-badge bg-posted">P</span> <small className="text-muted" style={{ fontSize: '11px' }}>Posted</small>
@@ -692,11 +857,34 @@ const AddBankBook = () => {
                                 <span className="circle-badge bg-success">C</span> <small className="text-muted" style={{ fontSize: '11px' }}>Completed</small>
                             </div>
                         </div>
-                        <DataTable value={entryList} paginator rows={10} loading={loading} globalFilter={globalFilter} className="p-datatable-modern p-datatable-gridlines" responsiveLayout="scroll">
+                        <DataTable 
+                            value={entryList} 
+                            paginator 
+                            rows={10} 
+                            loading={loading} 
+                            globalFilter={globalFilter} 
+                            className="p-datatable-modern p-datatable-gridlines" 
+                            responsiveLayout="scroll"
+                            selection={selectedVouchers}
+                            onSelectionChange={(e) => setSelectedVouchers(e.value)}
+                            dataKey="receipt_id"
+                        >
+                            <Column selectionMode="multiple" headerStyle={{ width: '3em' }}></Column>
                             <Column field="displayDate" header="Date" sortable filter style={{ width: '8%' }} />
                             <Column field="bankName" header="Bank Name" sortable filter style={{ width: '15%' }} />
                             <Column field="customerName" header="Party" sortable filter style={{ width: '22%' }} />
-                            <Column field="reference_no" header="Reference" sortable filter style={{ width: '10%' }} />
+                            <Column 
+                                field="receipt_id" 
+                                header="Voucher" 
+                                sortable 
+                                filter 
+                                body={(rowData) => (
+                                    <span title={rowData.reference_no || ""}>
+                                        {rowData.is_combined && rowData.custom_voucher_no ? rowData.custom_voucher_no : rowData.receipt_id}
+                                    </span>
+                                )}
+                                style={{ width: '10%' }} 
+                            />
                             <Column field="bank_amount" header="Amount" textAlign="right" body={(d) => {
                                 const val = parseFloat(d.bank_amount || 0);
                                 return val === 0 ? "" : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
@@ -718,7 +906,12 @@ const AddBankBook = () => {
                         color: #333 !important;
                     }
                     .p-datatable-modern .p-datatable-tbody > tr > td {
-                        border-color: #adb5bd !important; /* Darker borders */
+                        border-color: #f2f2f2 !important;
+                    }
+                    .modern-dialog .table-bordered, 
+                    .modern-dialog .table-bordered td, 
+                    .modern-dialog .table-bordered th {
+                        border-color: #f2f2f2 !important;
                     }
                     .circle-badge {
                         width: 20px;
@@ -758,6 +951,14 @@ const AddBankBook = () => {
                                         const matchCur = currencyList.find(c => c.value === bank.currencyId);
                                         if (matchCur) setSelectedCurrency(matchCur);
                                     }
+                                    
+                                    // Clear customerId for 'Bank transfer' rows if it matches the new main bank
+                                    setRows(prevRows => prevRows.map(row => {
+                                        if (row.type === 'Bank transfer' && Number(row.customerId) === Number(bank?.value)) {
+                                            return { ...row, customerId: "" };
+                                        }
+                                        return row;
+                                    }));
                                 }}
                                 placeholder="Select Bank..."
                                 styles={customSelectStyles}
@@ -786,7 +987,7 @@ const AddBankBook = () => {
                         </div>
                     </div>
 
-                    <div className="table-responsive" style={{ maxHeight: '450px', overflowY: 'auto', border: '1px solid #e9ecef', borderRadius: '4px' }}>
+                    <div className="table-responsive" style={{ maxHeight: '450px', overflowY: 'auto', borderRadius: '4px' }}>
                         <Table className="table table-bordered align-middle table-sm table-hover mb-0">
                             <thead className="table-light sticky-top">
                                 <tr>
@@ -815,6 +1016,9 @@ const AddBankBook = () => {
                                                 <option value="Payment">Payment</option>
                                                 <option value="Other Income">Other Income</option>
                                                 <option value="Bank Charges">Bank Charges</option>
+                                                <option value="Bank transfer">Bank transfer</option>
+                                                <option value="Bank Interest">Bank Interest</option>
+                                                <option value="Cash Deposit">Cash Deposit</option>
                                             </select>
                                         </td>
                                         <td>
@@ -833,8 +1037,10 @@ const AddBankBook = () => {
                                                 onChange={(opt) => handleRowChange(index, 'customerId', opt?.value)}
                                                 styles={customSelectStyles}
                                                 menuPortalTarget={document.body}
-                                                placeholder={row.type === 'Bank Charges' ? "Disabled" : (row.type === 'Payment' ? "Select Supplier..." : "Select Customer...")}
-                                                isDisabled={row.type === 'Bank Charges'}
+                                                placeholder={ (row.type === 'Bank Charges' || row.type === 'Bank Interest' || row.type === 'Cash Deposit') ? "Disabled" : 
+                                                            (row.type === 'Payment' ? "Select Supplier..." : 
+                                                            (row.type === 'Bank transfer' ? "Select Bank..." : "Select Customer..."))}
+                                                isDisabled={row.type === 'Bank Charges' || row.type === 'Bank Interest' || row.type === 'Cash Deposit'}
                                             />
                                         </td>
                                         <td>
@@ -916,8 +1122,18 @@ const AddBankBook = () => {
                     {selectedEntry && (
                         <div className="pt-2">
                             <div className="p-3 bg-light rounded mb-3">
-                                <span className="fw-bold text-secondary me-2">Party:</span>
-                                <span className="fw-bold text-dark">{selectedEntry.customerName}</span>
+                                {selectedEntry?.bank_amount && (
+                                    <div className="mb-2">
+                                        <span className="fw-bold text-secondary me-2">Receipt Amount:</span>
+                                        <span className="fw-bold fs-5" style={{ color: '#B22222' }}>
+                                            {selectedEntry.currencyCode} {parseFloat(selectedEntry.bank_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="d-flex align-items-center">
+                                    <span className="fw-bold text-secondary me-2">Party:</span>
+                                    <span className="fw-bold text-dark">{selectedEntry.customerName}</span>
+                                </div>
                             </div>
 
                             {loadingInvoices ? (
@@ -929,23 +1145,51 @@ const AddBankBook = () => {
                                             <tr>
                                                 <th>Invoice No.</th>
                                                 <th>Date</th>
-                                                <th>Balance Due</th>
+                                                <th className="text-end">Invoice Amount</th>
+                                                <th>Balance</th>
+                                                <th>Allocated</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {invoiceList.length > 0 ? (
-                                                invoiceList.map((inv, idx) => (
-                                                    <tr key={idx}>
-                                                        <td>{inv.invoice_no}</td>
-                                                        <td>{inv.invoice_date}</td>
-                                                        <td className="text-end fw-bold">
-                                                            {parseFloat(inv.balance_due).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                        </td>
-                                                    </tr>
-                                                ))
+                                                <>
+                                                {Object.entries(
+                                                    invoiceList.reduce((acc, inv) => {
+                                                        const key = `Receipt #${inv.parent_receipt_id || selectedEntry.receipt_id}`;
+                                                        if (!acc[key]) acc[key] = [];
+                                                        acc[key].push(inv);
+                                                        return acc;
+                                                    }, {})
+                                                ).map(([groupName, groupInvs], gIdx) => (
+                                                    <React.Fragment key={gIdx}>
+                                                        {selectedEntry.is_combined && (
+                                                            <tr>
+                                                                <td colSpan="5" className="text-start bg-light fw-bold text-primary py-2 px-3">
+                                                                    <i className="bx bx-receipt me-2"></i>{groupName}
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                        {groupInvs.map((inv, idx) => (
+                                                            <tr key={`${gIdx}-${idx}`}>
+                                                                <td>{inv.invoice_no}</td>
+                                                                <td>{inv.invoice_date}</td>
+                                                                <td className="text-end">
+                                                                    {parseFloat(inv.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                                </td>
+                                                                <td className="text-end">
+                                                                    {parseFloat(inv.balance_due).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                                </td>
+                                                                <td className="text-end fw-bold text-success">
+                                                                    {parseFloat(inv.allocated_here).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </React.Fragment>
+                                                ))}
+                                                </>
                                             ) : (
                                                 <tr>
-                                                    <td colSpan="3" className="text-muted py-3">No outstanding invoices found.</td>
+                                                    <td colSpan="4" className="text-muted py-3">No outstanding invoices found.</td>
                                                 </tr>
                                             )}
                                         </tbody>
@@ -994,7 +1238,7 @@ const AddBankBook = () => {
                                 </div>
                                 <div style={{ position: 'absolute', top: '18px', right: '22px', textAlign: 'right' }}>
                                     <div style={{ fontSize: '14px', color: '#d92525', fontWeight: 'bold', fontFamily: 'monospace' }}>
-                                        No. : {printRecord?.receipt_id}
+                                        No. : {printRecord?.is_combined && printRecord?.custom_voucher_no ? printRecord.custom_voucher_no : printRecord?.receipt_id}
                                     </div>
                                     <div style={{ fontSize: '8px', color: '#666', fontStyle: 'italic', marginTop: '2px' }}>
                                     </div>
@@ -1025,7 +1269,12 @@ const AddBankBook = () => {
                                 <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', whiteSpace: 'nowrap' }}>Being Payment Of</div>
                                 <div className="colon" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', textAlign: 'center' }}>:</div>
                                 <div className="value" style={{ borderBottom: '1px solid #1a2c5b', paddingLeft: '6px', fontSize: '11px', lineHeight: '1.4' }}>
-                                    {parseInvoices(printRecord?.reference_no).join(', ') || "______________________"}
+                                    {(() => {
+                                        if (printRecord?.fetched_invoices && printRecord.fetched_invoices.length > 0) {
+                                            return [...new Set(printRecord.fetched_invoices.map(i => i.invoice_no))].join(', ');
+                                        }
+                                        return parseInvoices(printRecord?.reference_no).join(', ') || "______________________";
+                                    })()}
                                 </div>
                             </div>
 
@@ -1104,6 +1353,7 @@ const AddBankBook = () => {
                 .btn-cancel-red { background-color: #c7625a; }
                 .btn-export-grey { background-color: #74788d; }
                 .btn-print-blue { background-color: #5584d4; }
+                .btn-combine-blue { background-color: #007bff !important; border: 1px solid #0056b3 !important; }
                 .btn-new-green { background-color: #6ea354; } 
                 .btn-clear { display: flex; align-items: center; border: none; background: #c5645d; color: white; border-radius: 4px; padding: 0; overflow: hidden; height: 32px; width: 32px; justify-content: center; }
                 .clear-icon { display: flex; align-items: center; justify-content: center; }
@@ -1136,6 +1386,49 @@ const AddBankBook = () => {
                 .btn-icon:hover { transform: scale(1.15); }
                 .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
             `}</style>
+            {/* --- COMBINE VOUCHERS DIALOG --- */}
+            <Dialog 
+                header="Combine Vouchers" 
+                visible={isCombineModalOpen} 
+                style={{ width: '450px' }} 
+                onHide={() => setIsCombineModalOpen(false)}
+                footer={
+                    <div className="d-flex justify-content-end gap-2">
+                        <Button color="secondary" outline onClick={() => setIsCombineModalOpen(false)}>Cancel</Button>
+                        <Button color="primary" onClick={handleCombineVouchers} disabled={isCombining}>
+                            {isCombining ? <Spinner size="sm" /> : "Combine Now"}
+                        </Button>
+                    </div>
+                }
+            >
+                <div className="p-2">
+                    <div className="alert alert-info py-2 small mb-3">
+                        <i className="bx bx-info-circle me-1"></i>
+                        Combining will merge <strong>{selectedVouchers.length} vouchers</strong> into one new entry. 
+                        Total amount: <strong>{selectedVouchers.reduce((acc, v) => acc + parseFloat(v.bank_amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                    </div>
+
+                    <div className="mb-3">
+                        <Label className="small fw-bold">New Voucher Number</Label>
+                        <Input 
+                            type="text" 
+                            placeholder="e.g. VCH-COMBINED-001" 
+                            value={customVoucherNo}
+                            onChange={(e) => setCustomVoucherNo(e.target.value)}
+                        />
+                    </div>
+
+
+                    <div className="mt-3">
+                        <Label className="small fw-bold">Vouchers to be merged:</Label>
+                        <ul className="small text-muted ps-3">
+                            {selectedVouchers.map(v => (
+                                <li key={v.receipt_id}>Voucher #{v.receipt_id} - {v.customerName} ({v.bank_amount.toLocaleString()})</li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            </Dialog>
         </div>
     );
 };

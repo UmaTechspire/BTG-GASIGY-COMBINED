@@ -12,10 +12,13 @@ import { Column } from "primereact/column";
 import { FilterMatchMode } from "primereact/api";
 import { Dialog } from "primereact/dialog";
 import { InputText } from "primereact/inputtext";
+import { Tooltip } from "primereact/tooltip";
+import Flatpickr from "react-flatpickr";
+import "flatpickr/dist/themes/material_green.css";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import { toast } from "react-toastify";
-import { GetBankList, ClaimAndPaymentGetById } from "common/data/mastersapi";
+import { GetBankList, ClaimAndPaymentGetById, GetAllClaimAndPayment } from "common/data/mastersapi";
 import { useHistory } from 'react-router-dom';
 import axios from "axios";
 import { PYTHON_API_URL } from "common/pyapiconfig";
@@ -117,6 +120,8 @@ const BankBook = () => {
     };
 
     const fetchRecordDetail = async (row) => {
+        if (row.transactionType?.toLowerCase() === "cash deposit") return;
+        
         const voucherNo = row.VoucherNo;
         const receiptId = row.receipt_id;
         const isClaim = voucherNo?.startsWith("CLM");
@@ -127,8 +132,26 @@ const BankBook = () => {
 
         try {
             if (isClaim) {
-                // Extract numeric ID from CLM000XXXX or similar
-                const claimId = parseInt(voucherNo?.replace(/\D/g, ''), 10);
+                // Remove everything after ' - ' to get pure claim number
+                const pureClaimNo = voucherNo.split(" - ")[0];
+                
+                // 1. Fetch ALL claims to find the one with matching ApplicationNo
+                // Searching by ApplicationNo is the only reliable way since digits in string != Claim_ID necessarily
+                const listRes = await GetAllClaimAndPayment(0, 0, 1, 1, 0);
+                let claimId = null;
+                
+                if (listRes?.status && listRes.data) {
+                    const match = listRes.data.find(c => c.claimno === pureClaimNo);
+                    if (match) {
+                        claimId = match.Claim_ID;
+                    }
+                }
+
+                // Fallback to parsing digits if not found in list (though list is better)
+                if (!claimId) {
+                    claimId = parseInt(pureClaimNo.replace(/\D/g, ''), 10);
+                }
+
                 if (!claimId || isNaN(claimId)) {
                     toast.error("Invalid claim reference format.");
                     setLoadingClaimDetail(false);
@@ -136,25 +159,29 @@ const BankBook = () => {
                 }
 
                 const res = await ClaimAndPaymentGetById(claimId, 1, 1);
-                // API returns 'header' (lowercase), but code used 'Header' (PascalCase)
                 const dataObj = res?.data || {};
                 const header = dataObj.header || dataObj.Header;
                 const details = dataObj.details || dataObj.Details || [];
-                const firstDetail = details[0] || {};
 
                 if (res?.status && header) {
                     setClaimDetailData({
                         IsClaim: true,
                         ...header,
+                        Details: details,
                         ClaimPaymentId: header.ClaimId,
                         FormNo: header.ApplicationNo,
-                        Date: header.ApplicationDate, // API uses ApplicationDate
-                        CategoryName: header.claimcategory || header.CategoryName,
-                        ExpenseType: firstDetail.claimtype || header.claimcategory || "-",
-                        ExpenseDescription: firstDetail.Purpose || header.Remarks || "-",
-                        TotalPaymentRequest: header.TotalAmountInIDR || header.ClaimAmountInTC,
-                        Who: header.applicantname || header.ApplicantName,
-                        Whom: header.SupplierName || header.suppliername || "-",
+                        Date: header.ApplicationDate,
+                        CategoryType: header.claimcategory || "-",
+                        Department: header.departmentname || "-",
+                        Applicant: header.applicantname || "-",
+                        TransCurrency: header.transactioncurrency || "-", // Using field from opt=2
+                        HOD: header.HOD_Name || "-", // Using field from opt=2
+                        Supplier: header.SupplierName || "-",
+                        CostCenter: header.CostCenter || "-",
+                        ClaimAmtInTC: header.ClaimAmountInTC || 0,
+                        ApplicationNo: pureClaimNo,
+                        Attachment: header.AttachmentName || "No Attachment",
+                        PaymentMode: header.paymentmethodname || "-", // From Manageclaim&Payment.js logic
                         Status: (header.issubmitted === 1 || header.IsSubmitted === 1) ? "Posted" : "Saved"
                     });
                 } else {
@@ -171,23 +198,42 @@ const BankBook = () => {
                     params: { receipt_id: receiptId }
                 });
 
-                if (res.data?.status === "success" && res.data?.data) {
-                    const data = res.data.data;
-                    setClaimDetailData({
-                        IsReceipt: true,
-                        FormNo: data.receipt_no || voucherNo,
-                        Date: data.receipt_date,
-                        CustomerName: data.customer_name || row.Party || "-",
-                        TotalAmount: (parseFloat(data.cash_amount) || 0) + (parseFloat(data.bank_amount) || 0) + (parseFloat(data.contra_amount) || 0),
-                        PaymentMethod: data.bank_payment_via === 1 ? "Cheque" : (data.bank_payment_via === 4 ? "Cash" : "Bank Transfer"),
-                        BankName: data.bank_name || "-",
-                        Currency: data.CurrencyCode || "IDR",
-                        ChequeNo: data.cheque_number || "-",
-                        InvoiceNo: data.reference_no || "-"
-                    });
-                } else {
-                    setClaimDetailData({ error: "No receipt details found.", VoucherNo: voucherNo });
-                }
+                    if (res.data?.status === "success" && res.data?.data) {
+                        const data = res.data.data;
+                        
+                        // 🟢 Fetch Allocated Invoices
+                        let allocatedInvoices = [];
+                        try {
+                            const invRes = await axios.get(`${PYTHON_API_URL}/AR/get-outstanding-invoices/${data.customer_id}`, {
+                                params: {
+                                    receipt_id: receiptId,
+                                    only_allocated: true
+                                }
+                            });
+                            if (invRes.data?.status === "success") {
+                                allocatedInvoices = invRes.data.data;
+                            }
+                        } catch (err) {
+                            console.error("Failed to fetch allocated invoices", err);
+                        }
+
+                        setClaimDetailData({
+                            IsReceipt: true,
+                            FormNo: receiptId || data.receipt_no || voucherNo,
+                            Date: data.receipt_date,
+                            CustomerName: data.customer_name || row.Party || "-",
+                            TotalAmount: (parseFloat(data.cash_amount) || 0) + (parseFloat(data.bank_amount) || 0) + (parseFloat(data.contra_amount) || 0),
+                            PaymentMethod: data.bank_payment_via === 1 ? "Cheque" : (data.bank_payment_via === 4 ? "Cash" : "Bank Transfer"),
+                            BankName: data.bank_name || "-",
+                            Currency: data.CurrencyCode || "IDR",
+                            ChequeNo: data.cheque_number || "-",
+                            InvoiceNo: data.reference_no || "-",
+                            TransactionType: data.transaction_type || row.transactionType || "Receipt",
+                            AllocatedInvoices: allocatedInvoices
+                        });
+                    } else {
+                        setClaimDetailData({ error: "No receipt details found.", VoucherNo: voucherNo });
+                    }
             }
         } catch (error) {
             console.error("Error fetching record details:", error);
@@ -204,8 +250,8 @@ const BankBook = () => {
 
             const response = await axios.get(`${PYTHON_API_URL}/AR/get-report`, {
                 params: {
-                    from_date: fromDate || null,
-                    to_date: toDate || null,
+                    from_date: fromDate ? formatDate(fromDate) : null,
+                    to_date: toDate ? formatDate(toDate) : null,
                     bank_id: bankid == undefined || bankid == null ? 0 : bankid
                 }
             });
@@ -236,6 +282,7 @@ const BankBook = () => {
                 overdraftLimit: parseFloat(item.OverdraftLimit || 0),
                 overdraft: parseFloat(item.OverDraft || 0),
                 chequeNumber: item.cheque_number || "",
+                partyDetail: item.PartyDetail || "",
                 groupedClaims: item.GroupedClaims || []
             }));
 
@@ -298,12 +345,13 @@ const BankBook = () => {
                 overdraftLimit: odLimit
             };
         }).filter(item => {
-            if (item.transactionType === "OPENING BALANCE") {
-                // Remove opening balance if its date is not in relevant date range
-                // Usually skip if date is not defined or before fromDate
-                const rowDate = item.date ? formatDate(item.date) : null;
-                if (fromDate && rowDate && rowDate < fromDate) return false;
-            }
+            if (item.transactionType === "OPENING BALANCE") return true; 
+            
+            // Filter other transactions by date range
+            const rowDate = item.date ? formatDate(item.date) : null;
+            if (fromDate && rowDate && rowDate < fromDate) return false;
+            if (toDate && rowDate && rowDate > toDate) return false;
+            
             return true;
         });
     }, [bankBook, currency, rates, fromDate]);
@@ -337,7 +385,7 @@ const BankBook = () => {
 
             if (hasOverdraft) {
                 const val = ex.overdraftLimit - ex.balance;
-                row["OVER DRAFT"] = val < 0 ? `- ${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                row["OVER DRAFT"] = val < 0 ? `-${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
                 row["Total"] = ex.overdraftLimit.toLocaleString('en-US', { minimumFractionDigits: 2 });
             }
 
@@ -446,23 +494,30 @@ const BankBook = () => {
 
 
                     <Col md="3">
-                        <input
-                            type="date"
+                        <Flatpickr
                             className="form-control"
-                            value={fromDate ?? ""}
-                            onChange={(e) => setFromDate(e.target.value)}
-                            max={toDate}
+                            value={fromDate}
+                            onChange={(date) => setFromDate(date[0])}
+                            options={{
+                                altInput: true,
+                                altFormat: "d-M-Y",
+                                dateFormat: "Y-m-d"
+                            }}
+                            placeholder="From Date"
                         />
                     </Col>
 
                     <Col md="3">
-                        <input
-                            type="date"
+                        <Flatpickr
                             className="form-control"
-                            value={toDate ?? ""}
-                            onChange={(e) => setToDate(e.target.value)}
-                            min={fromDate}
-                            max={today}
+                            value={toDate}
+                            onChange={(date) => setToDate(date[0])}
+                            options={{
+                                altInput: true,
+                                altFormat: "d-M-Y",
+                                dateFormat: "Y-m-d"
+                            }}
+                            placeholder="To Date"
                         />
                     </Col>
 
@@ -537,7 +592,9 @@ const BankBook = () => {
                                         filter
                                         filterPlaceholder="Search Party"
                                         body={(rowData) => {
-                                            if (rowData.groupedClaims && rowData.groupedClaims.length > 0) {
+                                            const isSpecialType = ["bank transfer", "bank interest", "bank charges", "cash deposit"].includes(rowData.transactionType?.toLowerCase());
+                                            
+                                            if (!isSpecialType && rowData.groupedClaims && rowData.groupedClaims.length > 0) {
                                                 return (
                                                     <span
                                                         className="text-primary fw-bold"
@@ -556,6 +613,20 @@ const BankBook = () => {
                                                     </span>
                                                 );
                                             }
+
+                                            if (isSpecialType && rowData.partyDetail) {
+                                                const tooltipId = `tooltip-${rowData.rowKey || Math.random().toString(36).substr(2, 9)}`;
+                                                return (
+                                                    <span 
+                                                        className="custom-tooltip-target"
+                                                        data-pr-tooltip={rowData.partyDetail}
+                                                        style={{ cursor: 'help' }}
+                                                    >
+                                                        {rowData.party}
+                                                    </span>
+                                                );
+                                            }
+
                                             return rowData.party;
                                         }}
                                     />
@@ -617,7 +688,7 @@ const BankBook = () => {
                                             if (d.overdraftLimit <= 0) return "";
                                             const val = d.overdraftLimit - d.balance;
                                             const color = val < 0 ? '#0B5ED7' : 'red';
-                                            return <span style={{ color: color }}>{val < 0 ? `- ${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : val.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>;
+                                            return <span style={{ color: color, whiteSpace: 'nowrap' }}>{val < 0 ? `-${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : val.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>;
                                         }} className="text-end fw-bold" />
                                     )}
 
@@ -683,7 +754,7 @@ const BankBook = () => {
                                                             <>
                                                                 <td className={"text-end " + ((item.overdraftLimit - item.balance) < 0 ? "text-blue" : "text-red")}>
                                                                     {item.overdraftLimit > 0
-                                                                        ? ((item.overdraftLimit - item.balance) < 0 ? `- ${Math.abs(item.overdraftLimit - item.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : (item.overdraftLimit - item.balance).toLocaleString('en-US', { minimumFractionDigits: 2 }))
+                                                                        ? ((item.overdraftLimit - item.balance) < 0 ? `-${Math.abs(item.overdraftLimit - item.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : (item.overdraftLimit - item.balance).toLocaleString('en-US', { minimumFractionDigits: 2 }))
                                                                         : ""}
                                                                 </td>
                                                                 <td className="text-end">
@@ -704,7 +775,7 @@ const BankBook = () => {
                                 <Dialog
                                     header={`Transaction Details for ${selectedClaims?.party || ''}`}
                                     visible={showClaimsDialog}
-                                    style={{ width: '40vw' }}
+                                    style={{ width: '70vw' }}
                                     onHide={() => setShowClaimsDialog(false)}
                                     draggable={false}
                                     resizable={false}
@@ -733,17 +804,30 @@ const BankBook = () => {
                                                 emptyMessage="No matching records found."
                                             >
                                                 <Column 
-                                                    header="Receipt Number" 
+                                                    header="Voucher Number" 
                                                     body={(r) => {
-                                                        const match = r.VoucherNo?.match(/(.*?)\s*\(Inv:\s*(.*?)\)/);
-                                                        const receiptNo = match ? match[1] : (r.VoucherNo?.split(" - ")[0] || "-");
+                                                        const isClaim = r.VoucherNo?.startsWith("CLM");
+                                                        const isCashDeposit = r.transactionType?.toLowerCase() === "cash deposit";
+                                                        let val = r.VoucherNo || "";
+                                                        if (isClaim) {
+                                                            // Strip invoice suffix and party name suffix
+                                                            val = val.split(" (Inv:")[0].split(" - ")[0];
+                                                        } else {
+                                                            val = r.receipt_id || "-";
+                                                        }
+
+                                                        if (isCashDeposit) {
+                                                            return <span>{val}</span>;
+                                                        }
+
                                                         return (
                                                             <span
                                                                 className="text-primary fw-bold"
                                                                 style={{ cursor: "pointer", textDecoration: "underline" }}
                                                                 onClick={() => fetchRecordDetail(r)}
+                                                                title={r.VoucherNo || ""}
                                                             >
-                                                                {receiptNo}
+                                                                {val}
                                                             </span>
                                                         );
                                                     }}
@@ -752,9 +836,14 @@ const BankBook = () => {
                                                     header="Relevant Invoice" 
                                                     body={(r) => {
                                                         const match = r.VoucherNo?.match(/\(Inv:\s*(.*?)\)/);
-                                                        const invoiceNoStr = match ? match[1] : "-";
+                                                        let invoiceNoStr = match ? match[1] : (r.InvoiceNo || "-");
                                                         
-                                                        if (invoiceNoStr === "-") return "-";
+                                                        // Fallback: if it's still "-", try to split VoucherNo
+                                                        if ((!invoiceNoStr || invoiceNoStr === "-") && r.VoucherNo?.includes(" - ")) {
+                                                            invoiceNoStr = r.VoucherNo.split(" - ").slice(1).join(" - ");
+                                                        }
+
+                                                        if (!invoiceNoStr || invoiceNoStr === "-") return "-";
                                                         
                                                         const invoices = invoiceNoStr.split(',').map(i => i.trim()).filter(i => i);
                                                         
@@ -763,7 +852,7 @@ const BankBook = () => {
                                                                 {invoices.map((inv, idx) => (
                                                                     <span key={idx}>
                                                                         <span
-                                                                            className="text-info fw-bold"
+                                                                            className="text-primary fw-bold"
                                                                             style={{ cursor: "pointer", textDecoration: "underline", marginRight: "3px" }}
                                                                             onClick={() => handleInvoiceClick(inv)}
                                                                         >
@@ -793,9 +882,9 @@ const BankBook = () => {
 
                                 {/* --- NESTED RECORD DETAIL DIALOG --- */}
                                 <Dialog
-                                    header={`Transaction Details: ${claimDetailData?.FormNo || claimDetailData?.VoucherNo || ''}`}
+                                    header={`Details: ${claimDetailData?.FormNo || claimDetailData?.VoucherNo || ''}`}
                                     visible={showClaimDetailModal}
-                                    style={{ width: "45vw" }}
+                                    style={{ width: "85vw" }}
                                     onHide={() => setShowClaimDetailModal(false)}
                                     draggable={false}
                                     resizable={false}
@@ -811,71 +900,69 @@ const BankBook = () => {
                                     ) : claimDetailData ? (
                                         <div className="p-2">
                                             <style>{`
+                                                .metadata-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; padding: 15px; background: #fff; border-bottom: 1px solid #f0f0f0; }
+                                                .metadata-item { display: flex; font-size: 13px; }
+                                                .metadata-label { font-weight: 600; color: #495057; width: 140px; }
+                                                .metadata-value { color: #6c757d; }
+                                                .claims-datatable .p-datatable-thead > tr > th { background-color: #3b71ca !important; color: white !important; font-size: 13px; }
                                                 .detail-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
                                                 .detail-table th, .detail-table td { padding: 8px 12px; border: 1px solid #eee; text-align: left; }
                                                 .detail-table th { background-color: #f8f9fa; width: 35%; color: #495057; font-weight: 600; }
-                                                .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-                                                .status-posted { background-color: #d4edda; color: #155724; }
-                                                .status-saved { background-color: #fff3cd; color: #856404; }
-                                                .header-info-box { background: #f0f4f8; padding: 12px; border-radius: 6px; margin-bottom: 15px; border-left: 4px solid #5584d4; }
                                             `}</style>
 
-                                            <div className="header-info-box d-flex justify-content-between">
-                                                <div>
-                                                    <div className="text-muted small text-uppercase fw-bold">Receipt Number</div>
-                                                    <div className="fs-5 fw-bold text-primary">{claimDetailData.FormNo || "-"}</div>
-                                                </div>
-                                                <div className="text-end">
-                                                    <div className="text-muted small text-uppercase fw-bold">Date</div>
-                                                    <div className="fs-5 fw-bold">{claimDetailData.Date ? formatPrintDate(claimDetailData.Date) : "-"}</div>
-                                                </div>
-                                            </div>
+                                            {claimDetailData.IsClaim ? (
+                                                <>
+                                                    <div className="metadata-grid">
+                                                        <div className="metadata-item"><span className="metadata-label">Category Type</span><span className="metadata-value">: {claimDetailData.CategoryType}</span></div>
+                                                        <div className="metadata-item"><span className="metadata-label">Application Date</span><span className="metadata-value">: {claimDetailData.Date ? formatPrintDate(claimDetailData.Date) : "-"}</span></div>
+                                                        <div className="metadata-item"><span className="metadata-label">Claim Number</span><span className="metadata-value">: {claimDetailData.ApplicationNo}</span></div>
+                                                        
+                                                        <div className="metadata-item"><span className="metadata-label">Department</span><span className="metadata-value">: {claimDetailData.Department}</span></div>
+                                                        <div className="metadata-item"><span className="metadata-label">Applicant</span><span className="metadata-value">: {claimDetailData.Applicant}</span></div>
+                                                        <div className="metadata-item"></div>
+                                                        
+                                                        <div className="metadata-item"><span className="metadata-label">Trans Currency</span><span className="metadata-value">: {claimDetailData.TransCurrency}</span></div>
+                                                        <div className="metadata-item"><span className="metadata-label">HOD</span><span className="metadata-value">: {claimDetailData.HOD}</span></div>
+                                                        <div className="metadata-item"><span className="metadata-label">Supplier</span><span className="metadata-value">: {claimDetailData.Supplier}</span></div>
+                                                        
+                                                        <div className="metadata-item"><span className="metadata-label">Cost Center</span><span className="metadata-value">: {claimDetailData.CostCenter}</span></div>
+                                                        <div className="metadata-item"><span className="metadata-label">Claim Amount in TC</span><span className="metadata-value">: {claimDetailData.ClaimAmtInTC?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></div>
+                                                        <div className="metadata-item"></div>
+                                                    </div>
 
-                                            <table className="detail-table">
-                                                <tbody>
-                                                    {claimDetailData.IsClaim ? (
-                                                        <>
-                                                            <tr>
-                                                                <th>Category</th>
-                                                                <td>{claimDetailData.CategoryName || "-"}</td>
-                                                            </tr>
-                                                            <tr>
-                                                                <th>Expense Type</th>
-                                                                <td>{claimDetailData.ExpenseType || "-"}</td>
-                                                            </tr>
-                                                            <tr>
-                                                                <th>Description</th>
-                                                                <td>{claimDetailData.ExpenseDescription || claimDetailData.Description || "-"}</td>
-                                                            </tr>
-                                                            <tr>
-                                                                <th>Amount</th>
-                                                                <td className="fw-bold fs-6">
-                                                                    {claimDetailData.Currency || 'IDR'} {parseFloat(claimDetailData.TotalPaymentRequest || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                                </td>
-                                                            </tr>
-                                                            <tr>
-                                                                <th>Party (Payer/Receiver)</th>
-                                                                <td>{claimDetailData.Who || "-"}</td>
-                                                            </tr>
-                                                            <tr>
-                                                                <th>To</th>
-                                                                <td>{claimDetailData.Whom || "-"}</td>
-                                                            </tr>
-                                                            <tr>
-                                                                <th>Status</th>
-                                                                <td>
-                                                                    <span className={`status-badge ${claimDetailData.Status === "Posted" ? "status-posted" : "status-saved"}`}>
-                                                                        {claimDetailData.Status}
-                                                                    </span>
-                                                                </td>
-                                                            </tr>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <tr>
-                                                                <th>Customer</th>
-                                                                <td>{claimDetailData.CustomerName || "-"}</td>
-                                                            </tr>
+                                                    <DataTable
+                                                        value={claimDetailData.Details || []}
+                                                        className="claims-datatable p-datatable-sm p-datatable-gridlines mb-3"
+                                                        responsiveLayout="scroll"
+                                                    >
+                                                        <Column header="#" body={(rowData, options) => options.rowIndex + 1} style={{ width: '50px' }} />
+                                                        <Column field="claimtype" header="Claim Type" />
+                                                        <Column field="Purpose" header="Claim & Payment Description" body={(r) => r.Purpose || r.ClaimAndPaymentDesc || "-"} />
+                                                        <Column field="Amount" header="Amount" className="text-end" body={(r) => r.Amount?.toLocaleString('en-US', { minimumFractionDigits: 2 })} />
+                                                        <Column field="ExpenseDate" header="Expense Date" body={(r) => r.ExpenseDate ? formatPrintDate(r.ExpenseDate) : "-"} />
+                                                        <Column field="Purpose" header="Purpose" />
+                                                    </DataTable>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div className="header-info-box d-flex justify-content-between" style={{ background: "#f0f4f8", padding: "12px", borderRadius: "6px", marginBottom: "15px", borderLeft: "4px solid #5584d4" }}>
+                                                        <div>
+                                                            <div className="text-muted small text-uppercase fw-bold">{claimDetailData.IsClaim ? "Claim Number" : "Receipt Number"}</div>
+                                                            <div className="fs-5 fw-bold text-primary">{claimDetailData.FormNo || "-"}</div>
+                                                        </div>
+                                                        <div className="text-end">
+                                                            <div className="text-muted small text-uppercase fw-bold">Date</div>
+                                                            <div className="fs-5 fw-bold">{claimDetailData.Date ? formatPrintDate(claimDetailData.Date) : "-"}</div>
+                                                        </div>
+                                                    </div>
+                                                    <table className="detail-table">
+                                                        <tbody>
+                                                            {(!["bank charges", "bank interest"].includes(claimDetailData.TransactionType?.toLowerCase())) && (
+                                                                <tr>
+                                                                    <th>{claimDetailData.TransactionType?.toLowerCase() === "bank transfer" ? "Bank transfer to" : "Customer"}</th>
+                                                                    <td>{claimDetailData.CustomerName || "-"}</td>
+                                                                </tr>
+                                                            )}
                                                             <tr>
                                                                 <th>Amount</th>
                                                                 <td className="fw-bold fs-6">
@@ -890,20 +977,49 @@ const BankBook = () => {
                                                                 <th>Payment Method</th>
                                                                 <td>{claimDetailData.PaymentMethod || "-"}</td>
                                                             </tr>
-                                                            <tr>
-                                                                <th>Invoice Number</th>
-                                                                <td>{claimDetailData.InvoiceNo || "-"}</td>
-                                                            </tr>
                                                             {claimDetailData.ChequeNo && claimDetailData.ChequeNo !== "-" && (
                                                                 <tr>
                                                                     <th>Cheque/Giro No</th>
                                                                     <td>{claimDetailData.ChequeNo}</td>
                                                                 </tr>
                                                             )}
-                                                        </>
+                                                        </tbody>
+                                                    </table>
+
+                                                    {claimDetailData.AllocatedInvoices && claimDetailData.AllocatedInvoices.length > 0 && (
+                                                        <div className="mt-4">
+                                                            <h6 className="fw-bold mb-3" style={{ color: "#3b71ca" }}>Allocated Invoices</h6>
+                                                            <DataTable
+                                                                value={claimDetailData.AllocatedInvoices}
+                                                                className="claims-datatable p-datatable-sm p-datatable-gridlines"
+                                                                responsiveLayout="scroll"
+                                                            >
+                                                                <Column header="#" body={(rowData, options) => options.rowIndex + 1} style={{ width: '50px' }} />
+                                                                <Column field="invoice_no" header="Invoice Number" body={(r) => (
+                                                                    <span 
+                                                                        className="text-primary fw-bold" 
+                                                                        style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                                                        onClick={() => handleInvoiceClick(r.invoice_no)}
+                                                                    >
+                                                                        {r.invoice_no}
+                                                                    </span>
+                                                                )} />
+                                                                <Column field="invoice_date" header="Date" />
+                                                                <Column 
+                                                                    header="Invoice Amount" 
+                                                                    className="text-end" 
+                                                                    body={(r) => parseFloat(r.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} 
+                                                                />
+                                                                <Column 
+                                                                    header="Allocated" 
+                                                                    className="text-end fw-bold text-success" 
+                                                                    body={(r) => parseFloat(r.allocated_here || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} 
+                                                                />
+                                                            </DataTable>
+                                                        </div>
                                                     )}
-                                                </tbody>
-                                            </table>
+                                                </>
+                                            )}
                                             <div className="mt-3 text-end">
                                                 <button className="btn btn-secondary btn-sm" onClick={() => setShowClaimDetailModal(false)}>
                                                     Close
@@ -961,7 +1077,7 @@ const BankBook = () => {
                                 className="p-datatable-sm p-datatable-gridlines"
                                 responsiveLayout="scroll"
                             >
-                                <Column field="gascodeid" header="Item Code" />
+
                                 <Column field="GasName" header="Description" body={(r) => r.GasName || r.ItemName || "Item"} />
                                 <Column field="PickedQty" header="Qty" className="text-end" />
                                 <Column field="UnitPrice" header="Unit Price" className="text-end" body={(r) => r.UnitPrice?.toLocaleString('en-US', { minimumFractionDigits: 2 })} />
@@ -976,6 +1092,25 @@ const BankBook = () => {
                         <div className="text-center p-3 text-muted">No details found for this invoice.</div>
                     )}
                 </Dialog>
+
+                <Tooltip 
+                    target=".custom-tooltip-target" 
+                    mouseTrack 
+                    mouseTrackLeft={10} 
+                    style={{ 
+                        fontSize: '15px', 
+                        maxWidth: '300px' 
+                    }}
+                    contentStyle={{
+                        backgroundColor: '#ffffff',
+                        color: '#333333',
+                        padding: '10px 15px',
+                        border: '1px solid #ddd',
+                        borderRadius: '4px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        fontWeight: '500'
+                    }}
+                />
             </Container>
         </div>
     );

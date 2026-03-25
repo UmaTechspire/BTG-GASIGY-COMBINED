@@ -209,7 +209,7 @@ const ProcurementsAddGRN = () => {
       grnNo: header.grnno,
       grnDate: new Date(header.grndate),
       supplier: selectedSupplier,
-      poNo: selectedPOs,   // ✅ MULTIPLE POs
+      poNo: selectedPOs.length > 0 ? selectedPOs[0] : null,   // ✅ SINGLE PO
       items: allItems,
     });
 
@@ -741,19 +741,13 @@ const ProcurementsAddGRN = () => {
                               value={values.poNo}
                               options={poNo}
                               menuPortalTarget={document.body}
-                              onChange={async (selectedOptions) => {
-                                setFieldValue("poNo", selectedOptions || []);
+                              onChange={async (selectedOption) => {
+                                setFieldValue("poNo", selectedOption || null);
 
-                                if (selectedOptions && selectedOptions.length > 0) {
-                                  let allItems = [];
-                                  for (const option of selectedOptions) {
-                                    if (option.value) {
-                                      const poItems = await loadItemsByPO(option.value, grnData?.data?.Details || []);
-                                      allItems = [...allItems, ...poItems];
-                                    }
-                                  }
-                                  setItems(allItems);
-                                  setFieldValue("items", allItems);
+                                if (selectedOption && selectedOption.value) {
+                                  const poItems = await loadItemsByPO(selectedOption.value, grnData?.data?.Details || []);
+                                  setItems(poItems);
+                                  setFieldValue("items", poItems);
 
                                   // Restore selected items if edit mode
                                   if (isEditMode && grnData?.data?.Details) {
@@ -769,7 +763,6 @@ const ProcurementsAddGRN = () => {
                                 }
                               }}
                               isClearable
-                              isMulti
                             />
                             {errors.poNo && touched.poNo && (
                               <div className="text-danger">{errors.poNo}</div>

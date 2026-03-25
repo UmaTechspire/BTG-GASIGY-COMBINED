@@ -434,8 +434,8 @@ const AddManualInvoice = () => {
   };
 
   const validateForm = () => {
-    if (!invoiceHeader || !invoiceHeader.salesInvoiceNbr || !invoiceHeader.customerId || !invoiceHeader.salesInvoiceDate || !invoiceHeader.poNumber || invoiceHeader.poNumber.trim() === "" || invoiceHeader.totalAmount <= 0 || invoiceHeader.totalQty <= 0) {
-      setErrorMsg(["Invoice header details are incomplete or invalid (PO Number is required)."]);
+    if (!invoiceHeader || !invoiceHeader.salesInvoiceNbr || !invoiceHeader.customerId || !invoiceHeader.salesInvoiceDate || invoiceHeader.totalAmount <= 0 || invoiceHeader.totalQty <= 0) {
+      setErrorMsg(["Invoice header details are incomplete or invalid."]);
       return false;
     }
     return true;
@@ -1022,7 +1022,7 @@ const AddManualInvoice = () => {
 
                           <Col md="3">
                             <FormGroup>
-                              <Label className="required-label" for="poNumber">PO No.</Label>
+                              <Label for="poNumber">PO No.</Label>
                               <Input
                                 type="text"
                                 name="poNumber"

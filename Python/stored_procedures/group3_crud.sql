@@ -34,14 +34,16 @@ CREATE PROCEDURE btggasify_finance_live.proc_CRUD_UpdateARSum(
     IN p_invoice_nbr VARCHAR(100), IN p_total DECIMAL(18,2), IN p_total_idr DECIMAL(18,2), IN p_user_id VARCHAR(50)
 )
 BEGIN
+    -- Use TRIM and COLLATE for robust matching across databases
     UPDATE btggasify_finance_live.tbl_accounts_receivable
     SET 
         inv_amount = p_total,
         invoice_amt_idr = p_total_idr,
         balance_amount = (p_total - already_received),
         updated_by = p_user_id,
-        updated_date = NOW()
-    WHERE invoice_no = p_invoice_nbr COLLATE utf8mb4_general_ci;
+        updated_date = NOW(),
+        updated_ip = '127.0.0.1'
+    WHERE TRIM(invoice_no) = TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci;
 END //
 DELIMITER ;
 
@@ -53,34 +55,34 @@ CREATE PROCEDURE btggasify_finance_live.proc_CRUD_InsertARFromInvoice(
     IN p_invoice_id INT, IN p_primary_id INT, IN p_total DECIMAL(18,2), IN p_total_idr DECIMAL(18,2)
 )
 BEGIN
+    -- Use TRIM() and explicit COLLATE for h.salesinvoicenbr access
     INSERT INTO btggasify_finance_live.tbl_accounts_receivable (
         orgid, branchid, 
         ar_no, 
         invoice_no, invoice_id, invoice_date, 
-        customer_id, customer_name, 
-        inv_amount, balance_amount, already_received, 
-        invoice_amt_idr, currencyid, 
-        created_by, created_ip, created_date, 
-        is_active, is_partial
+        customer_id, customer_name,
+        inv_amount, invoice_amt_idr, already_received, advance_payment, balance_amount, 
+        is_active, is_partial,
+        created_by, created_date, currencyid, created_ip
     )
     SELECT 
-        p_org_id, p_branch_id,
-        CONCAT('AR-', h.salesinvoicenbr), 
-        h.salesinvoicenbr, 
+        p_org_id, p_branch_id, 
+        CONCAT('AR-', TRIM(h.salesinvoicenbr)), 
+        TRIM(h.salesinvoicenbr), 
         p_primary_id,
         h.Salesinvoicesdate,
-        h.customerid, 
-        IFNULL(c.CustomerName, 'Unknown'), 
+        h.customerid,
+        COALESCE(c.CustomerName, 'Unknown'),
         p_total, 
-        p_total, 
-        0, 
         p_total_idr, 
+        0, 0, p_total,
+        1, 0,
+        p_user_id, NOW(),
         (SELECT COALESCE(d.Currencyid, 1) 
          FROM btggasify_live.tbl_salesinvoices_details d 
          WHERE d.salesinvoicesheaderid = h.id 
-         LIMIT 1), 
-        p_user_id, '127.0.0.1', NOW(), 
-        1, 0
+         LIMIT 1),
+        '127.0.0.1'
     FROM btggasify_live.tbl_salesinvoices_header h
     LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
     WHERE h.id = p_invoice_id;
@@ -95,13 +97,13 @@ BEGIN
     UPDATE btggasify_finance_live.tbl_accounts_receivable
     SET is_active = 0
     WHERE is_active = 1
-      AND invoice_no != p_invoice_nbr COLLATE utf8mb4_general_ci
-      AND invoice_no IN (
-          SELECT DISTINCT DOnumber 
+      AND TRIM(invoice_no) != TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci
+      AND TRIM(invoice_no) IN (
+          SELECT DISTINCT TRIM(DOnumber)
           FROM btggasify_live.tbl_salesinvoices_details 
           WHERE salesinvoicesheaderid = p_invoice_id 
             AND DOnumber IS NOT NULL 
-            AND DOnumber != ''
+            AND TRIM(DOnumber) != ''
       );
 END //
 DELIMITER ;
@@ -178,7 +180,13 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_GetARIdByInvoiceId;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_GetARIdByInvoiceId(IN p_invoice_id INT)
 BEGIN
-    SELECT ar_id FROM btggasify_finance_live.tbl_accounts_receivable WHERE invoice_id = p_invoice_id LIMIT 1;
+    -- Fix: Some AR records have mismatched invoice_id but matching invoice_no.
+    -- We join with the header to get the official invoice number and match it in AR.
+    SELECT ar.ar_id 
+    FROM btggasify_finance_live.tbl_accounts_receivable ar
+    JOIN btggasify_live.tbl_salesinvoices_header h ON TRIM(ar.invoice_no) = TRIM(h.salesinvoicenbr)
+    WHERE h.id = p_invoice_id 
+    LIMIT 1;
 END //
 DELIMITER ;
 
@@ -313,3 +321,14 @@ BEGIN
 END //
 DELIMITER ;
 
+-- 21. proc_CRUD_GetReceiptLinkedInvoices
+DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_GetReceiptLinkedInvoices;
+DELIMITER //
+CREATE PROCEDURE btggasify_finance_live.proc_CRUD_GetReceiptLinkedInvoices(IN p_receipt_id INT)
+BEGIN
+    SELECT DISTINCT ar.invoice_no 
+    FROM btggasify_finance_live.tbl_receipt_ag_ar ra
+    JOIN btggasify_finance_live.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id
+    WHERE ra.receipt_id = p_receipt_id AND ra.is_active = 1;
+END //
+DELIMITER ;

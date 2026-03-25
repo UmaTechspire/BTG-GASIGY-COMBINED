@@ -298,7 +298,7 @@ async def post_receipt(
     db: AsyncSession = Depends(database.get_db)
 ):
     try:
-        from sqlalchemy import update
+        from sqlalchemy import update, select
         from ..models.finance import ARReceipt
 
         stmt = (
@@ -307,6 +307,20 @@ async def post_receipt(
             .values(is_submitted=True, pending_verification=False)
         )
         result = await db.execute(stmt)
+
+        # 🟢 SYNCHRONIZE POSTING FOR LINKED RECEIPT
+        select_stmt = select(ARReceipt.linked_receipt_id).where(ARReceipt.receipt_id == receipt_id)
+        linked_res = await db.execute(select_stmt)
+        linked_id = linked_res.scalar_one_or_none()
+        
+        if linked_id:
+            linked_stmt = (
+                update(ARReceipt)
+                .where(ARReceipt.receipt_id == linked_id)
+                .values(is_submitted=True, pending_verification=False)
+            )
+            await db.execute(linked_stmt)
+
         await db.commit()
 
         if result.rowcount == 0:
@@ -351,6 +365,7 @@ async def get_outstanding_invoices(
     receipt_id: Optional[int] = None, 
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
+    only_allocated: bool = False,
     db: AsyncSession = Depends(database.get_db)
 ):
     try:
@@ -358,6 +373,7 @@ async def get_outstanding_invoices(
         fdate_val = from_date if from_date else None
         tdate_val = to_date if to_date else None
         
+        # 🟢 REVERTED: Call SP with original 4 parameters to avoid breaking other callers (like SOA)
         query = text("CALL proc_AR_GetOutstandingInvoices(:cust_id, :rid, :fdate, :tdate)")
         result = await db.execute(query, {
             "cust_id": customer_id, 
@@ -370,7 +386,13 @@ async def get_outstanding_invoices(
         processed_invoices = []
         for inv in invoices:
              item = dict(inv)
-             item["is_pre_selected"] = True if float(item["allocated_here"]) > 0 else False
+             allocated = float(item.get("allocated_here", 0))
+             
+             # 🟢 New: Filter in Python if only_allocated is requested
+             if only_allocated and allocated <= 0:
+                 continue
+
+             item["is_pre_selected"] = True if allocated > 0 else False
              processed_invoices.append(item)
              
         return {"status": "success", "data": processed_invoices}

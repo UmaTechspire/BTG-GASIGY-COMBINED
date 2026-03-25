@@ -822,9 +822,10 @@ class SidebarContent extends Component {
             console.log("--- GM/DIRECTOR/CEO: Approval Pages Only (Restriction Applied) ---");
 
             const allowedModules = ["Procurement", "Claim", "Claims"];
-            // Special Case: User 135 gets Masters
+            // Special Case: User 135 gets Masters and Finance
             if (currentUserIdFilter === 135) {
                 allowedModules.push("Masters");
+                allowedModules.push("Finance");
             }
             // Special Case: User 156 gets Finance (Cashbook, Cash Book Entry, Petty Cash, PC Book)
             if (currentUserIdFilter === 156) {
@@ -852,8 +853,8 @@ class SidebarContent extends Component {
             menuData.menus.forEach(menu => {
                 if (menu.screen && menu.screen.length > 0) {
                     menu.screen = menu.screen.filter(item => {
-                        // Special Case: Masters screens should be visible for 135
-                        if (currentUserIdFilter === 135 && menu.moduleName === "Masters") {
+                        // Special Case: Masters and Finance screens should be visible for 135
+                        if (currentUserIdFilter === 135 && (menu.moduleName === "Masters" || menu.moduleName === "Finance")) {
                             return true;
                         }
 
@@ -915,6 +916,7 @@ class SidebarContent extends Component {
             const allowedModules = ["Procurement", "Claim", "Claims"];
             if (currentUserIdFilter === 135) {
                 allowedModules.push("Warehouse");
+                allowedModules.push("Finance");
             }
             // Special Case: User 135 gets Masters + New Users 137,168,169,170,184
             const masterAccessUsers = [135, 137, 168, 169, 170, 184];
@@ -949,8 +951,8 @@ class SidebarContent extends Component {
             menuData.menus.forEach(menu => {
                 if (menu.screen && menu.screen.length > 0) {
                     menu.screen = menu.screen.filter(item => {
-                        // Special Case: Masters screens should be visible for 135
-                        if (currentUserIdFilter === 135 && menu.moduleName === "Masters") {
+                        // Special Case: Masters and Finance screens should be visible for 135
+                        if (currentUserIdFilter === 135 && (menu.moduleName === "Masters" || menu.moduleName === "Finance")) {
                             return true;
                         }
 
@@ -978,8 +980,8 @@ class SidebarContent extends Component {
             });
         }
 
-        // Hide Finance from non-SuperAdmin (except financeInvoiceReportsUsers and user 156)
-        if (!skipUniversalFilters && authUser && !authUser.superAdmin && currentUserIdFilter !== 156) {
+        // Hide Finance from non-SuperAdmin (except financeInvoiceReportsUsers and user 156 and 135)
+        if (!skipUniversalFilters && authUser && !authUser.superAdmin && currentUserIdFilter !== 156 && currentUserIdFilter !== 135) {
             menuData.menus = menuData.menus.filter(m => m.moduleName !== "Finance");
         }
 
@@ -1255,6 +1257,30 @@ class SidebarContent extends Component {
 
                 financeModUser156.screen.sort((a, b) => a.screenName.localeCompare(b.screenName));
                 console.log(`[USER 156] Finance screens set to:`, financeModUser156.screen.map(s => s.screenName));
+            }
+        }
+
+        // ---------------------------------------------------------
+        // FINAL OVERRIDE FOR USER 135 (Finance: AP Book only)
+        // ---------------------------------------------------------
+        if (currentUserIdFilter === 135) {
+            console.log("=== FINAL OVERRIDE (135): Finance Limited to AP Book ===");
+
+            const financeModUser135 = menuData.menus.find(m => m.moduleName === "Finance");
+            if (financeModUser135) {
+                const allowedFinanceScreens = [
+                    { screenId: 99919, screenName: "AP BOOK", url: "/AP", icon: "bx bx-file" }
+                ];
+
+                financeModUser135.screen = allowedFinanceScreens.map(item => ({
+                    screenId: item.screenId,
+                    screenName: item.screenName,
+                    url: item.url,
+                    icon: item.icon,
+                    module: []
+                }));
+
+                console.log(`[USER 135] Finance screens set to:`, financeModUser135.screen.map(s => s.screenName));
             }
         }
 

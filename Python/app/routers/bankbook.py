@@ -46,8 +46,58 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
     try:
         query = text("CALL proc_Bank_GetDailyEntries()")
         result = await db.execute(query)
-        data = result.mappings().all()
-        return {"status": "success", "data": data}
+        raw_data = result.mappings().all()
+        
+        # --- LOGICAL GROUPING ---
+        grouped_map = {}
+        final_list = []
+        
+        for row in raw_data:
+            rd = dict(row)
+            gid = rd.get('combine_group_id')
+            
+            if gid is not None and str(gid) != 'None' and gid != 0:
+                if gid not in grouped_map:
+                    # Initialize group with first record
+                    grouped_map[gid] = rd
+                    # IMPORTANT: Keep receipt_id as an INT (BigInt) for API compatibility
+                    # We use the FIRST receipt_id as the representative for the whole group
+                    grouped_map[gid]['receipt_id'] = rd['receipt_id']
+                    grouped_map[gid]['grouped_receipt_ids'] = [rd['receipt_id']]
+                    grouped_map[gid]['is_combined'] = True
+                    grouped_map[gid]['group_count'] = 1
+                    grouped_map[gid]['custom_voucher_no'] = rd.get('custom_voucher_no')
+                else:
+                    g = grouped_map[gid]
+                    g['group_count'] += 1
+                    g['grouped_receipt_ids'].append(rd['receipt_id'])
+                    # Sum amounts (using float to avoid Decimal issues)
+                    g['bank_amount'] = float(g.get('bank_amount') or 0) + float(rd.get('bank_amount') or 0)
+                    g['bank_charges'] = float(g.get('bank_charges') or 0) + float(rd.get('bank_charges') or 0)
+                    g['cash_amount'] = float(g.get('cash_amount') or 0) + float(rd.get('cash_amount') or 0)
+                    
+                    # Append reference_no for display
+                    if rd.get('reference_no') and rd['reference_no'] not in (g.get('reference_no') or ''):
+                        if g.get('reference_no'):
+                            g['reference_no'] = f"{g['reference_no']} | {rd['reference_no']}"
+                        else:
+                            g['reference_no'] = rd['reference_no']
+                            
+                    # Use the "better" customer name if one is Unknown
+                    if (not g.get('customerName') or g['customerName'] == 'Unknown Customer') and rd.get('customerName') != 'Unknown Customer':
+                        g['customerName'] = rd['customerName']
+            else:
+                rd['is_combined'] = False
+                final_list.append(rd)
+        
+        # Add all grouped records to final list
+        for g_record in grouped_map.values():
+            final_list.append(g_record)
+            
+        # Sort by date descending, then ID descending
+        final_list.sort(key=lambda x: (str(x.get('date', '')), -int(x.get('receipt_id', 0))), reverse=True)
+        
+        return {"status": "success", "data": final_list}
         
     except Exception as e:
         return {"status": "error", "detail": str(e)}
@@ -64,10 +114,21 @@ async def get_bank_book_report(
         data = []
         running_balance = 0.0
 
+        def clean_date(d_str):
+            if not d_str: return None
+            # Extract YYYY-MM-DD from '2026-01-31T18:30:00.000Z', '2026-01-31 00:00:00', or '2026-01-31'
+            return d_str.split('T')[0].split(' ')[0]
+
+        from_date_clean = clean_date(from_date)
+        to_date_clean = clean_date(to_date)
+
         # 1. FETCH OPENING BALANCE
-        if bank_id and bank_id != 0:
-            opening_sql = text("CALL proc_Bank_GetOpeningBalance(:bank_id)")
-            opening_result = await db.execute(opening_sql, {"bank_id": bank_id})
+        if bank_id and str(bank_id) != '0' and from_date_clean:
+            opening_sql = text("CALL proc_Bank_GetOpeningBalance(:bank_id, :from_date)")
+            opening_result = await db.execute(opening_sql, {
+                "bank_id": int(bank_id), 
+                "from_date": from_date_clean
+            })
             opening_row = opening_result.mappings().first()
 
             if opening_row:
@@ -77,10 +138,11 @@ async def get_bank_book_report(
                 
                 op_item["CreditIn"] = 0.0
                 op_item["DebitOut"] = op_debit
+                # Ensure balance is correct
                 op_item["Balance"] = running_balance
                 data.append(op_item)
 
-        # 1b. FETCH OVERDRAFT LIMIT from tbl_overdraft (user-entered via Overdraft screen)
+        # 1b. FETCH OVERDRAFT LIMIT
         overdraft_limit = 0.0
         if bank_id and bank_id != 0:
             overdraft_sql = text("CALL proc_Bank_GetOverdraftLimit(:bank_id)")
@@ -89,31 +151,38 @@ async def get_bank_book_report(
             if overdraft_row:
                 overdraft_limit = float(overdraft_row["OverdraftLimit"])
 
-        # Attach overdraft to opening balance row if it exists
         if data:
             data[0]["OverdraftLimit"] = overdraft_limit
             data[0]["OverDraft"] = overdraft_limit - running_balance
 
         # 2. FETCH TRANSACTIONS
+        # Start from the 1st of the month for calculation continuity
+        try:
+            dt_from = date.fromisoformat(from_date_clean)
+            from_date_for_sql = str(dt_from.replace(day=1))
+        except:
+            from_date_for_sql = from_date_clean
+
         sql = text("CALL proc_Bank_GetReportTransactions(:from_date, :to_date, :bank_id)")
 
         params = {
-            "from_date": from_date, 
-            "to_date": to_date, 
+            "from_date": from_date_for_sql, 
+            "to_date": to_date_clean, 
             "bank_id": int(bank_id) 
         }
 
         result = await db.execute(sql, params)
         raw_rows = result.mappings().all()
         
-        # --- NEW LOGIC: GROUP BY (Date, TransactionType, Party) ---
+        # --- GROUP BY (Date, TransactionType, Party) ---
         grouped_dict = {}
         for row in raw_rows:
-            # Create a unique sorting key that keeps chronological order
-            # Using str(Date) to easily group dates
+            # Create a unique sorting key
             dt_str = str(row["Date"]).split()[0] if row["Date"] else "" 
             
-            group_key = (dt_str, row["TransactionType"], row["Party"])
+            # ALL types should NOT be grouped. Keep every transaction as a separate row 
+            # for full chronological audit trail as requested by the user.
+            group_key = (dt_str, row["TransactionType"], row["Party"], row.get("receipt_id"))
             
             if group_key not in grouped_dict:
                 grouped_dict[group_key] = {
@@ -122,6 +191,7 @@ async def get_bank_book_report(
                     "TransactionType": row["TransactionType"],
                     "Account": row["Account"],
                     "Party": row["Party"],
+                    "PartyDetail": row.get("PartyDetail"),
                     "Description": row["Description"],
                     "Currency": row["Currency"],
                     "CreditIn": float(row["CreditIn"] or 0),
@@ -133,7 +203,8 @@ async def get_bank_book_report(
                     "GroupedClaims": [{
                         "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
                         "Amount": float(row["NetAmount"] or 0),
-                        "receipt_id": row["receipt_id"]
+                        "receipt_id": row["receipt_id"],
+                        "InvoiceNo": row["AllocatedInvoices"] or row["Description"] # Use clean invoice info
                     }]
                 }
             else:
@@ -141,29 +212,23 @@ async def get_bank_book_report(
                 new_voucher = str(row["VoucherNo"]) if row["VoucherNo"] else ""
                 net_amount = float(row["NetAmount"] or 0)
                 
-                # Check for identical VoucherNo and Amount to prevent duplicates
-                is_duplicate = False
-                for gc in existing["GroupedClaims"]:
-                    if gc["VoucherNo"] == new_voucher and gc["Amount"] == net_amount:
-                        is_duplicate = True
-                        break
+                # Check for identical VoucherNo and Amount if necessary, but typically we want all
+                # Group exists, sum the amounts
+                existing["CreditIn"] += float(row["CreditIn"] or 0)
+                existing["DebitOut"] += float(row["DebitOut"] or 0)
+                existing["NetAmount"] += net_amount
                 
-                if not is_duplicate:
-                    # Group exists and is not duplicate, sum the amounts
-                    existing["CreditIn"] += float(row["CreditIn"] or 0)
-                    existing["DebitOut"] += float(row["DebitOut"] or 0)
-                    existing["NetAmount"] += net_amount
+                # Append Voucher No for the global search string
+                if new_voucher and new_voucher not in existing["VoucherNo"]:
+                    existing["VoucherNo"] += f", {new_voucher}"
                     
-                    # Append Voucher No for the global search string
-                    if new_voucher and new_voucher not in existing["VoucherNo"]:
-                        existing["VoucherNo"] += f", {new_voucher}"
-                        
-                    # Append to GroupedClaims array
-                    existing["GroupedClaims"].append({
-                        "VoucherNo": new_voucher,
-                        "Amount": net_amount,
-                        "receipt_id": row["receipt_id"]
-                    })
+                # Append to GroupedClaims array
+                existing["GroupedClaims"].append({
+                    "VoucherNo": new_voucher,
+                    "Amount": net_amount,
+                    "receipt_id": row["receipt_id"],
+                    "InvoiceNo": row["AllocatedInvoices"] or row["Description"]
+                })
         
         # Calculate moving balance on the grouped array
         for item in grouped_dict.values():
@@ -213,33 +278,60 @@ async def verify_receipt(
 @router.put("/submit/{receipt_id}")
 async def submit_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
     """
-    Called when generating Marketing Verification. Sets is_posted=1 and pending_verification=1.
-    is_submitted remains 0 until Finance POSTS it.
+    Sets is_posted=True and pending_verification=True.
+    If receipt_id is part of a group, updates the WHOLE group.
     """
-    stmt = (
-        update(ARReceipt)
-        .where(ARReceipt.receipt_id == receipt_id)
-        .values(
-            is_posted=True,
-            pending_verification=True 
-        )
-    )
-    await db.execute(stmt)
+    # 1. Find the target record
+    stmt = select(ARReceipt).where(ARReceipt.receipt_id == receipt_id)
+    result = await db.execute(stmt)
+    entry = result.scalars().first()
+    
+    if not entry:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+
+    # 2. Determine target records (single or group)
+    if entry.combine_group_id:
+        stmt_group = select(ARReceipt).where(ARReceipt.combine_group_id == entry.combine_group_id, ARReceipt.is_active == True)
+        res_group = await db.execute(stmt_group)
+        targets = res_group.scalars().all()
+    else:
+        targets = [entry]
+
+    # 3. Apply updates
+    for item in targets:
+        is_receipt = (item.transaction_type == 'Receipt')
+        item.is_posted = True
+        item.pending_verification = is_receipt
+        item.is_submitted = not is_receipt # Straight to bankbook if not a receipt
+
     await db.commit()
     return {"status": "success"}
 
 @router.put("/post/{receipt_id}")
 async def finalize_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
     """
-    Called by Finance to finally POST to the Bank Book report. Sets is_submitted=1.
+    Final Finance POST. If part of a group, posts all members.
     """
-    stmt = (
-        update(ARReceipt)
-        .where(ARReceipt.receipt_id == receipt_id)
-        .values(is_submitted=True, pending_verification=False)
-    )
-    await db.execute(stmt)
-    await db.commit()
+    # 1. Find the target record
+    stmt = select(ARReceipt).where(ARReceipt.receipt_id == receipt_id)
+    result = await db.execute(stmt)
+    entry = result.scalars().first()
+    
+    if not entry:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+
+    # 2. Determine target records
+    if entry.combine_group_id:
+        stmt_group = select(ARReceipt).where(ARReceipt.combine_group_id == entry.combine_group_id, ARReceipt.is_active == True)
+        res_group = await db.execute(stmt_group)
+        ids = [r.receipt_id for r in res_group.scalars().all()]
+    else:
+        ids = [receipt_id]
+
+    # 3. Finalize all
+    for rid in ids:
+        await crud.finalize_receipt_and_update_ref(db, rid)
+            
     return {"status": "success"}
 
 @router.get("/get-by-id")
@@ -247,13 +339,17 @@ async def get_by_id(receipt_id: int, db: AsyncSession = Depends(get_db)):
     sql = text(f"""
         SELECT 
             r.*,
-            COALESCE(c.CustomerName, s.SupplierName, '-') as customer_name,
+            CASE 
+                WHEN LOWER(r.transaction_type) = 'bank transfer' THEN COALESCE(b2.BankName, '-')
+                ELSE COALESCE(c.CustomerName, s.SupplierName, '-')
+            END as customer_name,
             COALESCE(b.BankName, '-') as bank_name,
             COALESCE(mc.CurrencyCode, 'IDR') as CurrencyCode
         FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
         LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
         LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
         LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
+        LEFT JOIN {DB_NAME_MASTER}.master_bank b2 ON CAST(NULLIF(r.customer_id, '') AS UNSIGNED) = b2.BankId
         LEFT JOIN {DB_NAME_USER}.master_currency mc ON COALESCE(r.currencyid, b.CurrencyId) = mc.CurrencyId
         WHERE r.receipt_id = :receipt_id
     """)
@@ -402,3 +498,18 @@ async def sync_claim_to_ap(
         await db.rollback()
         print(f"❌ Sync Error: {e}")
         return {"status": "error", "detail": str(e)}
+
+@router.post("/combine-vouchers")
+async def combine_vouchers(request: schemas.CombineVouchersRequest, db: AsyncSession = Depends(get_db)):
+    """Combines multiple receipts into one and transfers allocations."""
+    result = await crud.combine_receipts(db, request)
+    if result:
+        return {"status": "success", "message": "Vouchers combined successfully", "new_id": result.receipt_id}
+    else:
+        raise HTTPException(status_code=400, detail="Failed to combine vouchers. Ensure they exist and are active.")
+
+@router.get("/get-all-active-banks")
+async def get_all_active_banks(db: AsyncSession = Depends(get_db)):
+    sql = text("SELECT BankId as value, BankName as label FROM btggasify_masterpanel_live.master_bank WHERE IsActive = 1")
+    result = await db.execute(sql)
+    return {"status": "success", "data": result.mappings().all()}

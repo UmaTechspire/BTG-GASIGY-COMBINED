@@ -12,6 +12,8 @@ import { Dialog } from "primereact/dialog";
 import Select from "react-select";
 import { format } from "date-fns";
 import { toast } from "react-toastify";
+import * as XLSX from "xlsx";
+import { saveAs } from "file-saver";
 
 // --- API IMPORTS ---
 import { getARBook, GetCustomerFilter, getCustomerAddress } from "../service/financeapi";
@@ -69,6 +71,10 @@ const ARBookReport = () => {
   const [loadingNote, setLoadingNote] = useState(false);
 
   const [loadingData, setLoadingData] = useState(false);
+
+  // --- RECEIPT ALLOCATIONS ---
+  const [receiptAllocations, setReceiptAllocations] = useState([]);
+  const [loadingAllocations, setLoadingAllocations] = useState(false);
 
   // --- STYLES ---
   const popupLabelStyle = {
@@ -176,7 +182,7 @@ const ARBookReport = () => {
           const currency = rawCurrency || "IDR";
           let invAmt = parseFloat(row.invoice_amount || row.TotalAmount || row.total_amount || row.grand_total) || 0;
           const rate = currency === 'IDR' ? 1 : (currencyRates[currency] || 1);
-          
+
           // FIX: If it's a receipt/note row that has the invoice amount in IDR but not in original currency field
           if (invAmt === 0 && (parseFloat(row.receipt_amount) > 0 || parseFloat(row.credit_note_amount) > 0 || parseFloat(row.debit_note_amount) > 0) && parseFloat(row.invoice_amount_idr) > 0) {
             invAmt = parseFloat(row.invoice_amount_idr) / rate;
@@ -191,6 +197,7 @@ const ARBookReport = () => {
             debitNote: parseFloat(row.debit_note_amount) || 0,
             creditNote: parseFloat(row.credit_note_amount) || 0,
             invoiceBalance: parseFloat(row.balance) || 0,
+            totalReceiptAmount: parseFloat(row.total_receipt_amount) || 0,
           };
         });
 
@@ -226,10 +233,10 @@ const ARBookReport = () => {
             } else {
               if (groupedMap.has(key)) {
                 const existing = groupedMap.get(key);
-                existing.invoiceAmount += row.invoiceAmount;
+                existing.invoiceAmount = Math.max(parseFloat(existing.invoiceAmount) || 0, parseFloat(row.invoiceAmount) || 0);
                 existing.debitNote += row.debitNote;
                 existing.creditNote += row.creditNote;
-                existing.invoice_amount = (parseFloat(existing.invoice_amount) || 0) + (parseFloat(row.invoice_amount) || 0);
+                existing.invoice_amount = Math.max(parseFloat(existing.invoice_amount) || 0, parseFloat(row.invoice_amount) || 0);
               } else {
                 groupedMap.set(key, { ...row });
               }
@@ -302,9 +309,28 @@ const ARBookReport = () => {
     }
   };
 
-  const handleReceiptClick = (rowData) => {
+  const handleReceiptClick = async (rowData) => {
     setSelectedReceipt(rowData);
     setShowReceiptDialog(true);
+    setReceiptAllocations([]);
+
+    const rId = rowData.receipt_id || rowData.id;
+    const cId = rowData.customer_id || (selectedCustomer ? selectedCustomer.value : 0);
+
+    if (rId && cId) {
+      setLoadingAllocations(true);
+      try {
+        const response = await getOutstandingInvoices(cId, rId, null, null, true);
+        const data = response?.data || response;
+        if (Array.isArray(data)) {
+          setReceiptAllocations(data);
+        }
+      } catch (err) {
+        console.error("Error fetching allocations:", err);
+      } finally {
+        setLoadingAllocations(false);
+      }
+    }
   };
 
   const handleNoteClick = async (rowData, type) => {
@@ -539,11 +565,11 @@ const ARBookReport = () => {
         return;
       }
 
-      // Fetch outstanding invoices. If isHeaderPrint is true, pass the date range.
-      const fDateStr = isHeaderPrint && fromDate ? format(fromDate, 'yyyy-MM-dd') : null;
-      const tDateStr = isHeaderPrint && toDate ? format(toDate, 'yyyy-MM-dd') : null;
+      // Fetch outstanding invoices.
+      const fDateStr = fromDate ? format(fromDate, 'yyyy-MM-dd') : null;
+      const tDateStr = toDate ? format(toDate, 'yyyy-MM-dd') : null;
 
-      const response = await getOutstandingInvoices(summaryRow.customerId, null, fDateStr, tDateStr);
+      const response = await getOutstandingInvoices(summaryRow.customerId, null, null, null);
       const data = response?.data || response;
 
       if (!Array.isArray(data) || data.length === 0) {
@@ -552,12 +578,6 @@ const ARBookReport = () => {
       }
 
       // Determine currency from the returned data (assuming same currency for all outstanding)
-      const currencyCode = (data.length > 0 && (data[0].currencycode || data[0].CurrencyCode)) || 'IDR';
-
-      const outstandingRows = [];
-      let totalOutstandingBalance = 0;
-
-      // Helper to parse dd-mm-yyyy or yyyy-mm-dd safely
       const parseSOADate = (ds) => {
         if (!ds) return new Date(0);
         const parsed = new Date(ds);
@@ -569,47 +589,66 @@ const ARBookReport = () => {
         return new Date(0);
       };
 
+      // 1. Group by Currency
+      const currencyGroups = {};
       data.forEach(inv => {
-        const openBalance = parseFloat(inv.balance_due) || 0;
-        const totalAmount = parseFloat(inv.TotalAmount || inv.total_amount || inv.invoice_amount) || 0;
+        const rowDate = inv.invoice_date || inv.TransactionDate || inv.date;
+        const parsedDate = parseSOADate(rowDate);
 
-        if (openBalance > 0.01) {
-          const rawDate = inv.invoice_date || inv.TransactionDate || inv.date;
-          outstandingRows.push({
-            rawDate: rawDate,
-            parsedDate: parseSOADate(rawDate),
-            invoiceNo: inv.invoice_no || inv.InvoiceNo || '-',
-            poNo: inv.po_no || inv.PONumber || '-',
-            debit: totalAmount,
-            credit: totalAmount - openBalance,
-            balance: openBalance
-          });
-          totalOutstandingBalance += openBalance;
+
+
+        const openBalance = parseFloat(inv.balance_due) || 0;
+        if (openBalance <= 0.01) return;
+
+        const curCode = (inv.currencycode || inv.CurrencyCode || 'IDR').toUpperCase();
+        if (!currencyGroups[curCode]) {
+          currencyGroups[curCode] = {
+            rows: [],
+            totals: { m1: 0, m2: 0, m3: 0, m4: 0, mOver: 0, total: 0 }
+          };
         }
+
+        const totalAmount = parseFloat(inv.TotalAmount || inv.total_amount || inv.invoice_amount) || 0;
+        currencyGroups[curCode].rows.push({
+          rawDate: rowDate,
+          parsedDate: parsedDate,
+          invoiceNo: inv.invoice_no || inv.InvoiceNo || '-',
+          poNo: inv.po_no || inv.PONumber || '-',
+          debit: totalAmount,
+          credit: totalAmount - openBalance,
+          openBalance: openBalance
+        });
       });
 
-      if (outstandingRows.length === 0) {
-        toast.warning("No non-zero outstanding invoices found.");
+      // 2. Sort and Calculate Running Balances & Aging per group
+      const now = new Date();
+      Object.keys(currencyGroups).forEach(cur => {
+        const group = currencyGroups[cur];
+        group.rows.sort((a, b) => a.parsedDate - b.parsedDate);
+
+        let runningBalance = 0;
+        group.rows.forEach(r => {
+          // Calculate Running Balance
+          runningBalance += (r.debit - r.credit);
+          r.balance = runningBalance;
+
+          // Aging calculation
+          const diffDays = Math.floor((now - r.parsedDate) / (1000 * 60 * 60 * 24));
+          if (diffDays <= 30) group.totals.m1 += r.openBalance;
+          else if (diffDays <= 60) group.totals.m2 += r.openBalance;
+          else if (diffDays <= 90) group.totals.m3 += r.openBalance;
+          else if (diffDays <= 120) group.totals.m4 += r.openBalance;
+          else group.totals.mOver += r.openBalance;
+
+          group.totals.total += r.openBalance;
+        });
+      });
+
+      const currencyList = Object.keys(currencyGroups);
+      if (currencyList.length === 0) {
+        toast.warning("No non-zero outstanding invoices found in this range.");
         return;
       }
-
-      // Sort the remaining pending receivables by parsed date
-      outstandingRows.sort((a, b) => a.parsedDate - b.parsedDate);
-
-      const outstandingBalance = totalOutstandingBalance;
-
-      // Calculate aging buckets purely based on the open balances of these unpaid invoices
-      const now = new Date();
-      let m1 = 0, m2 = 0, m3 = 0, m4 = 0, mOver = 0;
-      outstandingRows.forEach(inv => {
-        const d = inv.parsedDate;
-        const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
-        if (diffDays <= 30) m1 += inv.balance;
-        else if (diffDays <= 60) m2 += inv.balance;
-        else if (diffDays <= 90) m3 += inv.balance;
-        else if (diffDays <= 120) m4 += inv.balance;
-        else mOver += inv.balance;
-      });
 
       const fmt = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2 });
       // Helper to cleanly format the date for display
@@ -637,7 +676,9 @@ const ARBookReport = () => {
             @page { margin: 0; size: A4; }
             * { box-sizing: border-box; }
             html, body { height: 100vh; margin: 0; }
-            body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #000; padding: 15mm 20mm; display: flex; flex-direction: column; }
+            body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #000; padding: 15mm 20mm; }
+            .soa-page { height: 100%; display: flex; flex-direction: column; page-break-after: always; }
+            .soa-page:last-child { page-break-after: auto; }
             .content-wrapper { flex: 1 1 auto; }
             .footer-wrapper { flex: 0 0 auto; }
             .top-branding { margin-bottom: 25px; text-align: left; }
@@ -677,101 +718,108 @@ const ARBookReport = () => {
             .company-details p { margin: 1px 0; }
             .company-details a { color: #5a5f9c; text-decoration: none; font-weight: bold; }
             .company-details span.black-text { color: #000; font-weight: normal; }
-            .cert-logos { display: flex; align-items: center; gap: 8px; }
           </style>
         </head>
         <body>
-          <div class="content-wrapper">
-            <div class="top-branding">
-            <img src="${logoImg}" alt="BTG Logo" />
-            <h3>PT. BATAM TEKNOLOGI GAS</h3>
-          </div>
-          <h2 class="page-title">STATEMENT OF ACCOUNT</h2>
-          <div class="info-section">
-            <div class="info-left">
-              <div class="cust-name">${summaryRow.customerName}</div>
-              <div class="cust-addr">
-                JL. BINTANG NO. 07,<br/>
-                SAMPNG KAWASAN BINTANG INDUSTRI<br/>
-                TANJUNG UNCANG - BATAM INDONESIA
+          ${currencyList.map((cur, curIdx) => {
+        const group = currencyGroups[cur];
+        const { m1, m2, m3, m4, mOver, total } = group.totals;
+
+        return `
+            <div class="soa-page">
+              <div class="content-wrapper">
+                <div class="top-branding">
+                  <img src="${logoImg}" alt="BTG Logo" />
+                  <h3>PT. BATAM TEKNOLOGI GAS</h3>
+                </div>
+                <h2 class="page-title">STATEMENT OF ACCOUNT</h2>
+                <div class="info-section">
+                  <div class="info-left">
+                    <div class="cust-name">${summaryRow.customerName}</div>
+                    <div class="cust-addr">
+                      JL. BINTANG NO. 07,<br/>
+                      SAMPNG KAWASAN BINTANG INDUSTRI<br/>
+                      TANJUNG UNCANG - BATAM INDONESIA
+                    </div>
+                  </div>
+                  <div class="info-right">
+                    <table>
+                      <tr><td class="lbl">Date</td><td>:</td><td>${printDate}</td></tr>
+                      <tr><td class="lbl">Page</td><td>:</td><td>${curIdx + 1}/${currencyList.length}</td></tr>
+                      <tr><td class="lbl">Currency</td><td>:</td><td>${cur}</td></tr>
+                    </table>
+                  </div>
+                </div>
+                <table class="main">
+                  <thead>
+                    <tr>
+                      <th>DATE</th>
+                      <th>PO NO.</th>
+                      <th>DESCRIPTION</th>
+                      <th>DEBIT</th>
+                      <th>CREDIT</th>
+                      <th>BALANCE</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${group.rows.map(r => `
+                      <tr>
+                        <td>${fmtDisplayDate(r.parsedDate)}</td>
+                        <td>${r.poNo}</td>
+                        <td>${r.invoiceNo}</td>
+                        <td style="text-align:right">${r.debit > 0 ? fmt(r.debit) : ''}</td>
+                        <td style="text-align:right">${r.credit > 0 ? fmt(r.credit) : ''}</td>
+                        <td style="text-align:right">${fmt(r.balance)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div> 
+              <div class="footer-wrapper">
+                <div class="outstanding-block">
+                  <div class="outstanding-label">YOUR OUTSTANDING BALANCE</div>
+                  <div class="outstanding-amount">${fmt(total)}</div>
+                  <div class="due-label">DUE AS FOLLOWS</div>
+                </div>
+                <table class="aging-table">
+                  <thead>
+                    <tr>
+                      <th>1 MONTH</th>
+                      <th>2 MONTHS</th>
+                      <th>3 MONTHS</th>
+                      <th>4 MONTHS</th>
+                      <th>OVER 4 MONTHS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>${fmt(m1)}</td>
+                      <td>${fmt(m2)}</td>
+                      <td>${fmt(m3)}</td>
+                      <td>${fmt(m4)}</td>
+                      <td>${fmt(mOver)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="footer-notes">
+                  <p>We Shall be grateful if you let us have payment as soon as possible.</p>
+                  <p>Any discrepancy in this Statement, please inform us in writing within 10 days.</p>
+                  <p style="margin-top: 5px;">This document is computer generated.</p>
+                  <p>No signature is required</p>
+                </div>
+                <div class="company-footer">
+                  <div class="company-details">
+                    <p><span class="black-text">Printed By siska at ${printDate} | ${printTime}</span></p>
+                    <p>Jalan Brigjen Katamso KM. 3 - Tanjung Uncang, Batam - Indonesia</p>
+                    <p>Phone : (+62).778.462959 - 391918</p>
+                    <p>Fax &nbsp; &nbsp; : (+62).778.462944 - 391919</p>
+                    <p>E-mail &nbsp;: ptbcg@ptbtg.com</p>
+                    <p style="margin-top: 8px;"><a href="http://www.ptbtg.com">www.ptbtg.com</a></p>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="info-right">
-              <table>
-                <tr><td class="lbl">Date</td><td>:</td><td>${printDate}</td></tr>
-                <tr><td class="lbl">Page</td><td>:</td><td>1/1</td></tr>
-                <tr><td class="lbl">Currency</td><td>:</td><td>${currencyCode}</td></tr>
-              </table>
-            </div>
-          </div>
-          <table class="main">
-            <thead>
-              <tr>
-                <th>DATE</th>
-                <th>PO NO.</th>
-                <th>DESCRIPTION</th>
-                <th>DEBIT</th>
-                <th>CREDIT</th>
-                <th>BALANCE</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${outstandingRows.map(r => `
-                <tr>
-                  <td>${fmtDisplayDate(r.parsedDate)}</td>
-                  <td>${r.poNo}</td>
-                  <td>${r.invoiceNo}</td>
-                  <td style="text-align:right">${r.debit > 0 ? fmt(r.debit) : ''}</td>
-                  <td style="text-align:right">${r.credit > 0 ? fmt(r.credit) : ''}</td>
-                  <td style="text-align:right">${fmt(r.balance)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          </div> 
-          <div class="footer-wrapper">
-            <div class="outstanding-block">
-            <div class="outstanding-label">YOUR OUTSTANDING BALANCE</div>
-            <div class="outstanding-amount">${fmt(outstandingBalance)}</div>
-            <div class="due-label">DUE AS FOLLOWS</div>
-          </div>
-          <table class="aging-table">
-            <thead>
-              <tr>
-                <th>1 MONTH</th>
-                <th>2 MONTHS</th>
-                <th>3 MONTHS</th>
-                <th>4 MONTHS</th>
-                <th>OVER 4 MONTHS</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>${fmt(m1)}</td>
-                <td>${fmt(m2)}</td>
-                <td>${fmt(m3)}</td>
-                <td>${fmt(m4)}</td>
-                <td>${fmt(mOver)}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="footer-notes">
-            <p>We Shall be grateful if you let us have payment as soon as possible.</p>
-            <p>Any discrepancy in this Statement, please inform us in writing within 10 days.</p>
-            <p style="margin-top: 5px;">This document is computer generated.</p>
-            <p>No signature is required</p>
-          </div>
-          <div class="company-footer">
-            <div class="company-details">
-              <p><span class="black-text">Printed By siska at ${printDate} | ${printTime}</span></p>
-              <p>Jalan Brigjen Katamso KM. 3 - Tanjung Uncang, Batam - Indonesia</p>
-              <p>Phone : (+62).778.462959 - 391918</p>
-              <p>Fax &nbsp; &nbsp; : (+62).778.462944 - 391919</p>
-              <p>E-mail &nbsp;: ptbcg@ptbtg.com</p>
-              <p style="margin-top: 8px;"><a href="http://www.ptbtg.com">www.ptbtg.com</a></p>
-            </div>
-          </div>
-          </div>
+            </div>`;
+      }).join('')}
         </body>
         </html>
       `);
@@ -781,6 +829,41 @@ const ARBookReport = () => {
       console.error('SOA Print Error:', err);
       toast.error('Failed to generate SOA');
     }
+  };
+
+  const exportSummaryToExcel = () => {
+    if (!summaryData || summaryData.length === 0) return;
+
+    const exportData = summaryData.map((row) => {
+      const exportRow = {
+        "Customer Name": row.customerName,
+        "IDR Balance": row.IDR || 0,
+      };
+
+      summaryCurrencies.forEach(cur => {
+        exportRow[`${cur} Balance`] = row[cur] || 0;
+      });
+
+      return exportRow;
+    });
+
+    // Add Total Row
+    const totalRow = {
+      "Customer Name": "GRAND TOTAL (Converted to IDR)",
+      "IDR Balance": summaryTotal,
+    };
+    exportData.push(totalRow);
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "AR Summary");
+
+    const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const data = new Blob([excelBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    saveAs(data, `AR-Customer-Summary-${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
   };
 
   return (
@@ -866,8 +949,24 @@ const ARBookReport = () => {
                     </div>
 
                     <div className="text-end">
-                      {/* Search and Print buttons hidden when customerSummary is true */}
-                      {!customerSummary && (
+                      {customerSummary ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary d-inline-flex align-items-center"
+                          style={{
+                            backgroundColor: "#6c757d",
+                            border: "none",
+                            padding: "8px 20px",
+                            borderRadius: "8px",
+                            fontWeight: "600",
+                            fontSize: "14px"
+                          }}
+                          onClick={exportSummaryToExcel}
+                        >
+                          <i className="bx bx-export me-2" style={{ fontSize: "18px" }}></i>
+                          Export
+                        </button>
+                      ) : (
                         <>
                           <button type="button" className="btn btn-primary me-2" onClick={fetchARBook} disabled={loadingData}>
                             {loadingData ? "Loading..." : "Search"}
@@ -907,23 +1006,23 @@ const ARBookReport = () => {
                           <ColumnGroup>
                             {/* Row 1: Original Currency Totals */}
                             <PrimeRow>
-                              <Column footer="Total:" colSpan={1} footerStyle={{ textAlign: 'right', fontWeight: 'bold' }} />
-                              <Column footer={(summaryTotals['IDR'] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold' }} />
+                              <Column footer="Total (Original):" colSpan={1} footerStyle={{ textAlign: 'right', fontWeight: 'bold', padding: '15px 10px' }} />
+                              <Column footer={(summaryTotals['IDR'] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', padding: '15px 10px' }} />
                               {summaryCurrencies.map(cur => (
-                                <Column key={cur} footer={(summaryTotals[cur] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold' }} />
+                                <Column key={cur} footer={(summaryTotals[cur] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', padding: '15px 10px' }} />
                               ))}
                               <Column footer="" />
                             </PrimeRow>
                             {/* Row 2: Converted Individual Totals + Grand Total */}
                             <PrimeRow>
-                              <Column footer="" colSpan={1} />
-                              <Column footer={(summaryTotals.converted?.['IDR'] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '12px', color: '#666' }} />
+                              <Column footer="Total Converted (IDR):" colSpan={1} footerStyle={{ textAlign: 'right', fontWeight: 'bold', padding: '15px 10px', backgroundColor: '#f9f9f9' }} />
+                              <Column footer={(summaryTotals.converted?.['IDR'] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#666', padding: '15px 10px', backgroundColor: '#f9f9f9' }} />
                               {summaryCurrencies.map(cur => (
-                                <Column key={cur} footer={(summaryTotals.converted?.[cur] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '12px', color: '#666' }} />
+                                <Column key={cur} footer={(summaryTotals.converted?.[cur] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: '#666', padding: '15px 10px', backgroundColor: '#f9f9f9' }} />
                               ))}
-                              <Column 
-                                footer={summaryTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} 
-                                footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '15px', color: 'firebrick', borderTop: '2px solid firebrick' }} 
+                              <Column
+                                footer={summaryTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '16px', color: 'firebrick', borderTop: '2px solid firebrick', padding: '15px 10px', backgroundColor: '#f9f9f9' }}
                               />
                             </PrimeRow>
                           </ColumnGroup>
@@ -938,7 +1037,7 @@ const ARBookReport = () => {
                       <Column header="SOA" body={(r) => (
                         <button
                           className="btn btn-success btn-sm"
-                          onClick={() => handleSOAPrint(r)}
+                          onClick={() => handleSOAPrint(r, true)}
                           title="Print Statement of Account"
                         >
                           <i className="bx bx-printer text-white" style={{ color: 'white' }}></i>
@@ -975,9 +1074,9 @@ const ARBookReport = () => {
                       <Column field="receiptAmount" header="Receipt (C)" body={(r) => {
                         const renderLink = (rec, idx) => (
                           <div key={idx}>
-                            <span 
-                              className="text-success fw-bold" 
-                              style={{ cursor: 'pointer', textDecoration: 'underline' }} 
+                            <span
+                              className="text-success fw-bold"
+                              style={{ cursor: 'pointer', textDecoration: 'underline' }}
                               onClick={() => handleReceiptClick(rec)}
                               title="View Receipt Details"
                             >
@@ -1049,7 +1148,6 @@ const ARBookReport = () => {
                 className="p-datatable-sm p-datatable-gridlines"
                 responsiveLayout="scroll"
               >
-                <Column field="gascodeid" header="Item Code" />
                 <Column field="GasName" header="Description" body={(r) => r.GasName || r.ItemName || "Item"} />
                 <Column field="PickedQty" header="Qty" className="text-end" />
                 <Column field="UnitPrice" header="Unit Price" className="text-end" body={(r) => r.UnitPrice?.toLocaleString()} />
@@ -1058,8 +1156,8 @@ const ARBookReport = () => {
                   field="Note"
                   header="Note"
                   body={(r) => (
-                    <span title={r.Note || ""}>
-                      {r.Note && r.Note.length > 10 ? r.Note.substring(0, 10) + "..." : r.Note || "-"}
+                    <span>
+                      {r.Note || "-"}
                     </span>
                   )}
                 />
@@ -1078,7 +1176,7 @@ const ARBookReport = () => {
 
         {/* --- RECEIPT VIEW POPUP --- */}
         <Dialog
-          header={`Receipt View: ${selectedReceipt?.receipt_no || selectedReceipt?.invoice_no || ''}`}
+          header={`Receipt: ${selectedReceipt?.receipt_id || selectedReceipt?.receipt_no || ''}`}
           visible={showReceiptDialog}
           style={{ width: '60vw' }}
           onHide={() => setShowReceiptDialog(false)}
@@ -1102,7 +1200,7 @@ const ARBookReport = () => {
                 <Row className="mb-2">
                   <Col md={6} className="d-flex">
                     <span style={popupLabelStyle}>Total Amount</span>
-                    <span>: {parseFloat(selectedReceipt.receipt_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span>: {parseFloat(selectedReceipt.totalReceiptAmount || selectedReceipt.receipt_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </Col>
                   <Col md={6} className="d-flex">
                     <span style={popupLabelStyle}>Bank Name</span>
@@ -1128,8 +1226,53 @@ const ARBookReport = () => {
                 </Row>
               </div>
 
-              <div className="text-end mt-3">
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowReceiptDialog(false)}>Close</button>
+              {/* --- ALLOCATED INVOICES SECTION --- */}
+              {loadingAllocations ? (
+                <div className="text-center p-3">
+                  <i className="bx bx-loader bx-spin font-size-18 align-middle me-2"></i>
+                  Loading Allocations...
+                </div>
+              ) : receiptAllocations.length > 0 ? (
+                <div className="mt-4">
+                  <h6 className="fw-bold mb-3" style={{ color: '#5a5f9c' }}>Allocated Invoices</h6>
+                  <DataTable
+                    value={receiptAllocations}
+                    className="p-datatable-sm p-datatable-gridlines shadow-sm"
+                    responsiveLayout="scroll"
+                  >
+                    <Column field="invoice_no" header="Invoice No" style={{ width: '25%' }} />
+                    <Column field="invoice_date" header="Invoice Date" style={{ width: '15%', textAlign: 'center' }} />
+                    <Column field="po_no" header="PO No" style={{ width: '15%' }} />
+                    <Column
+                      field="total_amount"
+                      header="Invoice Amount"
+                      body={(rowData) => (
+                        <span className="text-primary">
+                          {parseFloat(rowData.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                      )}
+                      style={{ width: '20%', textAlign: 'right' }}
+                    />
+                    <Column
+                      field="allocated_here"
+                      header="Allocated Amount"
+                      body={(rowData) => (
+                        <span className="fw-bold text-success">
+                          {parseFloat(rowData.allocated_here || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                      )}
+                      style={{ width: '25%', textAlign: 'right' }}
+                    />
+                  </DataTable>
+                </div>
+              ) : (
+                <div className="text-center p-3 text-muted border rounded bg-light mt-3" style={{ fontSize: '13px' }}>
+                  No formal invoice allocations found for this receipt.
+                </div>
+              )}
+
+              <div className="text-end mt-4">
+                <button className="btn btn-secondary btn-sm px-4" onClick={() => setShowReceiptDialog(false)}>Close</button>
               </div>
             </div>
           ) : (
