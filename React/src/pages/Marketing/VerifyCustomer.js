@@ -11,7 +11,8 @@ import {
   Label,
   Input,
   Table,
-  Spinner
+  Spinner,
+  Badge
 } from "reactstrap";
 import { toast } from "react-toastify";
 import axios from "axios";
@@ -111,6 +112,9 @@ const VerifyCustomer = () => {
     invoices: []
   });
 
+  const [messageHistory, setMessageHistory] = useState([]);
+  const [isEditingVerified, setIsEditingVerified] = useState(false);
+
   useEffect(() => {
     const storedUser = localStorage.getItem("authUser");
     let userId = null;
@@ -159,7 +163,7 @@ const VerifyCustomer = () => {
             ...item,
             receiptDate: item.receipt_date || "N/A",
             notificationDate: new Date().toLocaleDateString(),
-            customerNameDisplay: customers.find(c => c.value === item.customer_id)?.label || `Cust: ${item.customer_id}`,
+            customerNameDisplay: item.CustomerName || customers.find(c => c.value === item.customer_id)?.label || `Cust: ${item.customer_id}`,
             currencyCode: item.CurrencyCode || "IDR",
             isPosted: false,
             entryType: isBankBook ? "Bankbook" : "Cashbook",
@@ -173,6 +177,7 @@ const VerifyCustomer = () => {
   const handleVerifyOpen = async (record) => {
     setSelectedRecord(record);
     setInvoiceSearch("");
+    setIsEditingVerified(false);
     setVerifyModal(true);
     setLoadingInvoices(true);
 
@@ -343,12 +348,32 @@ const VerifyCustomer = () => {
     } catch (err) { toast.error("Failed to save draft."); } finally { setSavingDraft(false); }
   };
 
+  const handleReplyOpen = async (record) => {
+    setSelectedRecord(record);
+    setVerificationData(prev => ({ ...prev, replyMessage: "" }));
+    setMessageHistory([]);
+    setReplyModal(true);
+    try {
+      const response = await axios.get(`${PYTHON_API_URL}/AR/get-messages/${record.receipt_id}`, {
+        params: { role: "Marketing" }
+      });
+      if (response.data?.status === "success") {
+        setMessageHistory(response.data.data);
+        // Clear unread count locally
+        setRows(prevRows => prevRows.map(row => 
+          row.receipt_id === record.receipt_id ? { ...row, unread_count: 0 } : row
+        ));
+      }
+    } catch (err) { console.error("Failed to load history", err); }
+  };
+
   const handleSendReply = async () => {
     if (!verificationData.replyMessage) { toast.warn("Please enter a message."); return; }
     try {
-      await axios.put(`${PYTHON_API_URL}/AR/save-draft/${selectedRecord.receipt_id}`, {
-        ...getPayload(),
-        reply_message: verificationData.replyMessage
+      await axios.post(`${PYTHON_API_URL}/AR/send-message`, {
+        receipt_id: selectedRecord.receipt_id,
+        sender_role: "Marketing",
+        message_text: verificationData.replyMessage
       });
       toast.success("Reply Sent!");
       setReplyModal(false);
@@ -435,16 +460,38 @@ const VerifyCustomer = () => {
     const isVerified = rowData.pending_verification === 0 || rowData.pending_verification === false;
 
     return (
-      <div className="d-flex justify-content-center gap-2 align-items-center">
-        <button className={`btn btn-link p-0 ${isVerified ? 'text-info' : 'text-primary'} fw-bold`} onClick={() => handleVerifyOpen(rowData)}>
-            {isVerified ? "View" : "Verify"}
-        </button>
-        <span className="text-muted">|</span>
-        <button className="btn btn-link p-0 text-danger fw-bold" onClick={() => {
-          setSelectedRecord(rowData);
-          setVerificationData(prev => ({ ...prev, replyMessage: "" }));
-          setReplyModal(true);
-        }}>Reply</button>
+      <div className="d-flex justify-content-center gap-3 align-items-center">
+        <i 
+          className={`bx ${isVerified ? 'bx-pencil' : 'bx-check-circle'} font-size-22 ${isVerified ? 'text-info' : 'text-primary'}`} 
+          style={{ cursor: "pointer" }} 
+          title={isVerified ? "Edit/View" : "Verify"} 
+          onClick={() => handleVerifyOpen(rowData)}
+        ></i>
+        <div style={{ position: 'relative', display: 'inline-block' }}>
+          <i 
+            className={`bx ${rowData.unread_count > 0 ? 'bx-chat text-danger' : 'bx-chat text-muted'} font-size-22`} 
+            style={{ cursor: "pointer" }} 
+            title={rowData.unread_count > 0 ? `Reply (${rowData.unread_count} unread)` : "Reply"} 
+            onClick={() => handleReplyOpen(rowData)}
+          ></i>
+          {rowData.unread_count > 0 && (
+            <Badge 
+              color="danger" 
+              pill 
+              style={{ 
+                position: 'absolute', 
+                top: '-5px', 
+                right: '-8px', 
+                fontSize: '10px', 
+                padding: '2px 5px',
+                border: '1.5px solid white',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+              }}
+            >
+              {rowData.unread_count}
+            </Badge>
+          )}
+        </div>
       </div>
     );
   };
@@ -505,7 +552,7 @@ const VerifyCustomer = () => {
               <Col md={4}>
                 <FormGroup className="mb-0 d-flex align-items-center justify-content-end">
                   <Label className="me-2 mb-0 fw-bold">Exchange Rate:</Label>
-                  <Input type="number" style={{ width: '100px' }} value={verificationData.exchangeRate} disabled={selectedRecord?.currencyCode === "IDR" || (selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false)} onChange={(e) => setVerificationData({ ...verificationData, exchangeRate: e.target.value })} />
+                  <Input type="number" style={{ width: '100px' }} value={verificationData.exchangeRate} disabled={selectedRecord?.currencyCode === "IDR" || ((selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified)} onChange={(e) => setVerificationData({ ...verificationData, exchangeRate: e.target.value })} />
                 </FormGroup>
               </Col>
             </Row>
@@ -524,7 +571,7 @@ const VerifyCustomer = () => {
                 <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                   <Table bordered hover className="align-middle mb-0 table-sm">
                     <thead className="table-light text-center sticky-top" style={{ top: 0, zIndex: 10 }}>
-                      <tr><th>Invoice No.</th><th>Date</th><th>Balance Due</th><th style={{ width: '25%' }}>Payment Type</th><th>Allocate Amount</th><th style={{ width: '60px' }} className="text-center"><Input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} /></th></tr>
+                      <tr><th>Invoice No.</th><th>Date</th><th>Balance Due</th><th style={{ width: '25%' }}>Payment Type</th><th>Allocate Amount</th><th style={{ width: '60px' }} className="text-center"><Input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} /></th></tr>
                     </thead>
                     <tbody>
                       {verificationData.invoices.length === 0 ? <tr><td colSpan="6" className="text-center text-muted p-4">No Outstanding Invoices Found.</td></tr> : verificationData.invoices.map((inv, idx) => {
@@ -535,11 +582,11 @@ const VerifyCustomer = () => {
                           <tr key={inv.id} className={inv.selected ? "table-active" : ""}>
                             <td className="text-center">{inv.invNo}</td><td className="text-center">{inv.date}</td><td className="text-end">{inv.balanceDue.toLocaleString()}</td>
                             <td className="text-center">
-                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Full"} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={() => handleInvoiceChange(idx, "paymentType", "Full")} /><Label check className="ms-1 small">Full</Label></FormGroup>
-                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Partial"} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={() => handleInvoiceChange(idx, "paymentType", "Partial")} /><Label check className="ms-1 small">Partial</Label></FormGroup>
+                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Full"} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={() => handleInvoiceChange(idx, "paymentType", "Full")} /><Label check className="ms-1 small">Full</Label></FormGroup>
+                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Partial"} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={() => handleInvoiceChange(idx, "paymentType", "Partial")} /><Label check className="ms-1 small">Partial</Label></FormGroup>
                             </td>
-                            <td><Input type="text" className="text-end form-control-sm" value={inv.amount ? formatNumber(inv.amount) : ""} disabled={inv.paymentType === "Full" || !inv.selected || (selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false)} onChange={(e) => handleInvoiceChange(idx, "amount", e.target.value)} style={{ maxWidth: '150px', margin: '0 auto' }} /></td>
-                            <td className="text-center"><Input type="checkbox" checked={inv.selected} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => handleInvoiceChange(idx, "selected", e.target.checked)} /></td>
+                            <td><Input type="text" className="text-end form-control-sm" value={inv.amount ? formatNumber(inv.amount) : ""} disabled={inv.paymentType === "Full" || !inv.selected || ((selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified)} onChange={(e) => handleInvoiceChange(idx, "amount", e.target.value)} style={{ maxWidth: '150px', margin: '0 auto' }} /></td>
+                            <td className="text-center"><Input type="checkbox" checked={inv.selected} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => handleInvoiceChange(idx, "selected", e.target.checked)} /></td>
                           </tr>
                         );
                       })}
@@ -550,33 +597,58 @@ const VerifyCustomer = () => {
             )}
             <Row className="mt-4 pt-3 border-top align-items-end">
               <Col md={2}><Label className="fw-bold mb-1 small text-muted">Allocated</Label><Input type="text" className="fw-bold bg-white" value={totalAllocated.toLocaleString()} readOnly /></Col>
-              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Bank Charges</Label><Input type="text" value={verificationData.bankCharges === 0 ? "" : formatNumber(verificationData.bankCharges)} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => setVerificationData({ ...verificationData, bankCharges: parseNumber(e.target.value) })} /></Col>
-              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Tax Deduction</Label><Input type="text" value={verificationData.taxDeduction === 0 ? "" : formatNumber(verificationData.taxDeduction)} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => setVerificationData({ ...verificationData, taxDeduction: parseNumber(e.target.value) })} /></Col>
-              <Col md={3}><Label className="fw-bold mb-1 small text-success">Advance Payment</Label><Input type="text" className="fw-bold text-success" value={verificationData.advancePayment === 0 ? "" : formatNumber(verificationData.advancePayment)} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => setVerificationData({ ...verificationData, advancePayment: parseNumber(e.target.value) })} placeholder="Enter advance..." /></Col>
+              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Bank Charges</Label><Input type="text" value={verificationData.bankCharges === 0 ? "" : formatNumber(verificationData.bankCharges)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData({ ...verificationData, bankCharges: parseNumber(e.target.value) })} /></Col>
+              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Tax Deduction</Label><Input type="text" value={verificationData.taxDeduction === 0 ? "" : formatNumber(verificationData.taxDeduction)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData({ ...verificationData, taxDeduction: parseNumber(e.target.value) })} /></Col>
+              <Col md={3}><Label className="fw-bold mb-1 small text-success">Advance Payment</Label><Input type="text" className="fw-bold text-success" value={verificationData.advancePayment === 0 ? "" : formatNumber(verificationData.advancePayment)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData({ ...verificationData, advancePayment: parseNumber(e.target.value) })} placeholder="Enter advance..." /></Col>
               <Col md={3}><Label className={`fw-bold mb-1 small ${isValid ? "text-success" : "text-danger"}`}>Total Utilized</Label><div className="input-group"><Input type="text" className={`fw-bold ${isValid ? "is-valid" : "is-invalid"}`} value={formatNumber(utilizedAmount)} readOnly />{!isValid && <span className="input-group-text text-danger bg-light" style={{ fontSize: '0.8rem' }}>Diff: {formatNumber(variance)}</span>}</div></Col>
             </Row>
             <div className="d-flex justify-content-end gap-2 mt-4">
-              {!(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && (
-                <>
-                  <Button color="primary" onClick={handleSaveDraft} disabled={savingDraft || loadingInvoices} style={{ width: '120px' }}>{savingDraft ? <Spinner size="sm" /> : "Save"}</Button>
-                  <Button color="success" onClick={handlePostVerification} disabled={!isValid || loadingInvoices} style={{ width: '140px' }}>Verify</Button>
-                </>
+              {(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified && (
+                <Button color="success" className="text-white" onClick={() => setIsEditingVerified(true)}>Edit</Button>
               )}
-              <Button onClick={() => setVerifyModal(false)} color="secondary">{selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false ? "Close" : "Cancel"}</Button>
+              {(!(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) || isEditingVerified) && (
+                <Button color="primary" onClick={handleSaveDraft} disabled={savingDraft || loadingInvoices} style={{ width: '120px' }}>{savingDraft ? <Spinner size="sm" /> : "Save"}</Button>
+              )}
+              {(!(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false)) && (
+                <Button color="success" onClick={handlePostVerification} disabled={!isValid || loadingInvoices} style={{ width: '140px' }}>Verify</Button>
+              )}
+              <Button onClick={() => setVerifyModal(false)} color="secondary">
+                {((selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified) ? "Close" : "Cancel"}
+              </Button>
             </div>
           </ModalBody>
         </Modal>
 
         <Modal isOpen={replyModal} toggle={() => setReplyModal(false)} centered>
-          <ModalHeader toggle={() => setReplyModal(false)}>Send Reply</ModalHeader>
+          <ModalHeader toggle={() => setReplyModal(false)}>Message Thread — {selectedRecord?.customerNameDisplay}</ModalHeader>
           <ModalBody>
-            <FormGroup>
-              <Label>Message to Finance:</Label>
-              <Input type="textarea" rows="4" placeholder="Enter your reply..." value={verificationData.replyMessage} onChange={(e) => setVerificationData({ ...verificationData, replyMessage: e.target.value })} />
+            <div className="mb-3" style={{ maxHeight: '250px', overflowY: 'auto', padding: '10px', backgroundColor: '#f8f9fa' }}>
+              {messageHistory.length === 0 ? (
+                <div className="text-center text-muted py-3">No previous messages.</div>
+              ) : (
+                messageHistory.map((msg, i) => (
+                  <div key={i} className={`mb-2 d-flex ${msg.sender_role === 'Marketing' ? 'justify-content-end' : 'justify-content-start'}`}>
+                    <div style={{
+                      maxWidth: '80%',
+                      padding: '8px 12px',
+                      borderRadius: '10px',
+                      backgroundColor: msg.sender_role === 'Marketing' ? '#cfe2ff' : '#e2e3e5',
+                      fontSize: '13px'
+                    }}>
+                      <div className="fw-bold mb-1" style={{ fontSize: '11px', color: '#666' }}>{msg.sender_role} • {new Date(msg.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                      {msg.message_text}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <FormGroup className="mb-0">
+              <Label className="fw-bold">New Message:</Label>
+              <Input type="textarea" rows="3" placeholder="Enter your reply to Finance..." value={verificationData.replyMessage} onChange={(e) => setVerificationData({ ...verificationData, replyMessage: e.target.value })} />
             </FormGroup>
           </ModalBody>
           <ModalFooter>
-            <Button color="secondary" onClick={() => setReplyModal(false)}>Cancel</Button>
+            <Button color="secondary" onClick={() => setReplyModal(false)}>Close</Button>
             <Button color="primary" onClick={handleSendReply}>Send <i className="bx bx-send ms-1"></i></Button>
           </ModalFooter>
         </Modal>

@@ -5,6 +5,7 @@ import {
   Label, Input, InputGroup
 } from "reactstrap";
 import PaymentVoucher from "./PaymentVoucher";
+import PaymentSummaryTable from './PaymentSummaryTable';
 import * as XLSX from 'xlsx';
 import { toast } from 'react-toastify';
 import Breadcrumbs from "../../components/Common/Breadcrumb"
@@ -137,6 +138,32 @@ const PPP = ({ selectedType, setSelectedType }) => {
   const [showvoucherModal, setShowvoucherModal] = useState(false);
   const [selectedVoucherId, setSelectedVoucherId] = useState(null);
   const [convertModalVisible, setConvertModalVisible] = useState(false);
+  const [modeOfPaymentOptions, setModeOfPaymentOptions] = useState([]);
+  const [bankOptions, setBankOptions] = useState([]);
+
+  useEffect(() => {
+    const loadPaymentMethodList = async () => {
+      const data = await GetPaymentMethods(1, 0);
+      const options = data.map(item => ({
+        value: item.PaymentMethodId,
+        label: item.PaymentMethod
+      }));
+      setModeOfPaymentOptions(options);
+    };
+
+    const loadBankList = async () => {
+      const data = await GetBankList(1, 1);
+      const options = data.map(item => ({
+        value: item.value,
+        label: item.BankName
+      }));
+      setBankOptions(options);
+    };
+
+    if (modeOfPaymentOptions.length === 0) loadPaymentMethodList();
+    if (bankOptions.length === 0) loadBankList();
+  }, [modeOfPaymentOptions.length, bankOptions.length]);
+
   const [convertFromDate, setConvertFromDate] = useState(null);
   const [convertToDate, setConvertToDate] = useState(null);
   const [selectedSumary, setselectedSumary] = useState(null);
@@ -179,6 +206,28 @@ const PPP = ({ selectedType, setSelectedType }) => {
     setselectedsummaryRows(data.rows);
     setConvertModalVisible(true);
   };
+
+  const [pvViewModalVisible, setPvViewModalVisible] = useState(false);
+  const [pvViewGroup, setPvViewGroup] = useState(null);
+
+  const handlePVViewClick = (group) => {
+    const mappedRows = group.rows.map(row => ({
+      ...row,
+      PaymentMethod: modeOfPaymentOptions.find(o => o.value === row.ModeOfPaymentId)?.label || row.paymentMethod || "-",
+      BankName: bankOptions.find(o => Number(o.value) === Number(row.bank))?.label || row.bankName || "-",
+      ClaimCategory: row.type || "",
+      SupplierName: row.suppliername || "",
+      ApplicantName: row.name || "",
+      SupplierId: row.supplierid || 0,
+      ApplicantId: row.u_id || 0,
+      SummaryId: row.SummaryId
+    }));
+
+    setPvViewGroup({ ...group, rows: mappedRows });
+    setPvViewModalVisible(true);
+  };
+
+
 
 
 
@@ -1386,12 +1435,12 @@ word-break: break-word;
       <thead>
        <tr class="status-header">
           <th colspan="3">Claim</th>
-          <th colspan="3">PPP</th>
+          <th colspan="2">PPP</th>
           <th colspan="2">Vouchers</th>
         </tr>
         <tr>
          <th>HOD</th> <th>GM</th><th>Director</th>
-          <th>GM</th><th>Director</th><th>CEO</th>
+          <th>GM</th><th>Director</th>
           <th>Director</th><th>CEO</th>
         </tr>
       </thead>
@@ -1403,7 +1452,6 @@ word-break: break-word;
         detail.header?.ClmDrStatus,
         detail.header?.PPPgmStatus,
         detail.header?.PPPDrStatus,
-        detail.header?.PPPCEOStatus,
         detail.header?.VouCmrStatus,
         detail.header?.VouDrStatus
       ].map((status) => {
@@ -1587,6 +1635,13 @@ let severity = 'secondary'; // default gray
                           header={`Payment Plan Date: ${group.PaymentPlanDate} / PPP Number: ${group.PaymentNo}`}
                         >
                           <div className="d-flex justify-content-end mb-2">
+                            <button
+                              className="btn btn-primary"
+                              style={{ marginRight: "10px" }}
+                              onClick={() => handlePVViewClick(group)}
+                            >
+                              PV View
+                            </button>
                             {showVoucherButton && (
                               <button className="btn btn-success" style={{ marginRight: "10px" }}
                                 disabled={allHaveVoucher && group.rows.some(row => row.VouCmrStatus === 1 || row.VouCmrStatus === 'Approved')}
@@ -1635,6 +1690,8 @@ let severity = 'secondary'; // default gray
                             handleVoucherClick={handleVoucherClick}
                             ApproverGridIndicator={ApproverGridIndicator}
                             access={access}
+                            modeOfPaymentOptions={modeOfPaymentOptions}
+                            bankOptions={bankOptions}
                           />
                         </AccordionTab>
                       )
@@ -1866,16 +1923,16 @@ let severity = 'secondary'; // default gray
                 </tr>
               );
 
-              // Cash Needed row
-              const cashNeededMopRow = (
+              // Cash Withdraw row
+              const cashWithdrawMopRow = (
                 <tr style={{ fontWeight: "bold", backgroundColor: "#fff3cd" }}>
-                  <td style={{ textAlign: "left" }}>Cash Needed</td>
+                  <td style={{ textAlign: "left" }}>Cash Withdraw</td>
                   {currencies.map(curr => {
                     const modeOfCashTotal = data
                       .filter(r => (r.paymentMethod || "").toLowerCase().includes("cash"))
                       .filter(r => r.curr === curr)
                       .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-                    
+
                     const cihValue = parseFloat(cashInHand[curr] || 0);
                     const cfsValue = parseFloat(cashFromSales[curr] || 0);
                     const needed = modeOfCashTotal - cihValue - cfsValue;
@@ -1892,7 +1949,7 @@ let severity = 'secondary'; // default gray
                 </tr>
               );
 
-              return [...rows, cashNeededMopRow, totalRow]; // Return rows, cash needed, and total row
+              return [...rows, totalRow, cashWithdrawMopRow]; // Return rows, total, and cash withdraw row
             };
 
 
@@ -2397,11 +2454,9 @@ let severity = 'secondary'; // default gray
 
                   <Table className="table mt-3" style={{ width: "76%" }}>
                     <thead style={{ backgroundColor: "#3e90e2" }}>
-                      {/* <table className="table table-bordered text-center">
-                                    <thead> */}
                       <tr>
                         <th style={{ padding: "0px", width: "18%", backgroundColor: "#B4DBE0" }} className="text-center" colSpan="3">Claim</th>
-                        <th style={{ padding: "0px", width: "18%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="3">PPP</th>
+                        <th style={{ padding: "0px", width: "12%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="2">PPP</th>
                         <th style={{ padding: "0px", width: "10%", backgroundColor: "#FFE9F5" }} className="text-center" colSpan="2">Vouchers</th>
                       </tr>
                     </thead>
@@ -2412,19 +2467,15 @@ let severity = 'secondary'; // default gray
                         <th style={{ padding: "0px", backgroundColor: "#B4DBE0" }} className="text-center">Director</th>
                         <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">GM</th>
                         <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">Director</th>
-                        <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">CEO</th>
                         <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">Director</th>
                         <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">CEO</th>
-
                       </tr>
                       <tr>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmhodStatus)}`} /></td>
-
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmgmStatus)}`} /></td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmDrStatus)}`} /></td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPgmStatus)}`} /></td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPDrStatus)}`} /></td>
-                        <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPCEOStatus)}`} /></td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouCmrStatus)}`} /> </td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouDrStatus)}`} /> </td>
                       </tr>
@@ -2734,6 +2785,31 @@ let severity = 'secondary'; // default gray
           </button>
         </ModalFooter>
       </Modal>
+
+      {/* PV View Modal */}
+      <Modal isOpen={pvViewModalVisible} className="modal-fullscreen" toggle={() => setPvViewModalVisible(false)}>
+        <ModalHeader toggle={() => setPvViewModalVisible(false)}>
+          <div className="d-flex justify-content-between align-items-center w-100">
+            <span>Payment Summary</span>
+          </div>
+        </ModalHeader>
+        <ModalBody>
+          {pvViewGroup && (
+            <>
+              <div className="alert alert-primary">
+                <strong>Payment Plan Date:</strong> {pvViewGroup.PaymentPlanDate} /
+                <strong> PPP No:</strong> {pvViewGroup.PaymentNo}
+              </div>
+              <PaymentSummaryTable claims={pvViewGroup.rows} approvedata={pvViewGroup} onRefresh={() => load()} />
+            </>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="btn btn-danger" onClick={() => setPvViewModalVisible(false)}>
+            <i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i> Close
+          </button>
+        </ModalFooter>
+      </Modal>
     </React.Fragment>
   );
 };
@@ -2749,7 +2825,8 @@ const ApprovalTable = ({
   handleCheckboxChange,
   setData,
   access,
-  type, handleVoucherClick, ApproverGridIndicator
+  type, handleVoucherClick, ApproverGridIndicator,
+  modeOfPaymentOptions, bankOptions
 }) => {
   const [filters, setFilters] = useState({
     global: { value: null, matchMode: FilterMatchMode.CONTAINS },
@@ -2777,32 +2854,12 @@ const ApprovalTable = ({
     value: d
   }));
 
-  const [modeOfPaymentOptions, setModeOfPaymentOptions] = useState([]);
-  const [bankOptions, setBankOptions] = useState([]);
+
   const [tableData, setTableData] = useState([]);
 
 
   useEffect(() => {
-    const loadPaymentMethodList = async () => {
-      const data = await GetPaymentMethods(1, 0); // Mock your API call
-      const options = data.map(item => ({
-        value: item.PaymentMethodId,
-        label: item.PaymentMethod
-      }));
-      setModeOfPaymentOptions(options);
-    };
-
-    const loadBankList = async () => {
-      const data = await GetBankList(1, 1); // Mock your API call
-      const options = data.map(item => ({
-        value: item.value,
-        label: item.BankName
-      }));
-      setBankOptions(options);
-    };
-
-    loadPaymentMethodList();
-    loadBankList();
+    // Moved to parent PPP component
   }, []);
 
   const onGlobalFilterChange = (e) => {
@@ -3164,12 +3221,7 @@ const ApprovalTable = ({
         header="Director"
         body={(r) => <ApproverGridIndicator approved={r.approvedtwo} discussed={r.discussedtwo} />}
       />
-      <Column
-        className="text-center"
-        style={{ width: "5%" }}
-        header="CEO"
-        body={(r) => <ApproverGridIndicator approved={r.approvedthree} discussed={r.discussedthree} />}
-      />
+
 
       <Column header="PV" field="voucherno" showFilterMatchModes={false} body={actionAckBodyTemplate} className="text-center" />
 

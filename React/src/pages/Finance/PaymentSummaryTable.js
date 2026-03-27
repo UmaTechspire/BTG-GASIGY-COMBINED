@@ -550,12 +550,12 @@ word-break: break-word;
       <thead>
         <tr class="status-header">
           <th colspan="2">Claim</th>
-          <th colspan="3">PPP</th>
+          <th colspan="2">PPP</th>
           <th colspan="2">Vouchers</th>
         </tr>
         <tr>
           <th>GM</th><th>Director</th>
-          <th>GM</th><th>Director</th><th>CEO</th>
+          <th>GM</th><th>Director</th>
           <th>Director</th><th>CEO</th>
         </tr>
       </thead>
@@ -566,7 +566,6 @@ word-break: break-word;
         detail.header?.ClmDrStatus,
         detail.header?.PPPgmStatus,
         detail.header?.PPPDrStatus,
-        detail.header?.PPPCEOStatus,
         detail.header?.VouCmrStatus,
         detail.header?.VouDrStatus
       ].map((status) => {
@@ -724,7 +723,8 @@ word-break: break-word;
       let normalizedId = "unknown";
       if (row.SupplierId) normalizedId = `sup-${row.SupplierId}`;
       else if (row.ApplicantId) normalizedId = `app-${row.ApplicantId}`;
-      else normalizedId = `other-${row.id || Math.random()}`; // Fallback
+      else if (groupId) normalizedId = `name-${groupId}`; // Fallback to name-based grouping if IDs are missing
+      else normalizedId = `other-${row.id || Math.random()}`; // Last resort
 
       const key = `${method}||${bank}||${normalizedId}`;
 
@@ -962,30 +962,6 @@ word-break: break-word;
               ))}
             </tr>
 
-            {/* Cash Needed */}
-            <tr style={{ backgroundColor: "#fff3cd", fontWeight: "bold" }}>
-              <td colSpan={3} style={{ textAlign: "left" }}>Cash Needed</td>
-              {currencies.map(curr => {
-                const modeOfCashTotal = data
-                  .filter(r => r.PaymentMethod === "Cash" || r.PaymentMethod === "Cash Withdrawal")
-                  .filter(r => r.curr === curr)
-                  .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-                
-                const cihValue = parseFloat(cashInHand[curr] || 0);
-                const cfsValue = parseFloat(cashFromSales[curr] || 0);
-                const cashNeededVal = modeOfCashTotal - cihValue - cfsValue;
-
-                return (
-                  <td style={{ textAlign: "right" }} key={`cashneeded-${curr}`}>
-                    {cashNeededVal.toLocaleString("en-US", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </td>
-                );
-              })}
-            </tr>
-
             {/* Total */}
             <tr style={{ backgroundColor: "#f1f1f1", fontWeight: "bold" }}>
               <td colSpan={3}>Total</td>
@@ -994,6 +970,30 @@ word-break: break-word;
                 return (
                   <td style={{ textAlign: "right" }} key={`total-${curr}`}>
                     {netTotal.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    })}
+                  </td>
+                );
+              })}
+            </tr>
+
+            {/* Cash Withdraw */}
+            <tr style={{ backgroundColor: "#fff3cd", fontWeight: "bold" }}>
+              <td colSpan={3} style={{ textAlign: "left" }}>Cash Withdraw</td>
+              {currencies.map(curr => {
+                const modeOfCashTotal = data
+                  .filter(r => r.PaymentMethod === "Cash" || r.PaymentMethod === "Cash Withdrawal")
+                  .filter(r => r.curr === curr)
+                  .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+
+                const cihValue = parseFloat(cashInHand[curr] || 0);
+                const cfsValue = parseFloat(cashFromSales[curr] || 0);
+                const cashNeededVal = modeOfCashTotal - cihValue - cfsValue;
+
+                return (
+                  <td style={{ textAlign: "right" }} key={`cashneeded-${curr}`}>
+                    {cashNeededVal.toLocaleString("en-US", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
                     })}
@@ -1024,7 +1024,6 @@ word-break: break-word;
 
         const getAmountForCategoryCurrency = (category, currency, cashOnly = null) => {
           if (cashOnly == "Cash") {
-
             return selectedsummaryRows
               .filter(r =>
                 r.curr === currency &&
@@ -1034,13 +1033,15 @@ word-break: break-word;
           }
           else {
             return selectedsummaryRows
-              .filter(r =>
-                r.ClaimCategory === category &&
-                r.curr === currency &&
-
-                (r.PaymentMethod || "").toLowerCase() !== "Cash Withdrawal"
-
-              )
+              .filter(r => {
+                const rCat = (r.ClaimCategory || "").toLowerCase().trim();
+                const targetCat = (category || "").toLowerCase().trim();
+                return (
+                  rCat === targetCat &&
+                  r.curr === currency &&
+                  (r.PaymentMethod || "").toLowerCase() !== "cash withdrawal"
+                );
+              })
               .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
           }
         };
@@ -1075,7 +1076,11 @@ word-break: break-word;
             // regardless of payment method
             const total = ["Claim", "Cash Advance", "Supplier Payment"]
               .reduce((sum, cat) => {
-                const filtered = selectedsummaryRows.filter(r => r.ClaimCategory === cat && r.curr === curr);
+                const filtered = selectedsummaryRows.filter(r => {
+                  const rCat = (r.ClaimCategory || "").toLowerCase().trim();
+                  const targetCat = cat.toLowerCase().trim();
+                  return rCat === targetCat && r.curr === curr;
+                });
                 const categoryTotal = filtered.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
 
                 return sum + categoryTotal;
@@ -1411,7 +1416,7 @@ word-break: break-word;
                                     <thead> */}
                       <tr>
                         <th style={{ padding: "0px", width: "18%", backgroundColor: "#B4DBE0" }} className="text-center" colSpan="2">Claim</th>
-                        <th style={{ padding: "0px", width: "18%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="3">PPP</th>
+                        <th style={{ padding: "0px", width: "12%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="2">PPP</th>
                         <th style={{ padding: "0px", width: "10%", backgroundColor: "#FFE9F5" }} className="text-center" colSpan="2">Vouchers</th>
                       </tr>
                     </thead>
@@ -1421,7 +1426,6 @@ word-break: break-word;
                         <th style={{ padding: "0px", backgroundColor: "#B4DBE0" }} className="text-center">Director</th>
                         <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">GM</th>
                         <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">Director</th>
-                        <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">CEO</th>
                         <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">Director</th>
                         <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">CEO</th>
 
@@ -1431,7 +1435,6 @@ word-break: break-word;
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmDrStatus)}`} /></td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPgmStatus)}`} /></td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPDrStatus)}`} /></td>
-                        <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPCEOStatus)}`} /></td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouCmrStatus)}`} /> </td>
                         <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouDrStatus)}`} /> </td>
                       </tr>

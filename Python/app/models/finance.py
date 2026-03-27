@@ -57,3 +57,12 @@ class ARReceipt(Base):
     created_date = Column(DateTime(timezone=True), server_default=func.now())
     created_by = Column(String(50), nullable=False)
     created_ip = Column(String(45), nullable=False)
+
+class ARReceiptMessage(Base):
+    __tablename__ = "tbl_ar_receipt_messages"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    receipt_id = Column(Integer, nullable=False, index=True)
+    sender_role = Column(String(50), nullable=False) # 'Marketing' or 'Finance'
+    message_text = Column(String(1000), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

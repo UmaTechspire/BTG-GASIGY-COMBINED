@@ -584,12 +584,12 @@ const DiscussionList = () => {
           <thead>
            <tr class="status-header">
           <th colspan="3">Claim</th>
-          <th colspan="3">PPP</th>
+          <th colspan="2">PPP</th>
           <th colspan="2">Vouchers</th>
         </tr>
         <tr>
          <th>HOD</th> <th>GM</th><th>Director</th>
-          <th>GM</th><th>Director</th><th>CEO</th>
+          <th>GM</th><th>Director</th>
           <th>Director</th><th>CEO</th>
         </tr>
       </thead>
@@ -601,7 +601,6 @@ const DiscussionList = () => {
                 detail.header?.ClmDrStatus,
                 detail.header?.PPPgmStatus,
                 detail.header?.PPPDrStatus,
-                detail.header?.PPPCEOStatus,
                 detail.header?.VouCmrStatus,
                 detail.header?.VouDrStatus
             ].map((status) => {
@@ -1187,7 +1186,7 @@ const DiscussionList = () => {
                                             <thead> */}
                                             <tr>
                                                 <th style={{ padding: "0px", width: "18%", backgroundColor: "#B4DBE0" }} className="text-center" colSpan="3">Claim</th>
-                                                <th style={{ padding: "0px", width: "18%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="3">PPP</th>
+                                                <th style={{ padding: "0px", width: "12%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="2">PPP</th>
                                                 <th style={{ padding: "0px", width: "10%", backgroundColor: "#FFE9F5" }} className="text-center" colSpan="2">Vouchers</th>
                                             </tr>
                                         </thead>
@@ -1198,7 +1197,6 @@ const DiscussionList = () => {
                                                 <th style={{ padding: "0px", backgroundColor: "#B4DBE0" }} className="text-center">Director</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">GM</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">Director</th>
-                                                <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">CEO</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">Director</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">CEO</th>
 
@@ -1210,7 +1208,6 @@ const DiscussionList = () => {
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmDrStatus)}`} /></td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPgmStatus)}`} /></td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPDrStatus)}`} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPCEOStatus)}`} /></td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouCmrStatus)}`} /> </td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouDrStatus)}`} /> </td>
                                             </tr>

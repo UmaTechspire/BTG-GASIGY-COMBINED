@@ -1104,7 +1104,7 @@ const ManageClaimsPayment = () => {
                 <th>Department</th>
                 <th>Transaction Currency</th>
                 <th>Claim Amount in TC</th>
-                
+               
                 <th>Status</th>
             </tr>`;
         //<th>Claim Amount in IDR</th>
@@ -1113,13 +1113,13 @@ const ManageClaimsPayment = () => {
                 <td>${row.claimno || ''}</td>
                 <td>${row.claimdate || ''}</td>
                 <td>${row.purpose || ''}</td>
-                
+               
                 <td>${row.claimcategory || ''}</td>
                 <td>${row.applicantname || ''}</td>
                 <td>${row.departmentname || ''}</td>
                 <td>${row.transactioncurrency || ''}</td>
                 <td style="text-align:right;">${Number(row.claimamountintc || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                
+               
                 <td>${row.Status || ''}</td>
             </tr>
         `).join('');
@@ -1408,8 +1408,8 @@ const ManageClaimsPayment = () => {
     border-bottom: 0.5px dashed #999;
  
     height:10px;
-    
-  
+   
+ 
           }
   .footer {
   position: running(pageFooter);  
@@ -1419,56 +1419,56 @@ const ManageClaimsPayment = () => {
 }
             @page {
               size: A4 landscape;
-           margin: 5mm; 
+           margin: 5mm;
            @bottom-center {
     content: element(pageFooter);
   }
             }
-      
+     
             body {
               font-family: Arial, sans-serif;
               font-size: 11px;
               padding: 10px;
               color: #000;
             }
-      
+     
             h2 {
               text-align: center;
               margin-bottom: 20px;
               font-size: 16px;
             }
-      
+     
             .section-title {
               font-weight: bold;
               margin: 12px 0 5px;
               padding-bottom: 2px;
-            
+           
               font-size: 12px;
             }
-      
+     
             .info-table {
               width: 100%;
               border-collapse: collapse;
               margin-bottom: 10px;
             }
-      
+     
             .info-table td {
               padding: 4px 6px;
               vertical-align: top;
             }
-      
+     
             .info-table td.label {
               font-weight: bold;
               width: 20%;
               white-space: nowrap;
             }
-      
+     
             .claim-table {
               width: 100%;
               border-collapse: collapse;
               margin-bottom: 15px;
             }
-      
+     
            .claim-table th,
 .claim-table td {
   border: 1px solid #ccc;
@@ -1486,14 +1486,14 @@ const ManageClaimsPayment = () => {
  .claim-table td:nth-child(4) { width: 17%;text-align: right; }  /* Amount */
  .claim-table td:nth-child(5) { width: 13%; text-align: center;}  /* Expense Date */
  .claim-table td:nth-child(6) { width: 24%;text-align: left; }  /* Purpose */
-      
+     
             .status-table {
               width: 100%;
               border-collapse: collapse;
               text-align: center;
               margin-top: 15px;
             }
-      
+     
             .status-table th,
             .status-table td {
               border: 1px solid #ccc;
@@ -1503,12 +1503,12 @@ const ManageClaimsPayment = () => {
     white-space: normal;
     vertical-align: top;
             }
-      
+     
             .status-header {
               background-color: #eee;
               font-weight: bold;
             }
-      
+     
             .btn-circle {
               display: inline-block;
               height: 12px;
@@ -1516,21 +1516,21 @@ const ManageClaimsPayment = () => {
               border-radius: 50%;
               margin: auto;
             }
-      
+     
             .btn-success { background-color: #28a745; }
             .btn-warning { background-color: #ffc107; }
             .btn-secondary { background-color: #6c757d; }
-      
+     
             .legend {
               margin-top: 10px;
               font-size: 10px;
             }
-      
+     
             .legend span {
               margin-right: 15px;
 
             }
-      
+     
             .remarks-box {
               border: 1px solid #ccc;
               padding: 8px;
@@ -1617,17 +1617,17 @@ const ManageClaimsPayment = () => {
         `;
 
         const statusIndicators = `
-        
+       
          <table class="status-table">
           <thead>
            <tr class="status-header">
           <th colspan="3">Claim</th>
-          <th colspan="3">PPP</th>
+          <th colspan="2">PPP</th>
           <th colspan="2">Vouchers</th>
         </tr>
         <tr>
          <th>HOD</th> <th>GM</th><th>Director</th>
-          <th>GM</th><th>Director</th><th>CEO</th>
+          <th>GM</th><th>Director</th>
           <th>Director</th><th>CEO</th>
         </tr>
       </thead>
@@ -1639,7 +1639,6 @@ const ManageClaimsPayment = () => {
                 detail.header?.ClmDrStatus,
                 detail.header?.PPPgmStatus,
                 detail.header?.PPPDrStatus,
-                detail.header?.PPPCEOStatus,
                 detail.header?.VouCmrStatus,
                 detail.header?.VouDrStatus
             ].map((status) => {
@@ -1670,7 +1669,7 @@ const ManageClaimsPayment = () => {
               ${claimTable}
               ${remarksSection}
               ${statusIndicators}
-              
+             
             </body>
           </html>
         `);
@@ -1691,8 +1690,8 @@ const ManageClaimsPayment = () => {
                 style={{ cursor: "pointer", color: "blue" }}
                 className="btn-rounded btn btn-link"
                 onClick={() => {
-                    // Assuming rowData has prid or we can derive it. 
-                    // If the API for Claim Details doesn't return PRID, we might need to rely on just the number 
+                    // Assuming rowData has prid or we can derive it.
+                    // If the API for Claim Details doesn't return PRID, we might need to rely on just the number
                     // or fetch it. existing handlePRClick needs an ID.
                     // Checking if rowData has prid
                     if (rowData.prid) {
@@ -2389,7 +2388,7 @@ const ManageClaimsPayment = () => {
                                     <thead> */}
                                             <tr>
                                                 <th style={{ padding: "0px", width: "18%", backgroundColor: "#B4DBE0" }} className="text-center" colSpan="3">Claim</th>
-                                                <th style={{ padding: "0px", width: "18%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="3">PPP</th>
+                                                <th style={{ padding: "0px", width: "12%", backgroundColor: "#E6E4BC" }} className="text-center" colSpan="2">PPP</th>
                                                 <th style={{ padding: "0px", width: "10%", backgroundColor: "#FFE9F5" }} className="text-center" colSpan="2">Vouchers</th>
                                             </tr>
                                         </thead>
@@ -2400,7 +2399,6 @@ const ManageClaimsPayment = () => {
                                                 <th style={{ padding: "0px", backgroundColor: "#B4DBE0" }} className="text-center">Director</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">GM</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">Director</th>
-                                                <th style={{ padding: "0px", backgroundColor: "#E6E4BC" }} className="text-center">CEO</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">Director</th>
                                                 <th style={{ padding: "0px", backgroundColor: "#FFE9F5" }} className="text-center">CEO</th>
 
@@ -2409,10 +2407,9 @@ const ManageClaimsPayment = () => {
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmhodStatus)}`} /></td>
 
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmgmStatus)}`} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmDrStatus)}`} /></td>
+                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.ClmDrStatus)}`} /> </td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPgmStatus)}`} /></td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPDrStatus)}`} /></td>
-                                                <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.PPPCEOStatus)}`} /></td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouCmrStatus)}`} /> </td>
                                                 <td className="text-center p-1"><Button className={`btn-circle p-button-rounded btn ${getSeverity(selectedDetail.header?.VouDrStatus)}`} /> </td>
                                             </tr>

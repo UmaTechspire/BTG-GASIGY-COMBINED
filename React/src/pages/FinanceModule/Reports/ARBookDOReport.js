@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Container, Row, Col, Card, CardBody, Label, Button, Spinner, Modal, ModalHeader, ModalBody, ModalFooter, Input } from "reactstrap";
+import { Container, Row, Col, Card, CardBody, Label, Button, Spinner, Modal, ModalHeader, ModalBody, ModalFooter, Input, Table } from "reactstrap";
 import Breadcrumbs from "../../../components/Common/Breadcrumb";
 import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/themes/material_green.css";
@@ -15,6 +15,7 @@ import { PYTHON_API_URL } from "common/pyapiconfig";
 
 import { getARBook, GetCustomerFilter } from "../service/financeapi";
 import { GetAllCurrencies } from "../../../common/data/mastersapi";
+import { GetInvoiceDetails } from "../../../common/data/invoiceapi";
 
 const ARBookDOReport = () => {
   const today = new Date();
@@ -33,6 +34,11 @@ const ARBookDOReport = () => {
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [newInvoiceNo, setNewInvoiceNo] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  // --- INVOICE/DO DETAILS MODAL STATE ---
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceDetails, setInvoiceDetails] = useState(null);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
 
 
   useEffect(() => {
@@ -143,6 +149,46 @@ const ARBookDOReport = () => {
     }
   };
 
+  const handleReferenceClick = async (rowData) => {
+    const invoiceIdentifier = rowData.invoice_no;
+    if (!invoiceIdentifier) {
+      toast.warning("No Reference Number available.");
+      return;
+    }
+
+    setLoadingInvoice(true);
+    setShowInvoiceModal(true);
+    setInvoiceDetails(null);
+
+    try {
+      const response = await GetInvoiceDetails(invoiceIdentifier);
+      const data = response.data || response;
+      if (data) {
+        setInvoiceDetails(data);
+      } else {
+        toast.warning("No details returned for this reference.");
+      }
+    } catch (err) {
+      console.error("API Fetch Error:", err);
+      toast.error("Failed to fetch details.");
+    } finally {
+      setLoadingInvoice(false);
+    }
+  };
+
+  const referenceBodyTemplate = (row) => {
+    return (
+      <span 
+        className="text-primary fw-bold" 
+        style={{ cursor: 'pointer', textDecoration: 'underline' }}
+        onClick={() => handleReferenceClick(row)}
+        title="View Details"
+      >
+        {row.invoice_no}
+      </span>
+    );
+  };
+
   const finalProcessedData = useMemo(() => {
     // --- FILTER LOGIC: Only show "DO" or "27" ---
     const filtered = arBook.filter(item => {
@@ -243,7 +289,7 @@ const ARBookDOReport = () => {
                       body={(row) => format(new Date(row.ledger_date), "dd-MMM-yyyy")}
                       headerStyle={{ whiteSpace: 'nowrap' }} />
 
-                    <Column field="invoice_no" header="Reference No." headerStyle={{ whiteSpace: 'nowrap' }} />
+                    <Column field="invoice_no" header="Reference No." body={referenceBodyTemplate} headerStyle={{ whiteSpace: 'nowrap' }} />
 
                     <Column field="invoiceAmount" header="Invoice Amount (A)"
                       body={(d) => d.invoiceAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -296,6 +342,68 @@ const ARBookDOReport = () => {
             <Button color="primary" onClick={handleConvertSubmit} disabled={isSaving}>
               {isSaving ? <Spinner size="sm" /> : "Confirm Conversion"}
             </Button>
+          </ModalFooter>
+        </Modal>
+
+        {/* --- INVOICE/DO DETAILS MODAL --- */}
+        <Modal isOpen={showInvoiceModal} toggle={() => setShowInvoiceModal(false)} size="lg" centered>
+          <ModalHeader toggle={() => setShowInvoiceModal(false)} className="bg-light">
+            Reference Details: {invoiceDetails?.InvoiceNbr || "Loading..."}
+          </ModalHeader>
+          <ModalBody>
+            {loadingInvoice ? (
+              <div className="text-center p-5"><Spinner color="primary" /></div>
+            ) : invoiceDetails ? (
+              <>
+                <div className="mb-4 p-3 bg-light rounded border">
+                    <Row>
+                        <Col md="6"><Label className="text-muted small mb-0">Customer</Label><div className="fw-bold">{invoiceDetails.CustomerName}</div></Col>
+                        <Col md="3"><Label className="text-muted small mb-0">Date</Label><div className="fw-bold">{invoiceDetails.Salesinvoicesdate ? format(new Date(invoiceDetails.Salesinvoicesdate), "dd-MMM-yyyy") : "N/A"}</div></Col>
+                        <Col md="3"><Label className="text-muted small mb-0">Currency</Label><div className="fw-bold">{invoiceDetails.CurrencyCode || "IDR"}</div></Col>
+                    </Row>
+                    <Row className="mt-2 text-primary">
+                        <Col md="6"><Label className="text-muted small mb-0">PO Number</Label><div className="fw-bold">{invoiceDetails.PONumber || "-"}</div></Col>
+                        <Col md="6"><Label className="text-muted small mb-0">Total Amount</Label><div className="fw-bold">{parseFloat(invoiceDetails.TotalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div></Col>
+                    </Row>
+                </div>
+                <Table bordered hover responsive className="table-sm align-middle">
+                  <thead className="table-light text-center">
+                    <tr>
+                      <th style={{ width: '50px' }}>#</th>
+                      <th>Item Description</th>
+                      <th style={{ width: '80px' }}>Qty</th>
+                      <th style={{ width: '120px' }}>Unit Price</th>
+                      <th style={{ width: '120px' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(invoiceDetails.Items || []).map((item, idx) => (
+                      <tr key={idx}>
+                        <td className="text-center text-muted">{idx + 1}</td>
+                        <td>
+                            <div className="fw-bold">{item.GasName || item.ItemName || "Item"}</div>
+                            {item.Note && <small className="text-muted d-block">{item.Note}</small>}
+                        </td>
+                        <td className="text-center">{item.PickedQty || item.Qty}</td>
+                        <td className="text-end">{parseFloat(item.UnitPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                        <td className="text-end">{parseFloat(item.TotalPrice || (item.Qty * item.UnitPrice) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="table-light fw-bold">
+                    <tr>
+                      <td colSpan="4" className="text-end">Grand Total</td>
+                      <td className="text-end text-primary">{parseFloat(invoiceDetails.TotalAmount || invoiceDetails.GrandTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  </tfoot>
+                </Table>
+              </>
+            ) : (
+              <div className="text-center p-4 text-muted">No details found for this reference.</div>
+            )}
+          </ModalBody>
+          <ModalFooter className="bg-light">
+            <Button color="secondary" size="sm" onClick={() => setShowInvoiceModal(false)}>Close</Button>
           </ModalFooter>
         </Modal>
 

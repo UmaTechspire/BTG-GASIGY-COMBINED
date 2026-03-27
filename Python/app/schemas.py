@@ -87,3 +87,8 @@ class CombineVouchersRequest(BaseModel):
     orgId: int
     branchId: int
     userIp: str
+
+class ARMessage(BaseModel):
+    receipt_id: int
+    sender_role: str # 'Marketing' or 'Finance'
+    message_text: str

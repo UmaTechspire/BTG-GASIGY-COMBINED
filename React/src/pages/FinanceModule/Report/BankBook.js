@@ -101,11 +101,16 @@ const BankBook = () => {
 
     const handleInvoiceClick = async (invoiceNo) => {
         if (!invoiceNo || invoiceNo === "-") return;
+        
+        // Fix for 404 error: Strip party name suffix and invoice suffix if present
+        // Example: "CLM0002566 - SMART GAS PTE TD" -> "CLM0002566"
+        const pureInvoiceId = invoiceNo.split(" - ")[0].split(" (Inv:")[0];
+
         setLoadingInvoiceDetails(true);
         setShowInvoiceDialog(true);
         setInvoiceDetails(null);
         try {
-            const data = await GetInvoiceDetails(invoiceNo);
+            const data = await GetInvoiceDetails(pureInvoiceId);
             if (data) {
                 setInvoiceDetails(data);
             } else {
@@ -124,7 +129,7 @@ const BankBook = () => {
         
         const voucherNo = row.VoucherNo;
         const receiptId = row.receipt_id;
-        const isClaim = voucherNo?.startsWith("CLM");
+        const isClaim = voucherNo?.includes("CLM") || row.transactionType?.toLowerCase() === "payment";
 
         setShowClaimDetailModal(true);
         setLoadingClaimDetail(true);
@@ -132,8 +137,8 @@ const BankBook = () => {
 
         try {
             if (isClaim) {
-                // Remove everything after ' - ' to get pure claim number
-                const pureClaimNo = voucherNo.split(" - ")[0];
+                // Find 'CLM' part in string if exists, otherwise fallback to first part
+                const pureClaimNo = (voucherNo || "").split(" - ").find(p => p.trim().startsWith("CLM"))?.split(" ")[0] || (voucherNo || "").split(" - ")[0];
                 
                 // 1. Fetch ALL claims to find the one with matching ApplicationNo
                 // Searching by ApplicationNo is the only reliable way since digits in string != Claim_ID necessarily
@@ -802,83 +807,114 @@ const BankBook = () => {
                                                 />
                                             </div>
 
-                                            <DataTable
-                                                value={selectedClaims.claims}
-                                                className="p-datatable-sm p-datatable-gridlines"
-                                                responsiveLayout="scroll"
-                                                globalFilter={claimsFilter}
-                                                globalFilterFields={['VoucherNo']}
-                                                emptyMessage="No matching records found."
-                                            >
-                                                <Column 
-                                                    header="Voucher Number" 
-                                                    body={(r) => {
-                                                        const isClaim = r.VoucherNo?.startsWith("CLM");
-                                                        const isCashDeposit = r.transactionType?.toLowerCase() === "cash deposit";
-                                                        let val = r.pending_verification === 0 ? (r.VoucherNo || "") : "-";
-                                                        if (isClaim && r.pending_verification === 0) {
-                                                            // Strip invoice suffix and party name suffix
-                                                            val = val.split(" (Inv:")[0].split(" - ")[0];
-                                                        } else if (r.pending_verification === 0) {
-                                                            val = r.receipt_id || "-";
-                                                        }
+                                             <DataTable
+                                                 value={selectedClaims.claims}
+                                                 className="p-datatable-sm p-datatable-gridlines"
+                                                 responsiveLayout="scroll"
+                                                 globalFilter={claimsFilter}
+                                                 globalFilterFields={['VoucherNo']}
+                                                 emptyMessage="No matching records found."
+                                             >
+                                                 {selectedClaims.claims[0]?.transactionType?.toLowerCase() === "payment" && (
+                                                     <Column 
+                                                        header="Claim Number" 
+                                                        body={(r) => {
+                                                            let val = r.pending_verification === 0 ? (r.VoucherNo || "") : "-";
+                                                            // VoucherNo format: "ReceiptID - ClaimNo - PartyName"
+                                                            // We want only ClaimNo (the part after the first ' - ')
+                                                            if (val !== "-") {
+                                                                const parts = val.split(" - ");
+                                                                if (parts.length > 1) {
+                                                                    // Take the second part (the claim number) and strip any further suffixes
+                                                                    val = parts[1].split(" (Inv:")[0];
+                                                                } else {
+                                                                    val = parts[0].split(" (Inv:")[0];
+                                                                }
+                                                            }
 
-                                                        if (isCashDeposit) {
-                                                            return <span>{val}</span>;
-                                                        }
+                                                            return (
+                                                                <span
+                                                                    className="text-primary fw-bold"
+                                                                    style={{ cursor: "pointer", textDecoration: "underline" }}
+                                                                    onClick={() => fetchRecordDetail(r)}
+                                                                >
+                                                                    {val}
+                                                                </span>
+                                                            );
+                                                        }}
+                                                     />
+                                                 )}
+                                                 
+                                                 {selectedClaims.claims[0]?.transactionType?.toLowerCase() !== "payment" && (
+                                                     <Column 
+                                                         header="Voucher Number" 
+                                                         body={(r) => {
+                                                             const isClaim = r.VoucherNo?.startsWith("CLM");
+                                                             const isCashDeposit = r.transactionType?.toLowerCase() === "cash deposit";
+                                                             let val = r.pending_verification === 0 ? (r.VoucherNo || "") : "-";
+                                                             if (isClaim && r.pending_verification === 0) {
+                                                                 // Strip invoice suffix and party name suffix
+                                                                 val = val.split(" (Inv:")[0].split(" - ")[0];
+                                                             } else if (r.pending_verification === 0) {
+                                                                 val = r.receipt_id || "-";
+                                                             }
 
-                                                        return (
-                                                            <span
-                                                                className="text-primary fw-bold"
-                                                                style={{ cursor: "pointer", textDecoration: "underline" }}
-                                                                onClick={() => fetchRecordDetail(r)}
-                                                                title={r.pending_verification === 0 ? (r.VoucherNo || "") : ""}
-                                                            >
-                                                                {val}
-                                                            </span>
-                                                        );
-                                                    }}
-                                                />
-                                                <Column 
-                                                    header="Relevant Invoice" 
-                                                    body={(r) => {
-                                                        const match = r.VoucherNo?.match(/\(Inv:\s*(.*?)\)/);
-                                                        let invoiceNoStr = match ? match[1] : (r.InvoiceNo || "-");
-                                                        
-                                                        // Fallback: if it's still "-", try to split VoucherNo
-                                                        if ((!invoiceNoStr || invoiceNoStr === "-") && r.VoucherNo?.includes(" - ")) {
-                                                            invoiceNoStr = r.VoucherNo.split(" - ").slice(1).join(" - ");
-                                                        }
+                                                             if (isCashDeposit) {
+                                                                 return <span>{val}</span>;
+                                                             }
 
-                                                        if (!invoiceNoStr || invoiceNoStr === "-") return "-";
-                                                        
-                                                        const invoices = invoiceNoStr.split(',').map(i => i.trim()).filter(i => i);
-                                                        
-                                                        return (
-                                                            <div>
-                                                                {invoices.map((inv, idx) => (
-                                                                    <span key={idx}>
-                                                                        <span
-                                                                            className="text-primary fw-bold"
-                                                                            style={{ cursor: "pointer", textDecoration: "underline", marginRight: "3px" }}
-                                                                            onClick={() => handleInvoiceClick(inv)}
-                                                                        >
-                                                                            {inv}
-                                                                        </span>
-                                                                        {idx < invoices.length - 1 && <span style={{ marginRight: "3px" }}>,</span>}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        );
-                                                    }}
-                                                />
-                                                <Column
-                                                    field="Amount"
-                                                    header="Amount"
-                                                    body={(r) => Math.abs(r.Amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                    className="text-end"
-                                                />
-                                            </DataTable>
+                                                             return (
+                                                                 <span
+                                                                     className="text-primary fw-bold"
+                                                                     style={{ cursor: "pointer", textDecoration: "underline" }}
+                                                                     onClick={() => fetchRecordDetail(r)}
+                                                                     title={r.pending_verification === 0 ? (r.VoucherNo || "") : ""}
+                                                                 >
+                                                                     {val}
+                                                                 </span>
+                                                             );
+                                                         }}
+                                                     />
+                                                 )}
+                                                                                                 {selectedClaims.claims[0]?.transactionType?.toLowerCase() !== "payment" && (
+                                                     <Column 
+                                                         header="Relevant Invoice" 
+                                                         body={(r) => {
+                                                             const match = r.VoucherNo?.match(/\(Inv:\s*(.*?)\)/);
+                                                             let invoiceNoStr = match ? match[1] : (r.InvoiceNo || "-");
+                                                             
+                                                             // Fallback: if it's still "-", try to split VoucherNo
+                                                             if ((!invoiceNoStr || invoiceNoStr === "-") && r.VoucherNo?.includes(" - ")) {
+                                                                 invoiceNoStr = r.VoucherNo.split(" - ").slice(1).join(" - ");
+                                                                 // Strip party name if any
+                                                                 invoiceNoStr = invoiceNoStr.split(" - ")[0];
+                                                             }
+
+                                                             if (!invoiceNoStr || invoiceNoStr === "-") return "-";
+                                                             
+                                                             const invoices = invoiceNoStr.split(',').map(i => i.trim()).filter(i => i);
+                                                             
+                                                             return (
+                                                                 <div>
+                                                                     {invoices.map((inv, idx) => (
+                                                                         <span key={idx}>
+                                                                             <span>{inv}</span>
+                                                                             {idx < invoices.length - 1 && <span style={{ marginRight: "3px" }}>,</span>}
+                                                                         </span>
+                                                                     ))}
+                                                                 </div>
+                                                             );
+                                                         }}
+                                                     />
+                                                 )}
+                                                 
+                                                 <Column
+                                                     field="Amount"
+                                                     header="Amount"
+                                                     body={(r) => Math.abs(r.Amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                     className="text-end"
+                                                 />
+                                             </DataTable>
 
                                             <div className="text-end mt-3">
                                                 <button className="btn btn-secondary btn-sm" onClick={() => setShowClaimsDialog(false)}>Close</button>

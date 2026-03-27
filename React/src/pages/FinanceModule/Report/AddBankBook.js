@@ -13,7 +13,8 @@ import {
     ModalHeader,
     ModalBody,
     ModalFooter,
-    Spinner
+    Spinner,
+    Badge
 } from "reactstrap";
 import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
@@ -144,6 +145,11 @@ const AddBankBook = () => {
     const [customVoucherNo, setCustomVoucherNo] = useState("");
     const [isCombining, setIsCombining] = useState(false);
 
+    // --- MESSAGING STATES ---
+    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [messageHistory, setMessageHistory] = useState([]);
+    const [newMessage, setNewMessage] = useState("");
+
     // --- INITIAL LOAD ---
     useEffect(() => {
         const loadInitialData = async () => {
@@ -249,6 +255,37 @@ const AddBankBook = () => {
             }
         } catch (err) { console.error(err); }
         setLoading(false);
+    };
+
+    const handleMessageOpen = async (rowData) => {
+        setSelectedEntry(rowData);
+        setIsMessageModalOpen(true);
+        setMessageHistory([]);
+        setNewMessage("");
+        try {
+            const res = await axios.get(`${PYTHON_API_URL}/AR/get-messages/${rowData.receipt_id}`, {
+                params: { role: "Finance" }
+            });
+            if (res.data?.status === "success") {
+                setMessageHistory(res.data.data);
+                // Clear unread count locally
+                setEntryList(prev => prev.map(e => e.receipt_id === rowData.receipt_id ? { ...e, unread_count: 0 } : e));
+            }
+        } catch (err) { console.error("Failed to load history", err); }
+    };
+
+    const handleSendMessage = async () => {
+        if (!newMessage.trim()) return;
+        try {
+            await axios.post(`${PYTHON_API_URL}/AR/send-message`, {
+                receipt_id: selectedEntry.receipt_id,
+                sender_role: "Finance",
+                message_text: newMessage
+            });
+            setNewMessage("");
+            const res = await axios.get(`${PYTHON_API_URL}/AR/get-messages/${selectedEntry.receipt_id}`);
+            if (res.data?.status === "success") setMessageHistory(res.data.data);
+        } catch (err) { toast.error("Failed to send message"); }
     };
 
     // --- HANDLERS ---
@@ -813,6 +850,33 @@ const AddBankBook = () => {
                 <button className={`btn-icon ${isActionable ? 'text-secondary' : 'text-muted'}`} onClick={() => { if (isActionable) handlePrintPreview(rowData); }} disabled={!isActionable} title="Print Receipt">
                     <i className="bx bx-printer font-size-18"></i>
                 </button>
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <button 
+                        className={`btn-icon ${rowData.is_combined ? 'text-muted' : (rowData.unread_count > 0 ? 'text-danger' : 'text-info')}`} 
+                        disabled={rowData.is_combined} 
+                        title={rowData.is_combined ? "Messaging unavailable for combined entries" : (rowData.unread_count > 0 ? `Comments (${rowData.unread_count} unread)` : "Comments")} 
+                        onClick={() => handleMessageOpen(rowData)}
+                    >
+                        <i className="bx bx-chat font-size-18"></i>
+                    </button>
+                    {rowData.unread_count > 0 && !rowData.is_combined && (
+                        <Badge 
+                            color="danger" 
+                            pill 
+                            style={{ 
+                                position: 'absolute', 
+                                top: '-2px', 
+                                right: '-3px', 
+                                fontSize: '9px', 
+                                padding: '2px 4px',
+                                border: '1px solid white',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                            }}
+                        >
+                            {rowData.unread_count}
+                        </Badge>
+                    )}
+                </div>
             </div>
         );
     };
@@ -1123,6 +1187,8 @@ const AddBankBook = () => {
                     </div>
                 </Dialog>
 
+
+
                 {/* --- OUTSTANDING INVOICES MODAL (PREVIEW) --- */}
                 <Dialog
                     header="Customer Preview"
@@ -1174,44 +1240,24 @@ const AddBankBook = () => {
                                         </thead>
                                         <tbody>
                                             {invoiceList.length > 0 ? (
-                                                <>
-                                                {Object.entries(
-                                                    invoiceList.reduce((acc, inv) => {
-                                                        const key = `Receipt #${inv.parent_receipt_id || selectedEntry.receipt_id}`;
-                                                        if (!acc[key]) acc[key] = [];
-                                                        acc[key].push(inv);
-                                                        return acc;
-                                                    }, {})
-                                                ).map(([groupName, groupInvs], gIdx) => (
-                                                    <React.Fragment key={gIdx}>
-                                                        {selectedEntry.is_combined && (
-                                                            <tr>
-                                                                <td colSpan="5" className="text-start bg-light fw-bold text-primary py-2 px-3">
-                                                                    <i className="bx bx-receipt me-2"></i>{groupName}
-                                                                </td>
-                                                            </tr>
-                                                        )}
-                                                        {groupInvs.map((inv, idx) => (
-                                                            <tr key={`${gIdx}-${idx}`}>
-                                                                <td>{inv.invoice_no}</td>
-                                                                <td>{inv.invoice_date}</td>
-                                                                <td className="text-end">
-                                                                    {parseFloat(inv.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                                </td>
-                                                                <td className="text-end">
-                                                                    {parseFloat(inv.balance_due).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                                </td>
-                                                                <td className="text-end fw-bold text-success">
-                                                                    {parseFloat(inv.allocated_here).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </React.Fragment>
-                                                ))}
-                                                </>
+                                                invoiceList.map((inv, idx) => (
+                                                    <tr key={idx}>
+                                                        <td>{inv.invoice_no}</td>
+                                                        <td>{inv.invoice_date}</td>
+                                                        <td className="text-end">
+                                                            {parseFloat(inv.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                        </td>
+                                                        <td className="text-end">
+                                                            {parseFloat(inv.balance_due).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                        </td>
+                                                        <td className="text-end fw-bold text-success">
+                                                            {parseFloat(inv.allocated_here).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                        </td>
+                                                    </tr>
+                                                ))
                                             ) : (
                                                 <tr>
-                                                    <td colSpan="4" className="text-muted py-3">No outstanding invoices found.</td>
+                                                    <td colSpan="5" className="text-muted py-3">No outstanding invoices found.</td>
                                                 </tr>
                                             )}
                                         </tbody>
@@ -1224,6 +1270,8 @@ const AddBankBook = () => {
                         <Button color="secondary" onClick={() => setIsPreviewOpen(false)}>Close</Button>
                     </ModalFooter>
                 </Dialog>
+
+
 
                 {/* --- PRINT RECEIPT MODAL --- */}
                 <Modal
@@ -1448,6 +1496,59 @@ const AddBankBook = () => {
                                 <li key={v.receipt_id}>Voucher #{v.receipt_id} - {v.customerName} ({v.bank_amount.toLocaleString()})</li>
                             ))}
                         </ul>
+                    </div>
+                </div>
+            </Dialog>
+
+            {/* --- MESSAGING DIALOG --- */}
+            <Dialog 
+                header={`Message Thread — ${selectedEntry?.customerName || ""}`}
+                visible={isMessageModalOpen} 
+                style={{ width: '450px' }} 
+                onHide={() => setIsMessageModalOpen(false)}
+                footer={
+                    <div className="d-flex justify-content-end gap-2">
+                        <Button color="secondary" outline onClick={() => setIsMessageModalOpen(false)}>Close</Button>
+                        <Button color="primary" onClick={handleSendMessage} disabled={!newMessage.trim()}>
+                            Send <i className="bx bx-send ms-1"></i>
+                        </Button>
+                    </div>
+                }
+            >
+                <div className="p-2">
+                    <div className="mb-3" style={{ maxHeight: '250px', overflowY: 'auto', padding: '10px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #eee' }}>
+                        {messageHistory.length === 0 ? (
+                            <div className="text-center text-muted py-3 small">No previous messages.</div>
+                        ) : (
+                            messageHistory.map((msg, i) => (
+                                <div key={i} className={`mb-2 d-flex ${msg.sender_role === 'Finance' ? 'justify-content-end' : 'justify-content-start'}`}>
+                                    <div style={{
+                                        maxWidth: '85%',
+                                        padding: '8px 12px',
+                                        borderRadius: '12px',
+                                        backgroundColor: msg.sender_role === 'Finance' ? '#e1f5fe' : '#f5f5f5',
+                                        fontSize: '13px',
+                                        border: '1px solid #d1d1d1'
+                                    }}>
+                                        <div className="fw-bold mb-1" style={{ fontSize: '10px', color: '#888' }}>
+                                            {msg.sender_role} • {new Date(msg.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                        </div>
+                                        {msg.message_text}
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    <div>
+                        <Label className="small fw-bold">Reply to Marketing:</Label>
+                        <Input 
+                            type="textarea" 
+                            rows="3" 
+                            placeholder="Enter your message..." 
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            style={{ fontSize: '13px' }}
+                        />
                     </div>
                 </div>
             </Dialog>

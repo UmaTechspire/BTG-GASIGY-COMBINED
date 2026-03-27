@@ -373,7 +373,7 @@ BEGIN
     WHERE r.is_active = 1 
       AND (IFNULL(r.bank_amount, 0) != 0 OR IFNULL(r.cash_amount, 0) != 0)
       AND IFNULL(r.is_submitted, 0) = 0
-      AND r.pending_verification = 1
+      AND r.is_posted = 1
       AND (p_department != '9' OR r.sales_person_id = p_user_id)
     ORDER BY r.receipt_id DESC;
 END //

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from .. import schemas
 from .. import crud 
 from ..database import get_db, DB_NAME_USER, DB_NAME_FINANCE, DB_NAME_MASTER, DB_NAME_OLD, DB_NAME_USER_NEW
-from ..models.finance import ARReceipt
+from ..models.finance import ARReceipt, ARReceiptMessage
 
 router = APIRouter(
     prefix="/AR", 
@@ -180,9 +180,9 @@ async def get_bank_book_report(
             # Create a unique sorting key
             dt_str = str(row["Date"]).split()[0] if row["Date"] else "" 
             
-            # ALL types should NOT be grouped. Keep every transaction as a separate row 
-            # for full chronological audit trail as requested by the user.
-            group_key = (dt_str, row["TransactionType"], row["Party"], row.get("receipt_id"))
+            # Group by Date, Type, Party, and Currency to consolidate entries for the same party on the same day.
+            # This fulfills the request for a single link per party/day in the bank book.
+            group_key = (dt_str, row["TransactionType"], row["Party"], row["Currency"])
             
             if group_key not in grouped_dict:
                 grouped_dict[group_key] = {
@@ -205,7 +205,8 @@ async def get_bank_book_report(
                         "Amount": float(row["NetAmount"] or 0),
                         "receipt_id": row["receipt_id"],
                         "InvoiceNo": row["AllocatedInvoices"] or row["Description"], # Use clean invoice info
-                        "pending_verification": row.get("pending_verification", 1)
+                        "pending_verification": row.get("pending_verification", 1),
+                        "transactionType": row["TransactionType"] # Include for frontend pop-up logic
                     }]
                 }
             else:
@@ -213,7 +214,6 @@ async def get_bank_book_report(
                 new_voucher = str(row["VoucherNo"]) if row["VoucherNo"] else ""
                 net_amount = float(row["NetAmount"] or 0)
                 
-                # Check for identical VoucherNo and Amount if necessary, but typically we want all
                 # Group exists, sum the amounts
                 existing["CreditIn"] += float(row["CreditIn"] or 0)
                 existing["DebitOut"] += float(row["DebitOut"] or 0)
@@ -229,7 +229,8 @@ async def get_bank_book_report(
                     "Amount": net_amount,
                     "receipt_id": row["receipt_id"],
                     "InvoiceNo": row["AllocatedInvoices"] or row["Description"],
-                    "pending_verification": row.get("pending_verification", 1)
+                    "pending_verification": row.get("pending_verification", 1),
+                    "transactionType": row["TransactionType"]
                 })
         
         # Calculate moving balance on the grouped array
@@ -515,3 +516,28 @@ async def get_all_active_banks(db: AsyncSession = Depends(get_db)):
     sql = text("SELECT BankId as value, BankName as label FROM btggasify_masterpanel_live.master_bank WHERE IsActive = 1")
     result = await db.execute(sql)
     return {"status": "success", "data": result.mappings().all()}
+
+@router.get("/get-messages/{receipt_id}")
+async def get_messages(receipt_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        stmt = select(ARReceiptMessage).where(ARReceiptMessage.receipt_id == receipt_id).order_by(ARReceiptMessage.created_at.asc())
+        result = await db.execute(stmt)
+        messages = result.scalars().all()
+        return {"status": "success", "data": messages}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+@router.post("/send-message")
+async def send_message(payload: schemas.ARMessage, db: AsyncSession = Depends(get_db)):
+    try:
+        new_msg = ARReceiptMessage(
+            receipt_id=payload.receipt_id,
+            sender_role=payload.sender_role,
+            message_text=payload.message_text
+        )
+        db.add(new_msg)
+        await db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        await db.rollback()
+        return {"status": "error", "detail": str(e)}
