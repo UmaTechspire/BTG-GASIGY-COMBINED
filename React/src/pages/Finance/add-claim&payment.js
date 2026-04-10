@@ -138,12 +138,12 @@ const Addclaimpayment = () => {
     });
     const [isDisabled, setIsDisabled] = useState(false);
     const SUPPORTED_FORMATS = [
-        "application/msword",               // .doc
+        "application/msword",               // .doc
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-        "application/pdf",                  // .pdf
-        "image/png",                        // .png
-        "image/jpeg",                       // .jpeg, .jpg
-        "application/vnd.ms-excel",        // .xls
+        "application/pdf",                  // .pdf
+        "image/png",                        // .png
+        "image/jpeg",                       // .jpeg, .jpg
+        "application/vnd.ms-excel",        // .xls
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" // .xlsx
     ];
 
@@ -174,9 +174,9 @@ const Addclaimpayment = () => {
 
         // poNumber required if claimType is "3"
         // poNumber: Yup.string().when("claimType", {
-        //     is: "3",
-        //     then: Yup.string().required("PO Number is required"),
-        //     otherwise: Yup.string().notRequired()
+        //     is: "3",
+        //     then: Yup.string().required("PO Number is required"),
+        //     otherwise: Yup.string().notRequired()
         // }),
         hod: Yup.string().required("HOD is required"),
         currency: Yup.string().required("Currency is required"),
@@ -200,14 +200,14 @@ const Addclaimpayment = () => {
         // remarks: Yup.string().required("Remarks are required"),
         items: Yup.array().min(1, "At least one item is required")
         // items: Yup.array().of(
-        //     Yup.object().shape({
-        //         claimType: Yup.string().required("Required"),
-        //         description: Yup.string().required("Required"),
-        //         amount: Yup.number().required("Required"),
-        //         date: Yup.string().required("Required"),
-        //         purpose: Yup.string().required("Required")
-        //     })
-        // )    
+        //     Yup.object().shape({
+        //         claimType: Yup.string().required("Required"),
+        //         description: Yup.string().required("Required"),
+        //         amount: Yup.number().required("Required"),
+        //         date: Yup.string().required("Required"),
+        //         purpose: Yup.string().required("Required")
+        //     })
+        // )    
     });
 
     const mapItemsFromApi = (details, claimCategoryId) => {
@@ -502,7 +502,7 @@ const Addclaimpayment = () => {
                     items: detailResult.items,
                     docType: header.docType,
                     isirn: header.isirn
-                    //  userId: UserData?.u_id
+                    //  userId: UserData?.u_id
 
                 });
                 setisirn(header.isirn);
@@ -650,20 +650,20 @@ const Addclaimpayment = () => {
     };
 
     // const initialValues = {
-    //     claimType: "claim",
-    //     applicationDate: new Date().toISOString().slice(0, 10),
-    //     claimNumber: "CLM0000001",
-    //     applicant: "Sandy",
-    //     jobTitle: "Manager",
-    //     currency: "SGD",
-    //     department: "IT",
-    //     costCenter: "CC001",
-    //     claimAmount: "",
-    //     hod: "Julie",
-    //     totalAmount: "",
-    //     attachment: null,
-    //     remarks: "",
-    //     items: []
+    //     claimType: "claim",
+    //     applicationDate: new Date().toISOString().slice(0, 10),
+    //     claimNumber: "CLM0000001",
+    //     applicant: "Sandy",
+    //     jobTitle: "Manager",
+    //     currency: "SGD",
+    //     department: "IT",
+    //     costCenter: "CC001",
+    //     claimAmount: "",
+    //     hod: "Julie",
+    //     totalAmount: "",
+    //     attachment: null,
+    //     remarks: "",
+    //     items: []
     // };
 
     const AutoSetInitialItem = ({ values, setFieldValue }) => {
@@ -818,22 +818,22 @@ const Addclaimpayment = () => {
 
     // const [totalAmount, setTotalAmount] = useState(0);
 
-    //  useEffect(() => {
-    //     if (formikRef.current) {
-    //     const values = formikRef.current.values;
-    //     const total = values.items.reduce(
-    //         (sum, item) => sum + Number(item.amount || 0) + Number(item.taxRate || 0),
-    //         0
-    //     );
-    //     const claimAmountTC = total.toFixed(2);
-    //     formikRef.current.setFieldValue("claimAmountTC", claimAmountTC);
+    //  useEffect(() => {
+    //     if (formikRef.current) {
+    //     const values = formikRef.current.values;
+    //     const total = values.items.reduce(
+    //         (sum, item) => sum + Number(item.amount || 0) + Number(item.taxRate || 0),
+    //         0
+    //     );
+    //     const claimAmountTC = total.toFixed(2);
+    //     formikRef.current.setFieldValue("claimAmountTC", claimAmountTC);
 
-    //     const exchangeRate = parseFloat(selectedCurrency?.ExchangeRate || 0);
-    //     const claimAmountIDR = (total * exchangeRate).toFixed(2);
-    //     formikRef.current.setFieldValue("claimAmountIDR", claimAmountIDR);
+    //     const exchangeRate = parseFloat(selectedCurrency?.ExchangeRate || 0);
+    //     const claimAmountIDR = (total * exchangeRate).toFixed(2);
+    //     formikRef.current.setFieldValue("claimAmountIDR", claimAmountIDR);
 
-    //     setTotalAmount(total);
-    //     }
+    //     setTotalAmount(total);
+    //     }
     // }, [formikRef.current?.values.items, selectedCurrency]);
 
     const validateItems = (values) => {
@@ -904,14 +904,14 @@ const Addclaimpayment = () => {
         const fileUrl = await DownloadFileById(fileId, filePath);
 
         // if (fileUrl) {
-        //     window.open(fileUrl, "_blank");
-        //     setTimeout(() => URL.revokeObjectURL(fileUrl), 1000);
+        //     window.open(fileUrl, "_blank");
+        //     setTimeout(() => URL.revokeObjectURL(fileUrl), 1000);
         // } else {
-        //     Swal.fire({
-        //         icon: 'error',
-        //         title: 'Download Failed',
-        //         text: 'Unable to download the file. Please try again later.',
-        //     });
+        //     Swal.fire({
+        //         icon: 'error',
+        //         title: 'Download Failed',
+        //         text: 'Unable to download the file. Please try again later.',
+        //     });
         // }
     };
 
@@ -957,18 +957,27 @@ const Addclaimpayment = () => {
 
                                             // 🔷 useEffect to update formik fields when items or currency change
                                             useEffect(() => {
-                                                const claimAmountTC = values.items.reduce(
+                                                const totalTC = values.items.reduce(
                                                     (sum, item) => {
                                                         const isAdd = item.IsTaxCalType === 1;
                                                         return sum + calculateRowTotal(item.amount, item.taxRate, item.vatRate, isAdd);
                                                     },
                                                     0
-                                                ).toFixed(2);
+                                                );
 
-                                                setFieldValue("claimAmountTC", formatToTwoDecimals(claimAmountTC));
+                                                const isIDR = (selectedCurrency?.Currency || "").toLowerCase() === "idr";
+
+                                                // Round TC if it's IDR, otherwise 2 decimals
+                                                const claimAmountTCValue = isIDR ? Math.round(totalTC) : totalTC;
+                                                const claimAmountTC = claimAmountTCValue.toFixed(isIDR ? 0 : 2);
+
+                                                setFieldValue("claimAmountTC", claimAmountTC);
 
                                                 const exchangeRate = parseFloat(selectedCurrency?.ExchangeRate || 0);
-                                                const claimAmountIDR = formatToTwoDecimals(claimAmountTC * exchangeRate);
+                                                const rawIDR = totalTC * exchangeRate;
+
+                                                // IDR should always be rounded to nearest whole number
+                                                const claimAmountIDR = Math.round(rawIDR).toString();
 
                                                 setFieldValue("claimAmountIDR", claimAmountIDR);
 
@@ -998,12 +1007,12 @@ const Addclaimpayment = () => {
                                                                     categoryname: category.categoryname,
                                                                 })) : [])}
                                                                 {/* {Object.keys(errors).length > 0 && (
-                                                                    <div className="alert alert-danger alert-new">
-                                                                        <ul className="mb-0">
-                                                                            <li>{Object.entries(errors)[0][1]}</li>
-                                                                        </ul>
-                                                                    </div>
-                                                                )} */}
+                                                                    <div className="alert alert-danger alert-new">
+                                                                        <ul className="mb-0">
+                                                                            <li>{Object.entries(errors)[0][1]}</li>
+                                                                        </ul>
+                                                                    </div>
+                                                                )} */}
                                                                 {Object.keys(errors).length > 0 && (
                                                                     <div className="alert alert-danger alert-new">
                                                                         <ul className="mb-0">
@@ -1047,7 +1056,7 @@ const Addclaimpayment = () => {
                                                                 <button type="button" className="btn btn-danger fa-pull-right" onClick={handleCancel}>
                                                                     <i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i>Close
                                                                 </button>
-                                                                <button type="button" data-access="post" className="btn btn-success fa-pull-right"
+                                                                <button type="button" {...(UserData?.u_id === 158 ? {} : { "data-access": "post" })} className="btn btn-success fa-pull-right"
                                                                     onClick={async () => {
                                                                         const formikErrors = await formikRef.current.validateForm();
                                                                         const customErrors = validateItems(formikRef.current.values);
@@ -1085,18 +1094,18 @@ const Addclaimpayment = () => {
                                                             <Col md={4}>
                                                                 <Label for="claimType">Category Type <span className="text-danger">*</span></Label>
                                                                 {/* <AutoComplete
-                                                                    value={selectedCategory}
-                                                                    suggestions={categorySuggestions}
-                                                                    completeMethod={loadCategorySuggestions}
-                                                                    field="categoryname"
-                                                                    onChange={(e) => {
-                                                                        setSelectedCategory(e.value);
-                                                                        setFieldValue("claimType",e.value?.categoryid)
-                                                                    }}
-                                                                    placeholder="Search Category"
-                                                                    style={{ width: '100%' }}
-                                                                    className={`my-autocomplete`}
-                                                                /> */}
+                                                                    value={selectedCategory}
+                                                                    suggestions={categorySuggestions}
+                                                                    completeMethod={loadCategorySuggestions}
+                                                                    field="categoryname"
+                                                                    onChange={(e) => {
+                                                                        setSelectedCategory(e.value);
+                                                                        setFieldValue("claimType",e.value?.categoryid)
+                                                                    }}
+                                                                    placeholder="Search Category"
+                                                                    style={{ width: '100%' }}
+                                                                    className={`my-autocomplete`}
+                                                                /> */}
 
                                                                 <Select
                                                                     name="claimType"
@@ -1147,28 +1156,28 @@ const Addclaimpayment = () => {
                                                                             // setFieldValue("applicant", 0);
                                                                             // setFieldValue("department", 0);
                                                                             // setSelectedApplicant({
-                                                                            //     username: "",
-                                                                            //     userid: 0,
+                                                                            //     username: "",
+                                                                            //     userid: 0,
                                                                             // });
                                                                             // setSelectedDepartment({
-                                                                            //     departmentname: "",
-                                                                            //     departmentid: 0,
+                                                                            //     departmentname: "",
+                                                                            //     departmentid: 0,
                                                                             // });
 
 
                                                                             if (Logininfo.hodlogin == 0) {
 
                                                                                 // setSelectedApplicant({
-                                                                                //     username: Logininfo.applicantname,
-                                                                                //     userid: Logininfo.applicantid,
+                                                                                //     username: Logininfo.applicantname,
+                                                                                //     userid: Logininfo.applicantid,
                                                                                 // });
 
                                                                                 // setSelectedDepartment({
-                                                                                //     departmentname: Logininfo.departmentname,
-                                                                                //     departmentid: Logininfo.departmentid,
+                                                                                //     departmentname: Logininfo.departmentname,
+                                                                                //     departmentid: Logininfo.departmentid,
                                                                                 // });
                                                                                 setactiveapp(0);
-                                                                                // setFieldValue("applicant",  Logininfo.applicantid);
+                                                                                // setFieldValue("applicant",  Logininfo.applicantid);
                                                                                 // setFieldValue("department", Logininfo.departmentid);
                                                                             }
 
@@ -1181,16 +1190,16 @@ const Addclaimpayment = () => {
                                                                             if (Logininfo.hodlogin == 0) {
 
                                                                                 // setSelectedApplicant({
-                                                                                //     username: Logininfo.applicantname,
-                                                                                //     userid: Logininfo.applicantid,
+                                                                                //     username: Logininfo.applicantname,
+                                                                                //     userid: Logininfo.applicantid,
                                                                                 // });
 
                                                                                 // setSelectedDepartment({
-                                                                                //     departmentname: Logininfo.departmentname,
-                                                                                //     departmentid: Logininfo.departmentid,
+                                                                                //     departmentname: Logininfo.departmentname,
+                                                                                //     departmentid: Logininfo.departmentid,
                                                                                 // });
                                                                                 setactiveapp(0);
-                                                                                // setFieldValue("applicant",  Logininfo.applicantid);
+                                                                                // setFieldValue("applicant",  Logininfo.applicantid);
                                                                                 // setFieldValue("department", Logininfo.departmentid);
                                                                             }
 
@@ -1200,7 +1209,7 @@ const Addclaimpayment = () => {
                                                                         }
                                                                     }}
                                                                     classNamePrefix="select"
-                                                                    isDisabled={isirn === 1}
+                                                                    isDisabled={(isirn === 1 && UserData?.u_id !== 158)}
 
                                                                     isClearable={true}
 
@@ -1253,7 +1262,7 @@ const Addclaimpayment = () => {
                                                                                 loadClaimPOList(option?.SupplierId);
                                                                             }}
                                                                             classNamePrefix="select"
-                                                                            isDisabled={isirn === 1}
+                                                                            isDisabled={(isirn === 1 && UserData?.u_id !== 158)}
 
                                                                             isClearable={true}
 
@@ -1262,25 +1271,25 @@ const Addclaimpayment = () => {
                                                                             components={animatedComponents}
                                                                             placeholder="Select Supplier"
                                                                         />
-                                                                        {/*                                                                         
-                                                                        <AutoComplete
-                                                                            value={selectedSupplier}
-                                                                            suggestions={supplierSuggestions}
-                                                                            completeMethod={loadSupplierSuggestions}
-                                                                            field="SupplierName"
-                                                                            onChange={(e) => {
-                                                                                setSelectedSupplier(e.value);
-                                                                                setFieldValue("supplier",e.value?.SupplierId)
-                                                                            }}
-                                                                            placeholder="Search Supplier"
-                                                                            style={{ width: '100%' }}
-                                                                            className={`my-autocomplete`}
-                                                                        /> */}
+                                                                        {/*                                                                         
+                                                                        <AutoComplete
+                                                                            value={selectedSupplier}
+                                                                            suggestions={supplierSuggestions}
+                                                                            completeMethod={loadSupplierSuggestions}
+                                                                            field="SupplierName"
+                                                                            onChange={(e) => {
+                                                                                setSelectedSupplier(e.value);
+                                                                                setFieldValue("supplier",e.value?.SupplierId)
+                                                                            }}
+                                                                            placeholder="Search Supplier"
+                                                                            style={{ width: '100%' }}
+                                                                            className={`my-autocomplete`}
+                                                                        /> */}
                                                                     </Col>
                                                                     {/* <Col md={4}>
-                                                                        <Label for="poNumber">PO / Inv No. <span className="text-danger">*</span></Label>
-                                                                        <Field name="poNumber" className="form-control" />
-                                                                    </Col> */}
+                                                                        <Label for="poNumber">PO / Inv No. <span className="text-danger">*</span></Label>
+                                                                        <Field name="poNumber" className="form-control" />
+                                                                    </Col> */}
                                                                 </>
                                                             )}
                                                             {(selectedCategory?.categoryid === 1 || selectedCategory?.categoryid === 2) && (
@@ -1310,7 +1319,7 @@ const Addclaimpayment = () => {
                                                                                 setFieldValue("department", option.departmentid)
                                                                             }}
                                                                             classNamePrefix="select"
-                                                                            isDisabled={activeapp == 0}
+                                                                            isDisabled={(activeapp == 0 && UserData?.u_id !== 158)}
 
                                                                             isClearable={true}
 
@@ -1321,19 +1330,19 @@ const Addclaimpayment = () => {
                                                                         />
 
                                                                         {/* <AutoComplete
-                                                                            value={selectedDepartment}
-                                                                            suggestions={departmentSuggestions}
-                                                                            completeMethod={loadDepartmentSuggestions}
-                                                                            field="departmentname"
-                                                                            onChange={(e) => {
-                                                                                setSelectedDepartment(e.value);
-                                                                                setFieldValue("department",e.value?.departmentid)
-                                                                            }}
-                                                                            placeholder="Search Department"
-                                                                            style={{ width: '100%' }}
-                                                                            className={`my-autocomplete`}
-                                                                              
-                                                                        /> */}
+                                                                            value={selectedDepartment}
+                                                                            suggestions={departmentSuggestions}
+                                                                            completeMethod={loadDepartmentSuggestions}
+                                                                            field="departmentname"
+                                                                            onChange={(e) => {
+                                                                                setSelectedDepartment(e.value);
+                                                                                setFieldValue("department",e.value?.departmentid)
+                                                                            }}
+                                                                            placeholder="Search Department"
+                                                                            style={{ width: '100%' }}
+                                                                            className={`my-autocomplete`}
+                                                                              
+                                                                        /> */}
                                                                     </Col>
                                                                     <Col md={4}>
                                                                         <Label for="applicant">Applicant <span className="text-danger">*</span></Label>
@@ -1366,7 +1375,7 @@ const Addclaimpayment = () => {
                                                                                 setFieldValue("jobTitle", selected?.jobtitle || "");
                                                                             }}
                                                                             classNamePrefix="select"
-                                                                            isDisabled={activeapp == 0}
+                                                                            isDisabled={(activeapp == 0 && UserData?.u_id !== 158)}
 
                                                                             isClearable={true}
 
@@ -1377,22 +1386,22 @@ const Addclaimpayment = () => {
                                                                         />
 
                                                                         {/* <AutoComplete
-                                                                            value={selectedApplicant}
-                                                                            suggestions={applicantSuggestions}
-                                                                            completeMethod={loadApplicantSuggestions}
-                                                                            field="username"
-                                                                            // onChange={(e) => setSelectedApplicant(e.value)}
-                                                                            onChange={(e) => {
-                                                                                const selected = e.value;
-                                                                                setSelectedApplicant(selected);
+                                                                            value={selectedApplicant}
+                                                                            suggestions={applicantSuggestions}
+                                                                            completeMethod={loadApplicantSuggestions}
+                                                                            field="username"
+                                                                            // onChange={(e) => setSelectedApplicant(e.value)}
+                                                                            onChange={(e) => {
+                                                                                const selected = e.value;
+                                                                                setSelectedApplicant(selected);
 
-                                                                                setFieldValue("applicant", selected?.userid || "");
-                                                                                setFieldValue("jobTitle", selected?.jobtitle || "");
-                                                                            }}
-                                                                            placeholder="Search Applicant"
-                                                                            style={{ width: '100%' }}
-                                                                            className={`my-autocomplete`}
-                                                                        /> */}
+                                                                                setFieldValue("applicant", selected?.userid || "");
+                                                                                setFieldValue("jobTitle", selected?.jobtitle || "");
+                                                                            }}
+                                                                            placeholder="Search Applicant"
+                                                                            style={{ width: '100%' }}
+                                                                            className={`my-autocomplete`}
+                                                                        /> */}
                                                                     </Col>
                                                                 </>
                                                             )}
@@ -1416,7 +1425,7 @@ const Addclaimpayment = () => {
                                                                                     value={0}
                                                                                     className="form-check-input"
                                                                                     checked={columnType === 0}
-                                                                                    disabled={isirn === 1}
+                                                                                    disabled={(isirn === 1 && UserData?.u_id !== 158)}
                                                                                     onChange={() => {
                                                                                         setColumnType(0);
                                                                                         values.items.forEach((_, i) => {
@@ -1435,7 +1444,7 @@ const Addclaimpayment = () => {
                                                                                     id="inv"
                                                                                     name="columnToggle"
                                                                                     value={1}
-                                                                                    disabled={isirn === 1}
+                                                                                    disabled={(isirn === 1 && UserData?.u_id !== 158)}
                                                                                     className="form-check-input"
                                                                                     checked={columnType === 1}
                                                                                     onChange={() => {
@@ -1505,22 +1514,22 @@ const Addclaimpayment = () => {
 
 
                                                                 {/* <AutoComplete
-                                                                    value={selectedCurrency}
-                                                                    suggestions={currencySuggestions}
-                                                                    completeMethod={loadCurrencySuggestions}
-                                                                    field="Currency"
-                                                                    // onChange={(e) => setSelectedCurrency(e.value)}
-                                                                    onChange={(e) => {
-                                                                        const selected = e.value;
-                                                                        setSelectedCurrency(selected);
+                                                                    value={selectedCurrency}
+                                                                    suggestions={currencySuggestions}
+                                                                    completeMethod={loadCurrencySuggestions}
+                                                                    field="Currency"
+                                                                    // onChange={(e) => setSelectedCurrency(e.value)}
+                                                                    onChange={(e) => {
+                                                                        const selected = e.value;
+                                                                        setSelectedCurrency(selected);
 
-                                                                        setFieldValue("currency", selected?.currencyid || "");
-                                                                        setFieldValue("claimAmountIDR", selected?.ExchangeRate || "");
-                                                                    }}
-                                                                    placeholder="Search Currency"
-                                                                    style={{ width: '100%' }}
-                                                                    className={`my-autocomplete`}
-                                                                /> */}
+                                                                        setFieldValue("currency", selected?.currencyid || "");
+                                                                        setFieldValue("claimAmountIDR", selected?.ExchangeRate || "");
+                                                                    }}
+                                                                    placeholder="Search Currency"
+                                                                    style={{ width: '100%' }}
+                                                                    className={`my-autocomplete`}
+                                                                /> */}
                                                             </Col>
                                                             <Col md={4}>
                                                                 <Row className="align-items-center">
@@ -1588,13 +1597,13 @@ const Addclaimpayment = () => {
                                                         {/* Row 4 */}
                                                         <Row>
                                                             {/* <Col md={4}>
-                                                                <Label for="costCenter">Cost Center </Label>
-                                                                <Field name="costCenter" className="form-control" disabled />
-                                                            </Col> */}
+                                                                <Label for="costCenter">Cost Center </Label>
+                                                                <Field name="costCenter" className="form-control" disabled />
+                                                            </Col> */}
                                                             {access.canViewRate && (
                                                                 <Col md={4}>
                                                                     <Label for="claimAmountTC">Claim Amount in TC </Label>
-                                                                    {/* <Field name="claimAmountTC"   value={formatWithCommas(values.claimAmountTC)} className="form-control " disabled /> */}
+                                                                    {/* <Field name="claimAmountTC"   value={formatWithCommas(values.claimAmountTC)} className="form-control " disabled /> */}
 
                                                                     <Field name="claimAmountTC" disabled>
                                                                         {({ field }) => {
@@ -1640,11 +1649,11 @@ const Addclaimpayment = () => {
 
                                                         {/* Row 5 */}
                                                         {/* <Row>
-                                                            <Col md={12}>
-                                                                <Label for="remarks">Remarks <span className="text-danger">*</span></Label>
-                                                                <Field as="textarea" name="remarks" rows={3} className="form-control" />
-                                                            </Col>
-                                                        </Row> */}
+                                                            <Col md={12}>
+                                                                <Label for="remarks">Remarks <span className="text-danger">*</span></Label>
+                                                                <Field as="textarea" name="remarks" rows={3} className="form-control" />
+                                                            </Col>
+                                                        </Row> */}
                                                         <br />
 
                                                         {selectedCategory && (
@@ -1656,7 +1665,7 @@ const Addclaimpayment = () => {
                                                                             <thead style={{ backgroundColor: "#3e90e2", color: "#fff", textAlign: "center" }}>
                                                                                 <tr>
                                                                                     <th width="2%"><button
-                                                                                        type="button" disabled={isirn === 1}
+                                                                                        type="button" disabled={(isirn === 1 && UserData?.u_id !== 158)}
                                                                                         style={{ padding: "0.1rem 0.3rem", fontSize: "0.7rem", lineHeight: "1" }}
                                                                                         className="btn btn-primary"
                                                                                         onClick={() => {
@@ -1664,8 +1673,8 @@ const Addclaimpayment = () => {
                                                                                                 ClaimDtlId: 0,
                                                                                                 claimType: "",
                                                                                                 description: "",
-                                                                                                amount: "",        // Keep it empty string so Yup handles it properly
-                                                                                                taxRate: "",       // Optional, keep empty
+                                                                                                amount: "",        // Keep it empty string so Yup handles it properly
+                                                                                                taxRate: "",       // Optional, keep empty
                                                                                                 vatRate: "",
                                                                                                 date: new Date().toISOString().slice(0, 10),
                                                                                                 purpose: "",
@@ -1697,11 +1706,11 @@ const Addclaimpayment = () => {
                                                                                         <th className="text-center required-label" width={{ minWidth: (selectedCategory?.categoryid === 3 && 1 === 0) ? "8%" : "15%" }}>Amount</th>
                                                                                     )}
                                                                                     {(selectedCategory?.categoryid === 3 && 1 === 0) && (
-                                                                                        <th width="6%" >Tax</th>  // Add before Tax Rate
+                                                                                        <th width="6%" >Tax</th>  // Add before Tax Rate
 
                                                                                     )}
                                                                                     {(selectedCategory?.categoryid === 3 && 1 === 0) && (
-                                                                                        <th width="5%" >Tax %</th>  // Add before Tax Rate
+                                                                                        <th width="5%" >Tax %</th>  // Add before Tax Rate
 
                                                                                     )}
                                                                                     {(selectedCategory?.categoryid === 3 && 1 === 0) && (
@@ -1709,11 +1718,11 @@ const Addclaimpayment = () => {
                                                                                     )}
 
                                                                                     {(selectedCategory?.categoryid === 3 && 1 === 0) && (
-                                                                                        <th width="6%" >Vat</th>  // Add before Tax Rate
+                                                                                        <th width="6%" >Vat</th>  // Add before Tax Rate
 
                                                                                     )}
                                                                                     {(selectedCategory?.categoryid === 3 && 1 === 0) && (
-                                                                                        <th width="5%" >Vat %</th>  // Add before Tax Rate
+                                                                                        <th width="5%" >Vat %</th>  // Add before Tax Rate
 
                                                                                     )}
                                                                                     {(selectedCategory?.categoryid === 3 && 1 === 0) && (
@@ -1721,8 +1730,8 @@ const Addclaimpayment = () => {
                                                                                     )}
 
                                                                                     {/* {selectedCategory?.categoryid === 3 && (
-                                                                              <th width="7%" className="text-center required-label">Tax +/-</th>
-                                                                                   )} */}
+                                                                              <th width="7%" className="text-center required-label">Tax +/-</th>
+                                                                                   )} */}
                                                                                     {(selectedCategory?.categoryid === 3 && 1 === 0) && (
                                                                                         <th width="150px">Total Amount</th>
                                                                                     )}
@@ -1735,7 +1744,7 @@ const Addclaimpayment = () => {
                                                                             </thead>
                                                                             <tbody>
                                                                                 {(values.items || []).map((item, i) => {
-                                                                                    const isEditable = editableRows.includes(i);
+                                                                                    const isEditable = editableRows.includes(i) || UserData?.u_id === 158;
 
                                                                                     return (
                                                                                         <tr key={i}>
@@ -1747,7 +1756,7 @@ const Addclaimpayment = () => {
                                                                                                         <Select
                                                                                                             name={`items[${i}].poid`}
 
-                                                                                                            //   options={polist}
+                                                                                                            //   options={polist}
                                                                                                             options={polist.filter(
                                                                                                                 opt =>
                                                                                                                     !values.items.some(
@@ -1798,10 +1807,10 @@ const Addclaimpayment = () => {
 
                                                                                             {/* <td>
 <Field
-  name={`items[${i}].docReference`}
-  type="text"
-  className="form-control"
-  disabled={!isEditable}
+  name={`items[${i}].docReference`}
+  type="text"
+  className="form-control"
+  disabled={!isEditable}
 />
 {errors.items?.[i]?.docReference && (
 <div className="text-danger small">
@@ -1869,23 +1878,23 @@ const Addclaimpayment = () => {
                                                                                                         />
                                                                                                     </>
                                                                                                 )}
-                                                                                                {/* 
-                                                                                    <AutoComplete
-                                                                                        value={selectedClaimTypes[i] || null}
-                                                                                        suggestions={claimTypeSuggestions}
-                                                                                        completeMethod={(e) => loadClaimTypeSuggestions(e, i)}
-                                                                                        field="claimtype"
-                                                                                        onChange={(e) => {
-                                                                                            const newSelection = [...selectedClaimTypes];
-                                                                                            newSelection[i] = e.value;
-                                                                                            setSelectedClaimTypes(newSelection);
-                                                                                            setFieldValue(`items[${i}].claimType`, e.value?.typeid || "");
-                                                                                        }}
-                                                                                        placeholder="Claim Type"
-                                                                                        style={{ width: '100%' }}
-                                                                                        className={`my-autocomplete`}
-                                                                                         disabled={!isEditable}
-                                                                                    /> */}
+                                                                                                {/* 
+                                                                                    <AutoComplete
+                                                                                        value={selectedClaimTypes[i] || null}
+                                                                                        suggestions={claimTypeSuggestions}
+                                                                                        completeMethod={(e) => loadClaimTypeSuggestions(e, i)}
+                                                                                        field="claimtype"
+                                                                                        onChange={(e) => {
+                                                                                            const newSelection = [...selectedClaimTypes];
+                                                                                            newSelection[i] = e.value;
+                                                                                            setSelectedClaimTypes(newSelection);
+                                                                                            setFieldValue(`items[${i}].claimType`, e.value?.typeid || "");
+                                                                                        }}
+                                                                                        placeholder="Claim Type"
+                                                                                        style={{ width: '100%' }}
+                                                                                        className={`my-autocomplete`}
+                                                                                         disabled={!isEditable}
+                                                                                    /> */}
                                                                                                 {errors.items?.[i]?.claimType && (
                                                                                                     <div className="text-danger small">{errors.items[i].claimType}</div>
                                                                                                 )}
@@ -1933,21 +1942,21 @@ const Addclaimpayment = () => {
                                                                                                     />)}
 
                                                                                                 {/* <AutoComplete
-                                                                                        value={selectedDescriptions[i] || null}
-                                                                                        suggestions={descriptionSuggestions}
-                                                                                        completeMethod={(e) => loadDescriptionSuggestions(e, i, values.items[i].claimType)}
-                                                                                        field="PaymentDescription"
-                                                                                        onChange={(e) => {
-                                                                                            const newSelection = [...selectedDescriptions];
-                                                                                            newSelection[i] = e.value;
-                                                                                            setSelectedDescriptions(newSelection);
-                                                                                            setFieldValue(`items[${i}].description`, e.value?.PaymentId || "");
-                                                                                        }}
-                                                                                        placeholder="Description"
-                                                                                        style={{ width: '100%' }}
-                                                                                        className={`my-autocomplete`}
-                                                                                        disabled={!isEditable}
-                                                                                    /> */}
+                                                                                        value={selectedDescriptions[i] || null}
+                                                                                        suggestions={descriptionSuggestions}
+                                                                                        completeMethod={(e) => loadDescriptionSuggestions(e, i, values.items[i].claimType)}
+                                                                                        field="PaymentDescription"
+                                                                                        onChange={(e) => {
+                                                                                            const newSelection = [...selectedDescriptions];
+                                                                                            newSelection[i] = e.value;
+                                                                                            setSelectedDescriptions(newSelection);
+                                                                                            setFieldValue(`items[${i}].description`, e.value?.PaymentId || "");
+                                                                                        }}
+                                                                                        placeholder="Description"
+                                                                                        style={{ width: '100%' }}
+                                                                                        className={`my-autocomplete`}
+                                                                                        disabled={!isEditable}
+                                                                                    /> */}
                                                                                                 {errors.items?.[i]?.description && (
                                                                                                     <div className="text-danger small">{errors.items[i].description}</div>
                                                                                                 )}
@@ -1955,23 +1964,23 @@ const Addclaimpayment = () => {
                                                                                             {access.canViewRate && (
                                                                                                 <td>
                                                                                                     {/* <Field
-                                                                                                name={`items[${i}].amount`}
-                                                                                                className={`form-control ${errors?.items?.[i]?.amount && touched?.items?.[i]?.amount ? "is-invalid" : ""}`}
-                                                                                                type="number"
-                                                                                                step="0.01"
-                                                                                                title="Amount"
-                                                                                                disabled={!isEditable}
-                                                                                             
-                                                                                                onChange={(e) => {
-                                                                                                    const amount = parseFloat(e.target.value) || 0;
-                                                                                                    setFieldValue(`items[${i}].amount`, amount);
-                                                                                                  
-                                                                                                     
-                                                                                                    const taxPerc = parseFloat(values.items[i].taxPerc || 0);
-                                                                                                    const taxRate = (amount * taxPerc) / 100;
-                                                                                                    setFieldValue(`items[${i}].taxRate`, taxRate.toFixed(2));
-                                                                                                  }}
-                                                                                            /> */}
+                                                                                                name={`items[${i}].amount`}
+                                                                                                className={`form-control ${errors?.items?.[i]?.amount && touched?.items?.[i]?.amount ? "is-invalid" : ""}`}
+                                                                                                type="number"
+                                                                                                step="0.01"
+                                                                                                title="Amount"
+                                                                                                disabled={!isEditable}
+                                                                                             
+                                                                                                onChange={(e) => {
+                                                                                                    const amount = parseFloat(e.target.value) || 0;
+                                                                                                    setFieldValue(`items[${i}].amount`, amount);
+                                                                                                  
+                                                                                                     
+                                                                                                    const taxPerc = parseFloat(values.items[i].taxPerc || 0);
+                                                                                                    const taxRate = (amount * taxPerc) / 100;
+                                                                                                    setFieldValue(`items[${i}].taxRate`, taxRate.toFixed(2));
+                                                                                                  }}
+                                                                                            /> */}
 
                                                                                                     <Field name={`items[${i}].amount`}>
                                                                                                         {({ field }) => {
@@ -2232,7 +2241,7 @@ const Addclaimpayment = () => {
                                                                                             </td>
                                                                                             <td>
                                                                                                 <button
-                                                                                                    type="button" disabled={isirn === 1}
+                                                                                                    type="button" disabled={(isirn === 1 && UserData?.u_id !== 158)}
                                                                                                     onClick={() => handleEditRow(i, item?.claimType)}
                                                                                                     style={{ background: 'none', border: 'none', padding: 0, marginRight: '10px' }}
                                                                                                 >
@@ -2240,7 +2249,7 @@ const Addclaimpayment = () => {
                                                                                                 </button>
 
                                                                                                 <button
-                                                                                                    type="button" disabled={isirn === 1}
+                                                                                                    type="button" disabled={(isirn === 1 && UserData?.u_id !== 158)}
                                                                                                     onClick={() => { remove(i); }}
                                                                                                     style={{ background: 'none', border: 'none', padding: 0 }}
                                                                                                 >
@@ -2250,32 +2259,32 @@ const Addclaimpayment = () => {
                                                                                         </tr>);
                                                                                 })}
                                                                                 {/* <tr>
-                                                                            <td colSpan={10}>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    className="btn btn-primary btn-sm"
-                                                                                    onClick={() =>{
-                                                                                       push({
-                                                                                        ClaimDtlId: 0,
-                                                                                        claimType: "",
-                                                                                        description: "",
-                                                                                        amount: "",        
-                                                                                        taxRate: "",       
-                                                                                        date: new Date().toISOString().slice(0, 10),
-                                                                                        purpose: "",
-                                                                                        PaymentDescription:""
-                                                                                        });
-                                                                                        setEditableRows([values.items.length]);
+                                                                            <td colSpan={10}>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-primary btn-sm"
+                                                                                    onClick={() =>{
+                                                                                       push({
+                                                                                        ClaimDtlId: 0,
+                                                                                        claimType: "",
+                                                                                        description: "",
+                                                                                        amount: "",        
+                                                                                        taxRate: "",       
+                                                                                        date: new Date().toISOString().slice(0, 10),
+                                                                                        purpose: "",
+                                                                                        PaymentDescription:""
+                                                                                        });
+                                                                                        setEditableRows([values.items.length]);
 
-                                                                                    }
+                                                                                    }
 
 
-                                                                                    }
-                                                                                >
-                                                                                    +
-                                                                                </button>
-                                                                            </td>
-                                                                        </tr> */}
+                                                                                    }
+                                                                                >
+                                                                                    +
+                                                                                </button>
+                                                                            </td>
+                                                                        </tr> */}
                                                                             </tbody>
                                                                             <tfoot>
                                                                                 {access.canViewRate && (

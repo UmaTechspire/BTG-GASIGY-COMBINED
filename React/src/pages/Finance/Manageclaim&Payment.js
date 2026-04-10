@@ -243,12 +243,7 @@ const ManageClaimsPayment = () => {
 
     useEffect(() => {
         if (salesOrder && salesOrder.length > 0) {
-            // Debug: Check all claims for is_delete_required field
-            console.log('Manageclaim&Payment - Total claims:', salesOrder.length);
-            console.log('Sample claim data:', salesOrder[0]);
-
-            const cancelledClaims = salesOrder.filter(claim => claim.is_delete_required === 1);
-            console.log('Cancelled claims found:', cancelledClaims.length, cancelledClaims);
+            const cancelledClaims = salesOrder.filter(claim => claim.is_delete_required === 1 || claim.finance_cancel === 1);
 
             if (cancelledClaims.length > 0) {
                 const newCancelledIds = cancelledClaims
@@ -612,13 +607,9 @@ const ManageClaimsPayment = () => {
     const deleteClaim = async (row) => {
         try {
             const payload = {
-                delete: {
-                    inActiveBy: UserData?.u_id || 0,        // Replace with your actual user ID
-                    inActiveIP: '127.0.0.1',        // Replace with actual IP if required
-                    claimId: row.Claim_ID
-                }
+                ClaimId: row.Claim_ID,
+                InActiveBy: UserData?.u_id || 0
             };
-            debugger;
             const response = await DeleteClaimAndPayment(payload); // Make sure this API is imported
 
             if (response?.status) {
@@ -642,7 +633,10 @@ const ManageClaimsPayment = () => {
 
         // If claim needs to be cancelled (3rd discussion reached), only enable delete button
         const isCancelled = rowData?.is_delete_required === 1 || rowData?.isDeleteRequired === 1;
-        const canDelete = isCancelled || (rowData?.Status !== 'Posted' && (rowData?.IsReject === 1 || rowData?.isSubmitted == 0 || rowData?.candelete == 1));
+        const isFinanceCancelled = rowData?.finance_cancel == 1 || rowData?.finance_cancel === true;
+        const cancelRemarks = rowData?.finance_cancel_remarks || "Cancel";
+
+        const canDelete = isCancelled || isFinanceCancelled || (rowData?.Status !== 'Posted' && (rowData?.IsReject === 1 || rowData?.isSubmitted == 0 || rowData?.candelete == 1));
 
         return (
             <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -659,7 +653,7 @@ const ManageClaimsPayment = () => {
                         </span>
                     ) :
                         // Regular user can edit only if status is NOT 'Posted' and not cancelled
-                        !isCancelled && rowData.Status !== 'Posted' ? (
+                        !isCancelled && !isFinanceCancelled && rowData.Status !== 'Posted' ? (
                             <span
                                 onClick={() => editRow(rowData)}
                                 title="Edit"
@@ -682,7 +676,7 @@ const ManageClaimsPayment = () => {
                 {canDelete ? (
                     <button onClick={() => handleDeleteConfirm(rowData)}
                         style={{ display: 'flex', alignItems: 'center' }}
-                        title="Cancel"
+                        title={isFinanceCancelled && cancelRemarks !== "Cancel" ? cancelRemarks : "Cancel"}
                         data-access="delete"
                     >
                         <i className="mdi mdi-trash-can-outline" style={{ fontSize: '1.5rem' }}></i>

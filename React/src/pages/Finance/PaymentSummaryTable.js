@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Modal, ModalHeader, ModalFooter, ModalBody, Col, Row, Label, Input, InputGroup, Table } from "reactstrap";
 import Swal from "sweetalert2";
 import axios from "axios";
+import * as XLSX from "xlsx";
 
 
 import { DataTable } from "primereact/datatable";
@@ -254,46 +255,80 @@ const PaymentSummaryTable = ({ claims, onRefresh, approvedata }) => {
     return `${summary}||${method}||${bank}`;
   };
 
+  const simplifyBankName = (name) => {
+    if (!name || name === "-") return name;
+    return name.split(" - ")[0];
+  };
+
   const handlePrint = (seqno) => {
     const printContents = document.getElementById(`printable-summary-${seqno}`).innerHTML;
+    const now = new Date();
+    const formattedDateTime = now.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
     const newWin = window.open("", "_blank", "width=1000,height=800");
+
     newWin.document.write(`
       <html>
         <head>
           <title>Payment Summary Report</title>
           <style>
-                @media print {
-        .screen-only { display: none !important; }
-        .print-only { display: inline !important; }
-      }
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            h2 { text-align: center; margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #000; padding: 8px; text-align: center;color:black; }
-            th { background: #f0f0f0; }
-            .footer { margin-top: 30px; text-align: right; font-size: 12px; }
+            @media print {
+              .screen-only { display: none !important; }
+              .print-only { display: inline-block !important; }
+              @page { size: A4 landscape; margin: 10mm; }
+            }
+            body { font-family: Arial, sans-serif; padding: 10px; color: #000; }
+            .header { display: flex; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+            .header img { height: 60px; margin-right: 20px; }
+            .header-info h2 { margin: 0; font-size: 20px; }
+            .header-info p { margin: 2px 0; font-size: 12px; }
+           
+            h2.report-title { text-align: center; text-transform: uppercase; letter-spacing: 2px; margin: 20px 0; font-size: 18px; }
+           
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+            th, td { border: 1px solid #000; padding: 6px; text-align: center; color: #000; }
+            th { background-color: #f2f2f2; font-weight: bold; }
+            .text-end { text-align: right !important; }
+            .text-start { text-align: left !important; }
+            .fw-bold { font-weight: bold !important; }
+            .table-warning { background-color: #fff9c4 !important; }
+            .table-secondary { background-color: #e0e0e0 !important; }
+            .table-light { background-color: #f5f5f5 !important; }
+           
+            .footer { margin-top: 30px; display: flex; justify-content: space-between; font-size: 10px; border-top: 1px dashed #999; padding-top: 10px; }
           </style>
         </head>
         <body>
-          <h2>Payment Summary Report</h2>
+          <h2 class="report-title">Payment Summary Report</h2>
          
-          ${printContents}
-          <div class="footer">
-            Printed on: ${new Date().toLocaleString()}
+          <div class="print-container">
+            ${printContents}
           </div>
+
+          <div class="footer">
+            <div>BTG Finance Management System</div>
+            <div>Authorized Signature: ___________________________</div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              // Ensure all screen-only items are hidden and print-only are shown
+              setTimeout(() => {
+                window.print();
+                // window.close(); // Optional: close after print
+              }, 500);
+            };
+          </script>
         </body>
       </html>
     `);
     newWin.document.close();
-
-
-    newWin.focus();
-    newWin.onafterprint = function () {
-      newWin.close();
-    };
-
-    newWin.print();
-
   };
 
   const getStatusSymbol = (status) => {
@@ -347,56 +382,56 @@ text-align: right;
 }
         @page {
           size: A4 landscape;
-       margin: 5mm; 
+       margin: 5mm;
        @bottom-center {
 content: element(pageFooter);
 }
         }
-  
+ 
         body {
           font-family: Arial, sans-serif;
           font-size: 11px;
           padding: 10px;
           color: #000;
         }
-  
+ 
         h2 {
           text-align: center;
           margin-bottom: 20px;
           font-size: 16px;
         }
-  
+ 
         .section-title {
           font-weight: bold;
           margin: 12px 0 5px;
           padding-bottom: 2px;
-        
+       
           font-size: 12px;
         }
-  
+ 
         .info-table {
           width: 100%;
           border-collapse: collapse;
           margin-bottom: 10px;
         }
-  
+ 
         .info-table td {
           padding: 4px 6px;
           vertical-align: top;
         }
-  
+ 
         .info-table td.label {
           font-weight: bold;
           width: 20%;
           white-space: nowrap;
         }
-  
+ 
         .claim-table {
           width: 100%;
           border-collapse: collapse;
           margin-bottom: 15px;
         }
-  
+ 
        .claim-table th,
 .claim-table td {
 border: 1px solid #ccc;
@@ -414,14 +449,14 @@ vertical-align: top;
 .claim-table td:nth-child(4) { width: 17%;text-align: right; }  /* Amount */
 .claim-table td:nth-child(5) { width: 13%; text-align: center;}  /* Expense Date */
 .claim-table td:nth-child(6) { width: 24%;text-align: left; }  /* Purpose */
-  
+ 
         .status-table {
           width: 100%;
           border-collapse: collapse;
           text-align: center;
           margin-top: 15px;
         }
-  
+ 
         .status-table th,
         .status-table td {
           border: 1px solid #ccc;
@@ -431,12 +466,12 @@ word-break: break-word;
 white-space: normal;
 vertical-align: top;
         }
-  
+ 
         .status-header {
           background-color: #eee;
           font-weight: bold;
         }
-  
+ 
         .btn-circle {
           display: inline-block;
           height: 12px;
@@ -444,21 +479,21 @@ vertical-align: top;
           border-radius: 50%;
           margin: auto;
         }
-  
+ 
         .btn-success { background-color: #28a745; }
         .btn-warning { background-color: #ffc107; }
         .btn-secondary { background-color: #6c757d; }
-  
+ 
         .legend {
           margin-top: 10px;
           font-size: 10px;
         }
-  
+ 
         .legend span {
           margin-right: 15px;
 
         }
-  
+ 
         .remarks-box {
           border: 1px solid #ccc;
           padding: 8px;
@@ -545,7 +580,7 @@ word-break: break-word;
     `;
 
     const statusIndicators = `
-    
+   
      <table class="status-table">
       <thead>
         <tr class="status-header">
@@ -596,7 +631,7 @@ word-break: break-word;
           ${claimTable}
           ${remarksSection}
           ${statusIndicators}
-          
+         
         </body>
       </html>
     `);
@@ -844,7 +879,7 @@ word-break: break-word;
                             handleBankClick(bankName, bankRows);
                           }}
                         >
-                          {bankName}
+                          {simplifyBankName(bankName)}
                         </span>
                       </td>
                       <td style={{ textAlign: "left" }}>
@@ -929,7 +964,7 @@ word-break: break-word;
               return (
                 <tr key={`cw-${i}`} style={{ backgroundColor: "#fff7e6" }}>
                   <td style={{ textAlign: "left" }}>Cash Withdrawal</td>
-                  <td style={{ textAlign: "left" }}>{cg.bank}</td>
+                  <td style={{ textAlign: "left" }}>{simplifyBankName(cg.bank)}</td>
                   <td className="linkcolor"
                     style={{ textAlign: "left", cursor: "pointer" }}
                     onClick={() =>
@@ -1001,6 +1036,33 @@ word-break: break-word;
                 );
               })}
             </tr>
+
+            {/* Net Cash Withdraw */}
+            <tr style={{ backgroundColor: "#fffbbd", fontWeight: "bold" }}>
+              <td colSpan={3} style={{ textAlign: "left" }}>Net Cash Withdraw</td>
+              {currencies.map(curr => {
+                const modeOfCashTotal = data
+                  .filter(r => r.PaymentMethod === "Cash" || r.PaymentMethod === "Cash Withdrawal")
+                  .filter(r => r.curr === curr)
+                  .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+
+                const cihValue = parseFloat(cashInHand[curr] || 0);
+                const cfsValue = parseFloat(cashFromSales[curr] || 0);
+                const cashNeededVal = modeOfCashTotal - cihValue - cfsValue;
+
+                // Round to nearest 100
+                const netCashWithdraw = Math.round(cashNeededVal / 100) * 100;
+
+                return (
+                  <td style={{ textAlign: "right" }} key={`netcashneeded-${curr}`}>
+                    {netCashWithdraw.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    })}
+                  </td>
+                );
+              })}
+            </tr>
           </tbody>
         </table>
 
@@ -1055,7 +1117,7 @@ word-break: break-word;
         //   return selectedsummaryRows
         //     .filter(r =>
         //       r.ClaimCategory === category &&
-        //       r.curr === currency 
+        //       r.curr === currency
 
         //     )
         //     .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
@@ -1115,6 +1177,130 @@ word-break: break-word;
           }, {});
         };
 
+        const handleExportExcel = () => {
+          const currencies = ["IDR", "SGD", "USD", "MYR", "CNY"];
+          const aoa = [];
+
+          // 1. Report Title & Info
+          aoa.push([`Payment Summary Report - ${Seqno}`]);
+          aoa.push([`Payment Plan Date: ${new Date(convertFromDate).toLocaleDateString("en-GB")} - ${new Date(convertToDate).toLocaleDateString("en-GB")}`]);
+          aoa.push([]);
+
+          // 2. Summary Table Section
+          aoa.push(["SUMMARY SECTION"]);
+          aoa.push(["Category", ...currencies]);
+
+          const cashNeeded = getCashNeeded();
+          aoa.push(["Cash Needed (B - A)", ...currencies.map(curr => cashNeeded[curr] || 0)]);
+          aoa.push(["Cash in Hand", ...currencies.map(curr => cashInHand[curr] || 0)]);
+          aoa.push(["Cash from Factory Sales", ...currencies.map(curr => cashFromSales[curr] || 0)]);
+
+          const totalA = getTotalA();
+          aoa.push(["Total A", ...currencies.map(curr => totalA[curr] || 0)]);
+
+          ["Claim", "Cash Advance", "Supplier Payment"].forEach(category => {
+            aoa.push([category, ...currencies.map(curr => getAmountForCategoryCurrency(category, curr))]);
+          });
+
+          const totalB = getTotalB();
+          aoa.push(["Total B", ...currencies.map(curr => totalB[curr] || 0)]);
+          aoa.push([]);
+
+          // 3. Detailed Breakdown Section
+          aoa.push(["DETAILED BREAKDOWN"]);
+          aoa.push(["Mode Of Payment", "Bank Name", "Supplier / Applicant Name", ...currencies]);
+
+          // Mimic buildTable grouping logic for Excel
+          const data = selectedsummaryRows || [];
+          const otherData = data.filter(r => r.PaymentMethod !== "Cash Withdrawal" && r.PaymentMethod !== "Cash");
+          const grouped = {};
+
+          otherData.forEach(row => {
+            const method = (row.PaymentMethod || "-").trim();
+            const bank = (row.BankName || "-").trim();
+            const groupId = (row.SupplierName && row.SupplierName !== 0 && row.SupplierName !== "0")
+              ? row.SupplierName
+              : (row.ApplicantName || "");
+
+            let normalizedId = "unknown";
+            if (row.SupplierId) normalizedId = `sup-${row.SupplierId}`;
+            else if (row.ApplicantId) normalizedId = `app-${row.ApplicantId}`;
+            else if (groupId) normalizedId = `name-${groupId}`;
+
+            const key = `${method}||${bank}||${normalizedId}`;
+            if (!grouped[key]) grouped[key] = { groupName: groupId, method, bank, rows: [] };
+            grouped[key].rows.push(row);
+          });
+
+          // Group by bank for organized rows
+          const bankGroups = {};
+          Object.values(grouped).forEach(group => {
+            const bankKey = group.bank || "-";
+            if (!bankGroups[bankKey]) bankGroups[bankKey] = [];
+            bankGroups[bankKey].push(group);
+          });
+
+          Object.entries(bankGroups).forEach(([bankName, suppliers]) => {
+            suppliers.forEach((group) => {
+              const rowTotals = currencies.map(curr => {
+                return group.rows
+                  .filter(r => r.curr === curr)
+                  .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+              });
+
+              if (rowTotals.some(val => val > 0)) {
+                aoa.push([group.method, simplifyBankName(bankName), group.groupName, ...rowTotals]);
+              }
+            });
+          });
+
+          // 4. Detailed Footers (Matches Screen UI)
+          const overallTotals = currencies.map(curr => {
+            return data
+              .filter(r => r.curr === curr)
+              .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+          });
+
+          // Cash in Hand (Negative subtotal)
+          const cihFooter = currencies.map(curr => {
+            return -((cashInHand[curr] || 0) + (cashFromSales[curr] || 0));
+          });
+          aoa.push(["", "", "Cash in Hand", ...cihFooter]);
+
+          // Net Total
+          const netTotalFooter = currencies.map((curr, idx) => {
+            return (overallTotals[idx] || 0) + (cihFooter[idx] || 0);
+          });
+          aoa.push(["", "", "Total", ...netTotalFooter]);
+
+          // Cash Withdraw (Final Needed)
+          const cashWithdrawFooter = currencies.map(curr => {
+            const modeOfCashTotal = data
+              .filter(r => r.PaymentMethod === "Cash" || r.PaymentMethod === "Cash Withdrawal")
+              .filter(r => r.curr === curr)
+              .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+            const cihValue = parseFloat(cashInHand[curr] || 0);
+            const cfsValue = parseFloat(cashFromSales[curr] || 0);
+            return modeOfCashTotal - cihValue - cfsValue;
+          });
+          aoa.push(["", "", "Cash Withdraw", ...cashWithdrawFooter]);
+
+          // Net Cash Withdraw
+          const netCashWithdrawFooter = cashWithdrawFooter.map(val => Math.round(val / 100) * 100);
+          aoa.push(["", "", "Net Cash Withdraw", ...netCashWithdrawFooter]);
+
+          aoa.push([]);
+          // Final Footer
+          aoa.push([]);
+          aoa.push(["", "", "Authorized Signature: ___________________________"]);
+
+          // Create and save Workbook
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Payment Summary");
+          XLSX.writeFile(wb, `Payment_Summary_${Seqno}.xlsx`);
+        };
+
         const totalA = getTotalA();
         const totalB = getTotalB();
         const cashNeeded = getCashNeeded();
@@ -1145,7 +1331,16 @@ word-break: break-word;
                   label="Print"
                   className="p-button-sm p-button-secondary"
                   onClick={() => handlePrint(Seqno)}
-                />)}
+                />
+              )}
+              {access?.canPrint && (
+                <Button
+                  icon="pi pi-file-excel"
+                  label="Export"
+                  className="p-button-sm p-button-success ms-2"
+                  onClick={handleExportExcel}
+                />
+              )}
             </div>
             <div id={`printable-summary-${Seqno}`}>
 

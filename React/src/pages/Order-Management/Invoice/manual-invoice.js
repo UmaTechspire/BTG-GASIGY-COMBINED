@@ -410,16 +410,25 @@ const ManualInvoice = () => {
                   </div>
                 </div>
                 {/* Action Buttons */}
-                <div className="col-12 col-lg-4 text-end button-items">
-                  <button className="btn btn-info" onClick={GetALLInvoiceList}>Search</button>
-                  <button className="btn btn-danger" onClick={cancelFilter}>Cancel</button>
-
-                  {/* HISTORY BUTTON */}
-                  <button className="btn btn-secondary" onClick={() => setShowHistory(true)}>
-                    <i className="bx bx-time-five label-icon"></i> History
+                <div className="col-12 col-lg-4 text-end button-items d-flex justify-content-end gap-2 flex-wrap">
+                  <button type="button" className="btn btn-info" onClick={GetALLInvoiceList}>
+                    <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i>
+                    Search
+                  </button>
+                  <button type="button" className="btn btn-danger" onClick={cancelFilter}>
+                    <i className="bx bx-x-circle label-icon font-size-16 align-middle me-2"></i>
+                    Cancel
                   </button>
 
-                  <button className="btn btn-success" onClick={linkAddinvoice}>New</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowHistory(true)}>
+                    <i className="bx bx-time-five label-icon font-size-16 align-middle me-2"></i>
+                    History
+                  </button>
+
+                  <button type="button" className="btn btn-success" onClick={linkAddinvoice}>
+                    <i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>
+                    New
+                  </button>
                 </div>
               </div>
             </Card>

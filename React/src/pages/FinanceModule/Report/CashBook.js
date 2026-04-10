@@ -7,9 +7,11 @@ import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import { toast } from "react-toastify";
 import Select from "react-select";
-
+import Flatpickr from "react-flatpickr";
+import "flatpickr/dist/themes/material_blue.css";
 import axios from "axios";
 import { PYTHON_API_URL } from "common/pyapiconfig";
+import { GetAllCurrencies } from "common/data/mastersapi";
 
 
 const Breadcrumbs = ({ title, breadcrumbItem }) => (
@@ -75,23 +77,32 @@ const CashBook = () => {
     const [transactionTypes] = useState([
         { value: 'Receipt', label: 'Receipt' },
         { value: 'Payment', label: 'Payment' },
-        { value: 'Other Income', label: 'Other Income' }
+        { value: 'Other Income', label: 'Other Income' },
+        { value: 'Round plus', label: 'Round plus' },
+        { value: 'Round minus', label: 'Round minus' },
+        { value: 'Deposit', label: 'Deposit' },
+        { value: 'Cash withdraw', label: 'Cash withdraw' }
     ]);
     const [selectedTransactionType, setSelectedTransactionType] = useState(null);
+    const [currencyList, setCurrencyList] = useState([]);
+    const [selectedCurrency, setSelectedCurrency] = useState(null);
 
 
 
-    const fetchCashBook = async () => {
+    const fetchCashBook = async (overrideCurrency = null) => {
         try {
             setLoading(true);
             setCashBook([]);
+
+            const curToUse = overrideCurrency || selectedCurrency;
 
             // Use the Python API Report Endpoint
             const response = await axios.get(`${PYTHON_API_URL}/AR/cash/get-report`, {
                 params: {
                     from_date: fromDate || null,
                     to_date: toDate || null,
-                    bank_id: 0
+                    bank_id: 0,
+                    currency_id: curToUse?.value || 0
                 }
             });
 
@@ -106,19 +117,35 @@ const CashBook = () => {
                 });
             }
 
-            const transformed = resultData.map((item) => ({
-                date: item.Date ? new Date(item.Date) : null,
-                voucherNo: item.VoucherNo ? item.VoucherNo.split(" - ")[0] : "-",
-                transactionType: item.TransactionType || "-",
-                party: item.Party || "-",
-                description: item.Description || "-",
-                bankName: item.BankName || "-",
+            const transformed = resultData.map((item) => {
+                let cashIn = parseFloat(item.CashIn || 0);
+                let cashOut = parseFloat(item.CashOut || 0);
+                const type = item.TransactionType || "-";
 
-                actamount: item.NetAmount,
-                cashIn: parseFloat(item.CashIn || 0),
-                cashOut: parseFloat(item.CashOut || 0),
-                balance: parseFloat(item.Balance || 0),
-            }));
+                // Accounting Swap for Rounding as per user request
+                if (type === 'Round plus') {
+                    // Move from In to Out
+                    cashOut = cashIn || cashOut; // Assuming it came in as CashIn
+                    cashIn = 0;
+                } else if (type === 'Round minus') {
+                    // Move from Out to In
+                    cashIn = cashOut || cashIn; // Assuming it came in as CashOut
+                    cashOut = 0;
+                }
+
+                return {
+                    date: item.Date ? new Date(item.Date) : null,
+                    voucherNo: item.VoucherNo ? item.VoucherNo.split(" - ")[0] : "-",
+                    transactionType: type,
+                    party: (item.Party === "Unknown Customer" || item.Party === "unknown customer") ? "-" : (item.Party || "-"),
+                    description: item.Description || "-",
+                    bankName: item.BankName || "-",
+                    actamount: item.NetAmount,
+                    cashIn: cashIn,
+                    cashOut: cashOut,
+                    balance: parseFloat(item.Balance || 0),
+                };
+            });
 
             setCashBook(transformed);
         } catch (error) {
@@ -133,7 +160,31 @@ const CashBook = () => {
 
 
     useEffect(() => {
-        fetchCashBook();
+        const loadInitialData = async () => {
+            let initialCurrency = null;
+            try {
+                const currRes = await GetAllCurrencies({ currencyCode: "", currencyName: "" });
+                const currData = currRes.data || currRes;
+                if (Array.isArray(currData)) {
+                    const allowedCurrencies = ["IDR", "USD", "MYR", "SGD", "CNY"];
+                    const mapped = currData
+                        .filter(c => allowedCurrencies.includes(c.CurrencyCode))
+                        .map(c => ({
+                            value: c.CurrencyId,
+                            label: c.CurrencyCode
+                        }));
+                    setCurrencyList(mapped);
+
+                    const idr = mapped.find(c => c.label === "IDR");
+                    if (idr) {
+                        setSelectedCurrency(idr);
+                        initialCurrency = idr;
+                    }
+                }
+            } catch (err) { console.error("Failed to load currencies", err); }
+            fetchCashBook(initialCurrency);
+        };
+        loadInitialData();
     }, []);
 
 
@@ -141,13 +192,12 @@ const CashBook = () => {
     const exportToExcel = () => {
         const exportData = cashBook.map((ex) => ({
             Date: ex.date ? ex.date.toLocaleDateString() : "",
-            "Reference No": ex.voucherNo,
+            "Description": ex.voucherNo,
             "Transaction Type": ex.transactionType,
             "Party / Account": ex.party,
-
-            "Cash In (IDR)": ex.cashIn,
-            "Cash Out (IDR)": ex.cashOut,
-            "Balance (IDR)": ex.balance,
+            "Debit": ex.cashIn,
+            "Credit": ex.cashOut,
+            "Balance": ex.balance,
         }));
 
         const worksheet = XLSX.utils.json_to_sheet(exportData);
@@ -197,6 +247,7 @@ const CashBook = () => {
 
     const handleCancelFilters = () => {
         setSelectedTransactionType(null);
+        setSelectedCurrency(null);
         setFromDate(firstDayOfMonth);
         setToDate(today);
         setFilters({
@@ -210,9 +261,39 @@ const CashBook = () => {
         setTimeout(() => fetchCashBook(), 100);
     };
 
+    const renderHeader = () => {
+        return (
+            <div className="d-flex justify-content-between align-items-center">
+                <div className="d-flex align-items-center gap-2">
+                    <button type="button" className="btn btn-danger" onClick={handleCancelFilters}>
+                        <i className="bx bx-window-close font-size-14 align-middle me-2" /> Cancel
+                    </button>
+                </div>
+                <div className="d-flex align-items-center gap-3">
+                    <input
+                        type="text"
+                        placeholder="Keyword Search"
+                        className="form-control"
+                        style={{ width: '250px' }}
+                        value={globalFilter}
+                        onChange={(e) => setGlobalFilter(e.target.value)}
+                    />
+                </div>
+            </div>
+        );
+    };
+
+    const header = renderHeader();
+
     const dateBodyTemplate = (rowData) => {
         return formatPrintDate(rowData.date);
     };
+
+    // --- 4. AUTO-REFRESH ON FILTER CHANGE ---
+    useEffect(() => {
+        // Pass selectedCurrency directly to avoid reading stale closure state
+        fetchCashBook(selectedCurrency);
+    }, [selectedCurrency, fromDate, toDate]);
 
     return (
         <div className="page-content">
@@ -220,50 +301,79 @@ const CashBook = () => {
                 <Breadcrumbs title="Finance" breadcrumbItem="Cash Book" />
 
                 {/* Filter & Buttons Section — all in one line */}
-                <Row className="pt-2 pb-3 align-items-center g-2">
-                    <Col md="3">
+                <Row className="mb-3 align-items-center g-3 quotation-mid">
+                    <Col lg="2" md="3" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">Type</label>
                         <Select
+                            className="flex-grow-1"
                             options={transactionTypes}
-                            placeholder="Transaction Type"
+                            placeholder="Select Type"
                             value={selectedTransactionType}
                             onChange={setSelectedTransactionType}
                             isClearable
                             styles={selectSm}
                         />
                     </Col>
-                    <Col md="2">
-                        <input
-                            type="date"
+                    <Col lg="2" md="3" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">Currency</label>
+                        <Select
+                            className="flex-grow-1"
+                            options={currencyList}
+                            placeholder="Select Currency"
+                            value={selectedCurrency}
+                            onChange={setSelectedCurrency}
+                            isClearable
+                            styles={selectSm}
+                        />
+                    </Col>
+                    <Col lg="2" md="3" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">From</label>
+                        <Flatpickr
                             className="form-control"
-                            value={fromDate ?? ""}
-                            onChange={(e) => setFromDate(e.target.value)}
-                            max={toDate}
+                            value={fromDate}
+                            onChange={(date) => {
+                                if (date && date[0]) {
+                                    setFromDate(formatDate(date[0]));
+                                }
+                            }}
+                            options={{
+                                altInput: true,
+                                altFormat: "d-M-Y",
+                                dateFormat: "Y-m-d",
+                                maxDate: toDate || null
+                            }}
                             style={{ height: "38px" }}
                         />
                     </Col>
-                    <Col md="2">
-                        <input
-                            type="date"
+                    <Col lg="2" md="3" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">To</label>
+                        <Flatpickr
                             className="form-control"
-                            value={toDate ?? ""}
-                            onChange={(e) => setToDate(e.target.value)}
-                            min={fromDate}
-                            max={today}
+                            value={toDate}
+                            onChange={(date) => {
+                                if (date && date[0]) {
+                                    setToDate(formatDate(date[0]));
+                                }
+                            }}
+                            options={{
+                                altInput: true,
+                                altFormat: "d-M-Y",
+                                dateFormat: "Y-m-d",
+                                minDate: fromDate || null,
+                                maxDate: today
+                            }}
                             style={{ height: "38px" }}
                         />
                     </Col>
-                    <Col md="5" className="d-flex gap-1 align-items-center">
-                        <button type="button" className="btn btn-primary" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={fetchCashBook}>
-                            <i className="bx bx-search me-1"></i>Search
+                    <Col lg="4" className="d-flex gap-2 align-items-center justify-content-end">
+                        <button type="button" className="btn btn-info" onClick={fetchCashBook}>
+                            <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i>Search
                         </button>
-                        <button type="button" className="btn btn-danger" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={handleCancelFilters}>
-                            <i className="bx bx-x me-1"></i>Cancel
+                        <button type="button" className="btn btn-primary" onClick={handlePrint}>
+                            <i className="bx bx-printer label-icon font-size-16 align-middle me-2"></i>Print
                         </button>
-                        <button type="button" className="btn btn-info" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={handlePrint}>
-                            <i className="bx bx-printer me-1"></i>Print
-                        </button>
-                        <button type="button" className="btn btn-secondary" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={exportToExcel}>
-                            <i className="bx bx-export me-1"></i>Excel
+                        <button type="button" className="btn btn-secondary" onClick={exportToExcel}>
+                            <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i>Export
                         </button>
                     </Col>
                 </Row>
@@ -271,50 +381,43 @@ const CashBook = () => {
                 {/* Data Table */}
                 <Row>
                     <Col lg="12">
-                        <Card>
+                        <Card className="border-0 shadow-sm">
                             <CardBody>
-                                <div className="d-flex justify-content-end mb-2">
-                                    <input
-                                        type="text"
-                                        value={globalFilter}
-                                        onChange={(e) => setGlobalFilter(e.target.value)}
-                                        placeholder="Global Search"
-                                        className="form-control"
-                                        style={{ width: '250px' }}
-                                    />
-                                </div>
                                 <DataTable
                                     value={cashBook}
+                                    header={header}
                                     loading={loading}
                                     paginator
-                                    rows={20}
+                                    rows={25}
                                     filters={filters}
                                     onFilter={(e) => setFilters(e.filters)}
                                     globalFilter={globalFilter}
                                     globalFilterFields={["date", "voucherNo", "party", "transactionType", "cashIn", "cashOut", "balance"]}
                                     emptyMessage="No records found."
                                     showGridlines
+                                    className="blue-bg"
                                     filterDisplay="menu"
+                                    responsiveLayout="scroll"
                                     filter
                                 >
-                                    <Column field="date" header="Date" body={dateBodyTemplate} />
-                                    <Column field="voucherNo" header="Reference No" filter filterPlaceholder="Search Reference" />
-                                    <Column field="transactionType" header="Transaction Type" filter filterPlaceholder="Search Type" />
-                                    <Column field="party" header="Party / Account" filter filterPlaceholder="Search Party" />
+                                    <Column field="date" header="Date" body={dateBodyTemplate} sortable />
+                                    <Column field="voucherNo" header="Reference" filter filterPlaceholder="Search Description" sortable />
+                                    <Column field="transactionType" header="Transaction Type" filter filterPlaceholder="Search Type" sortable />
+                                    <Column field="party" header="Party / Account" filter filterPlaceholder="Search Party" sortable />
 
 
-                                    <Column field="cashIn" header="Cash In (IDR)" body={(d) => d.cashIn.toLocaleString('en-US', {
+                                    <Column field="cashIn" header="Debit" body={(d) => d.cashIn.toLocaleString('en-US', {
                                         style: 'decimal',
                                         minimumFractionDigits: 2
-                                    })} className="text-end" />
-                                    <Column field="cashOut" header="Cash Out (IDR)" body={(d) => d.cashOut.toLocaleString('en-US', {
+                                    })} className="text-end" sortable />
+                                    <Column field="cashOut" header="Credit" body={(d) => d.cashOut.toLocaleString('en-US', {
                                         style: 'decimal',
                                         minimumFractionDigits: 2
-                                    })} className="text-end" />
-                                    <Column field="balance" header="Balance (IDR)" body={(d) => d.balance.toLocaleString('en-US', {
+                                    })} className="text-end" sortable />
+                                    <Column field="balance" header="Balance" body={(d) => d.balance.toLocaleString('en-US', {
                                         style: 'decimal',
                                         minimumFractionDigits: 2
-                                    })} className="text-end" />
+                                    })} className="text-end" sortable />
                                 </DataTable>
 
                                 <div id="print-section" style={{ display: "none" }}>
@@ -323,13 +426,13 @@ const CashBook = () => {
                                             <tr>
                                                 <th>S.No.</th>
                                                 <th>Date</th>
-                                                <th>Reference No</th>
+                                                <th>Description</th>
                                                 <th>Transaction Type</th>
                                                 <th>Party / Account</th>
 
-                                                <th>Cash In (IDR)</th>
-                                                <th>Cash Out (IDR)</th>
-                                                <th>Balance (IDR)</th>
+                                                <th>Debit</th>
+                                                <th>Credit</th>
+                                                <th>Balance</th>
                                             </tr>
                                         </thead>
                                         <tbody>

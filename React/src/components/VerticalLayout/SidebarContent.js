@@ -757,10 +757,25 @@ class SidebarContent extends Component {
                 console.log(`[DEBUG] Finance module NOT FOUND before filtering`);
             }
 
-            // 1. Filter menus to show ONLY Finance, Invoice, Reports, and Claim
+            // 1. Filter menus to show allowed modules
             const allowedModules = ["Finance", "Invoice", "Invoices", "Reports", "Report", "Claim", "Claims", "Mktg Verify"];
+
+            // Users 160, 161, 163, 165 see Procurement pages (EXCEPT Approval)
+            const procurementUsers = [160, 161, 163, 165];
+            if (procurementUsers.includes(currentUserIdFilter)) {
+                allowedModules.push("Procurement");
+            }
+
             menuData.menus = menuData.menus.filter(m => allowedModules.includes(m.moduleName));
-            console.log(`[RESTRICTION APPLIED] Filtered to Finance/Invoice/Reports/Claim for user ${currentUserIdFilter}`);
+
+            // Apply screen filter for Procurement (Hide Approval for specific users)
+            const procurementMod = menuData.menus.find(m => m.moduleName === "Procurement");
+            if (procurementMod && procurementUsers.includes(currentUserIdFilter)) {
+                procurementMod.screen = procurementMod.screen.filter(s =>
+                    s.screenName !== "Approval" && !s.url.toLowerCase().includes("approval")
+                );
+            }
+            console.log(`[RESTRICTION APPLIED] Filtered modules for user ${currentUserIdFilter}: ${allowedModules.join(", ")}`);
 
             // DEBUG: Log Finance screens AFTER module filtering
             const financeModDebug2 = menuData.menus.find(m => m.moduleName === "Finance");
@@ -781,13 +796,14 @@ class SidebarContent extends Component {
                 claimMod.screen = claimMod.screen.filter(s => {
                     const isClaimAndPayment = s.screenName === "Claim & Payment" || s.url === "/Manageclaim&Payment";
                     const isPPP = s.screenName === "PPP" || s.url === "/PPP";
+                    const isMPP = s.screenName === "Master Payment Plan" || s.url === "/paymentplanapproval";
 
-                    // For PPP users: Allow both Claim & Payment AND PPP
+                    // For pppUsers (160, 161, 163, 165): Allow Claim & Payment, PPP, AND MPP
                     if (pppUsers.includes(currentUserIdFilter)) {
-                        return isClaimAndPayment || isPPP;
+                        return isClaimAndPayment || isPPP || isMPP;
                     }
 
-                    // For others: Only Claim & Payment
+                    // For others in this group (e.g. 162, 191): Only Claim & Payment
                     return isClaimAndPayment;
                 });
                 console.log(`[RESTRICTION APPLIED] Claim screens filtered from ${originalScreenCount} to ${claimMod.screen.length} for user ${currentUserIdFilter}`);
@@ -1026,9 +1042,9 @@ class SidebarContent extends Component {
         // 1. Procurement: Show ONLY "Purchase Memo"
         // 2. Hide "Claim" menu completely
         // NOTE: If user is in claimOnlyUsers, SKIP this block
-        const restrictedGroup2Users = [177, 178, 179, 180, 181, 182, 183];
+        const restrictedGroup2Users = [177, 178, 179, 181, 182, 183];
         if (restrictedGroup2Users.includes(currentUserIdFilter) && !claimOnlyUsers.includes(currentUserIdFilter)) {
-            console.log("--- RESTRICTED GROUP 2 (177-183): Procurement Limited, Claims Hidden ---");
+            console.log("--- RESTRICTED GROUP 2 (177-183 ex 180): Procurement Limited, Claims Hidden ---");
 
             // 1. Filter Procurement
             const procurementMod = menuData.menus.find(m => m.moduleName === "Procurement");
@@ -1049,9 +1065,9 @@ class SidebarContent extends Component {
         // Requirement:
         // 1. Procurement: Show ONLY "Purchase Memo"
         // 2. Claim: Show ONLY "Claim & Payment"
-        const restrictedGroup3Users = [185, 186, 187];
+        const restrictedGroup3Users = [185, 186, 187, 180];
         if (restrictedGroup3Users.includes(currentUserIdFilter)) {
-            console.log("--- RESTRICTED GROUP 3 (185-187): Purchase Memo Only + Claim & Payment Only ---");
+            console.log("--- RESTRICTED GROUP 3 (185-187 + 180): Purchase Memo Only + Claim & Payment Only ---");
 
             // 1. Filter Procurement to show ONLY "Purchase Memo"
             const procurementMod = menuData.menus.find(m => m.moduleName === "Procurement");

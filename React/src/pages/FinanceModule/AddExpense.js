@@ -12,27 +12,27 @@ import {
   Modal,
   ModalBody,
   ModalHeader,
+  Table,
 } from "reactstrap";
 import Select from "react-select";
 import Flatpickr from "react-flatpickr";
-import { Formik, Form } from "formik";
+import { Formik, Form, FieldArray } from "formik";
 import * as Yup from "yup";
 import "flatpickr/dist/themes/material_blue.css";
-import { useHistory, useLocation } from 'react-router-dom';
-
-import { DataTable } from "primereact/datatable";
-import { Column } from "primereact/column";
-import { InputText } from "primereact/inputtext";
-import { FilterMatchMode } from "primereact/api";
-import { Tag } from "primereact/tag";
-import * as XLSX from "xlsx";
-import { saveAs } from "file-saver";
+import { useHistory, useLocation, useParams } from 'react-router-dom';
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import axios from "axios";
-import { getPettyCashCurrency, getExpenseDescriptions, saveOrUpdatePettyCash, GetPettyCashSeqNum, GetClaimAndPaymentTransactionCurrency, getPettyCashCategories, getPettyCashExpenseTypes } from "../../../src/common/data/mastersapi";
-const PYTHON_API_URL = process.env.REACT_APP_PYTHON_API_URL || "http://127.0.0.1:8000/";
+import {
+  getPettyCashCurrency,
+  saveOrUpdatePettyCash,
+  GetPettyCashSeqNum,
+  getPettyCashCategories,
+  getPettyCashExpenseTypes,
+  getPettyCashGroupById
+} from "../../../src/common/data/mastersapi";
 import makeAnimated from "react-select/animated";
+import Swal from 'sweetalert2';
+import { format } from "date-fns";
 
 import "primereact/resources/themes/bootstrap4-light-blue/theme.css";
 import "primereact/resources/primereact.min.css";
@@ -50,720 +50,561 @@ const Breadcrumbs = ({ title, breadcrumbItem }) => (
 );
 const animatedComponents = makeAnimated();
 
+const ALLOWED_EXPENSE_TYPES = {
+  "Sales Expenses": [
+    "Fuel Expenses",
+    "Repair and Maintenance of Vehicle Expense"
+  ],
+  "Administrative & General Expenses": [
+    "Handphone Expenses",
+    "Office Electricity Expenses",
+    "Tube & Machine Maintenance Expense",
+    "Office Administrative Expense",
+    "Entertainment Expense",
+    "Transportation Expense",
+    "Employees Welfare Expense",
+    "Factory Utilities Expenses",
+    "Maintenance Programmer Expense",
+    "Document Clearance Expense",
+    "Document Clearence Expenses",
+    "Other Operational Expense"
+  ],
+  "Non-Operational Expenses": [
+    "Bank Administrative Expense",
+    "Other Non Operational Expenses"
+  ]
+};
+
 const AddExpense = () => {
+  const { id } = useParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitType, setSubmitType] = useState(1);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [expenses, setExpenses] = useState([]);
-  const [expenseOptions, setExpenseOptions] = useState([]);
   const [categoryOptions, setCategoryOptions] = useState([]);
+  const [currencySuggestions, setCurrencySuggestions] = useState([]);
+  const [generatedPCNumber, setGeneratedPCNumber] = useState("");
+  const [expenseOptionsMap, setExpenseOptionsMap] = useState({}); // Cache for expense types per category
+  const [initialData, setInitialData] = useState(null);
+
   const history = useHistory();
   const location = useLocation();
-  const pettyCashData = location.state?.pettyCashData || null;
-  const [localPettyCashData, setLocalPettyCashData] = useState([]);
-  const [generatedPCNumber, setGeneratedPCNumber] = useState("");
-  const [currencySuggestions, setCurrencySuggestions] = useState([]);
-  const [selectedCurrency, setSelectedCurrency] = useState(null);
+  const isEditMode = !!id;
 
-
-  const [filters, setFilters] = useState({
-    global: { value: null, matchMode: FilterMatchMode.CONTAINS },
-  });
-  const [globalFilterValue, setGlobalFilterValue] = useState("");
+  // Custom styles for React-Select to match standard Input height and look
+  const customSelectStyles = {
+    control: (provided, state) => ({
+      ...provided,
+      minHeight: '38px',
+      borderRadius: '0.25rem',
+      borderColor: state.isFocused ? '#2684ff' : '#ced4da',
+      boxShadow: state.isFocused ? '0 0 0 0.2rem rgba(38, 132, 255, 0.25)' : null,
+      '&:hover': {
+        borderColor: '#ced4da'
+      }
+    }),
+    valueContainer: (provided) => ({
+      ...provided,
+      height: '38px',
+      padding: '0 6px'
+    }),
+    input: (provided) => ({
+      ...provided,
+      margin: '0px'
+    }),
+    indicatorSeparator: () => ({
+      display: 'none'
+    }),
+    indicatorsContainer: (provided) => ({
+      ...provided,
+      height: '38px'
+    }),
+    menu: (provided) => ({
+      ...provided,
+      zIndex: 9999
+    })
+  };
 
   useEffect(() => {
-    debugger
-    console.log("pettyCashData received on Add Page:", pettyCashData);
-    // if (pettyCashData) {
-    //  setLocalPettyCashData(pettyCashData);
-    // }
-
-
-    //   setSelectedCurrency({
-    //     Currency: pettyCashData?.currencyCode,
-    //     currencyid: pettyCashData?.currencyid,
-    //     ExchangeRate: pettyCashData?.exchangeRate,
-    //     value: pettyCashData?.currencyid,
-    //     label: pettyCashData?.currencyCode
-    // });
-
-    fetchSeqNo();
     fetchDropdownData();
-    // loadExpenseDescriptions is now called when category changes or initially if category exists
-  }, []);
-
-  useEffect(() => {
-    if (pettyCashData?.Category) {
-      loadExpenseDescriptions(pettyCashData.Category);
+    if (isEditMode) {
+      fetchExistingData(id);
+    } else {
+      fetchSeqNo();
     }
-  }, [pettyCashData]);
+  }, [id, isEditMode]);
 
-  // Memoize currency options to avoid re-mapping on every render
-  const currencyOptions = useMemo(() => {
-    return currencySuggestions.map(cat => ({
-      value: cat.CurrencyId || cat.currencyid || cat.id,
-      label: cat.Currency || cat.CurrencyCode || cat.currency || cat.currency_code,
-      currencyid: cat.CurrencyId || cat.currencyid || cat.id,
-      Currency: cat.Currency || cat.CurrencyCode || cat.currency || cat.currency_code,
-      ExchangeRate: cat.ExchangeRate || cat.exchange_rate || cat.rate || 1
-    }));
-  }, [currencySuggestions]);
+  const fetchExistingData = async (pettyId) => {
+    try {
+      const branchId = 1;
+      const orgId = 1;
+      const res = await getPettyCashGroupById(pettyId, branchId, orgId);
+      if (res && res.length > 0) {
+        const firstItem = res[0];
+        const pcNumber = firstItem.pc_number;
+        const allItems = res;
 
+        setInitialData({
+          pcNumber: pcNumber,
+          voucherNo: firstItem.voucherno || firstItem.VoucherNo || "",
+          expDate: firstItem.expdate ? new Date(firstItem.expdate) : (firstItem.ExpDate ? new Date(firstItem.ExpDate) : new Date()),
+          currencyid: firstItem.currencyid,
+          exchangeRate: firstItem.exchangerate || firstItem.exchangeRate || 1,
+          attachment: null,
+          ExpenseFileName: firstItem.expensefilename || firstItem.ExpenseFileName,
+          items: allItems.map(item => ({
+            PettyCashId: item.pettycashid || item.PettyCashId,
+            category: item.category_id,
+            expenseType: item.expense_type_id,
+            expenseDescription: item.expensedescription || item.ExpenseDescription || "",
+            whom: item.whom || item.Whom || "",
+            amount: item.amount || item.Amount || 0,
+            amountIDR: item.amountidr || item.AmountIDR || 0
+          })),
+          IsSubmitted: firstItem.issubmitted || firstItem.IsSubmitted
+        });
 
+        const uniqueCats = [...new Set(allItems.map(i => i.category_id))];
+        uniqueCats.forEach(catId => {
+          if (catId) loadExpenseTypes(catId);
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch existing data", err);
+      toast.error("Failed to load expense details");
+    }
+  };
 
   const fetchDropdownData = async () => {
     try {
-      const [cuurencydtl, categories] = await Promise.all([
+      const [currencies, categories] = await Promise.all([
         getPettyCashCurrency(1, 1),
         getPettyCashCategories(1, 1),
       ]);
 
-      setCurrencySuggestions(cuurencydtl);
-      console.log("Raw currency from API:", cuurencydtl);
+      setCurrencySuggestions(currencies);
 
-      console.log("Raw categories from API:", categories);
+      const excludeLabels = ["operational expenses", "non operational revenue", "non-operational revenue"];
+      const formattedCategories = categories
+        .map(item => ({
+          value: item.id,
+          label: item.category_name
+        }))
+        .filter(cat => cat.value && cat.label && !excludeLabels.includes(cat.label.toLowerCase()));
 
-      // Column names: id, gl_code, category_name
-      const formattedCategories = categories.map(item => ({
-        value: item.id,
-        label: item.category_name
-      })).filter(cat => cat.value && cat.label);
+      const cashBookTransfer = { value: 6, label: "Cash Book Transfer" };
+      const hasCashBookTransfer = formattedCategories.some(c => c.value === 6);
+      if (!hasCashBookTransfer) {
+        formattedCategories.push(cashBookTransfer);
+      }
 
-      console.log("Formatted categories:", formattedCategories);
       setCategoryOptions(formattedCategories);
     } catch (err) {
       console.error("Failed to load dropdown data", err);
-      toast.error("Failed to load dropdown data");
     }
   };
-
-
 
   const fetchSeqNo = async () => {
     try {
       const res = await GetPettyCashSeqNum(1, 1, 1);
       if (res?.data?.VoucherNo) {
-        const formattedPC = `PC${String(res.data.VoucherNo).padStart(6, '0')}`;
-        setGeneratedPCNumber(formattedPC);
-        console.log("generated PC number:", formattedPC);
+        setGeneratedPCNumber(`PC${String(res.data.VoucherNo).padStart(6, '0')}`);
       }
     } catch (err) {
       console.error("Failed to fetch sequence number", err);
     }
   };
 
-  // useEffect(() => {
-  //   if (generatedVoucherNo) {
-  //     setFieldValue("voucherNo", generatedVoucherNo);
-  //   }
-  // }, [generatedVoucherNo]);
-
-
-
-  const loadExpenseDescriptions = async (categoryId) => {
+  const loadExpenseTypes = async (categoryId) => {
+    if (!categoryId || expenseOptionsMap[String(categoryId)]) return;
     try {
-      if (!categoryId) {
-        setExpenseOptions([]);
-        return;
-      }
+      console.log(`Fetching expense types for category: ${categoryId}`);
       const rows = await getPettyCashExpenseTypes(1, 1, categoryId);
-      console.log("Raw expense types from API:", rows);
 
-      // Column names: id, glcode, category_id, expense_type
-      const formatted = rows.map(item => ({
+      // Get the category name to filter its sub-types
+      const categoryObj = categoryOptions.find(o => String(o.value) === String(categoryId));
+      const categoryLabel = categoryObj ? categoryObj.label : null;
+
+      let formatted = rows.map(item => ({
         value: item.id,
         label: item.expense_type
-      })).filter(exp => exp.value && exp.label);
+      }));
 
-      console.log("Formatted expense types:", formatted);
-      setExpenseOptions(formatted);
+      // Apply filtering based on ALLOWED_EXPENSE_TYPES map
+      if (categoryLabel && ALLOWED_EXPENSE_TYPES[categoryLabel]) {
+        const allowedList = ALLOWED_EXPENSE_TYPES[categoryLabel];
+        formatted = formatted.filter(item => {
+          const itemLabel = item.label.toLowerCase().trim();
+          return allowedList.some(allowed => {
+            const normalizedAllowed = allowed.toLowerCase().trim();
+            // Handle slight name differences (e.g. Entertainment vs Entertaiment in user request)
+            return itemLabel.includes(normalizedAllowed) || normalizedAllowed.includes(itemLabel);
+          });
+        });
+      }
+
+      setExpenseOptionsMap(prev => ({ ...prev, [String(categoryId)]: formatted }));
     } catch (err) {
       console.error("Failed to load expense types", err);
-      toast.error("Failed to load expense types");
     }
   };
 
+  const currencyOptions = useMemo(() => {
+    const allowed = ['IDR', 'USD', 'MYR', 'SGD', 'CNY'];
+    return currencySuggestions
+      .filter(c => allowed.includes(c.CurrencyCode || c.currency_code || c.Currency || c.currency))
+      .map(c => ({
+        value: c.CurrencyId || c.currencyid || c.id,
+        label: c.Currency || c.CurrencyCode || c.currency || c.currency_code,
+        ExchangeRate: c.ExchangeRate || c.exchange_rate || c.rate || 1
+      }));
+  }, [currencySuggestions]);
 
-  const handleSaveOrUpdate = async (values, resetForm, type) => {
+  const validationSchema = useMemo(() => Yup.object().shape({
+    expDate: Yup.date().required("Date is required"),
+    currencyid: Yup.number().required("Currency is required"),
+    items: Yup.array().of(
+      Yup.object().shape({
+        category: Yup.number()
+          .transform((v, o) => (o === "" ? null : v))
+          .required("Required"),
+        expenseType: Yup.number()
+          .transform((v, o) => (o === "" ? null : v))
+          .nullable()
+          .when("category", (category, schema) => {
+            return category === 6 ? schema.notRequired() : schema.required("Required");
+          }),
+        expenseDescription: Yup.string().required("Required").max(100),
+        amount: Yup.number()
+          .transform((v, o) => (o === "" ? null : v))
+          .required("Required")
+          .positive(),
+        whom: Yup.string().required("Required")
+      })
+    ).min(1, "At least one item is required")
+  }), []);
+
+  const handleSave = async (values, isPost, validateForm, setTouched, resetForm) => {
+    // Manually trigger validation before proceeding
+    const errors = await validateForm();
+    if (Object.keys(errors).length > 0) {
+      setTouched(errors);
+      toast.error("Please fill all required fields");
+      return;
+    }
+
+    const result = await Swal.fire({
+      title: `Are you sure you want to ${isPost ? "Post" : "Save"}?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes',
+      cancelButtonText: 'No'
+    });
+
+    if (!result.isConfirmed) return;
+
     try {
       setIsSubmitting(true);
 
-      const isEdit = !!pettyCashData?.PettyCashId;
-
-      const payload = {
-        PCNumber: values.pcNumber,
-        VoucherNo: values.voucherNo,
-        ExpDate: formatDate(values.expDate),
-        Expense_type_id: values.expenseType ? parseInt(values.expenseType) : null,
-        category_id: values.category ? parseInt(values.category) : null,
-        ExpenseDescription: values.expenseDescription,
-        // BillNumber: values.billNumber,
-        ExpenseFileName: "default.pdf",
-        ExpenseFilePath: "",
-        FileUpdatedDate: new Date().toISOString(),
-        Who: values.who,
-        Whom: values.whom,
-        AmountIDR: parseFloat(values.amountIDR),
-        Amount: parseFloat(values.amount),
-        currencyid: values.currencyid || 0,
-        IsSubmitted: type === 1 ? 1 : 0,
+      const header = {
+        PettyCashId: isEditMode ? parseInt(id) : 0,
+        pcNumber: values.pcNumber,
+        VoucherNo: values.voucherNo || "",
+        ExpDate: format(values.expDate, "yyyy-MM-dd"),
+        currencyid: parseInt(values.currencyid),
         exchangeRate: values.exchangeRate,
+        IsSubmitted: (isPost || !!values.IsSubmitted) ? 1 : 0,
         OrgId: 1,
         BranchId: 1,
-        IsActive: true,
-        ...(isEdit
-          ? {
-            PettyCashId: pettyCashData.PettyCashId,
-          }
-          : {
-          }),
+        Who: "Payer"
       };
-      const body = {
-        command: isEdit ? "Update" : "Insert",
-        Header: payload,
-      };
-      console.log("Payload being sent:", body);
-      await saveOrUpdatePettyCash(body, isEdit, values.attachment);
 
-      toast.success(`Petty Cash ${isEdit ? "updated" : "saved"} successfully`);
-      resetForm();
-      setIsModalOpen(false);
-      history.push("/pettyCash");
+      const payload = values.items.map(item => ({
+        category: parseInt(item.category),
+        expenseType: parseInt(item.expenseType),
+        expenseDescription: item.expenseDescription,
+        whom: item.whom,
+        amount: parseFloat(item.amount)
+      }));
+
+      const body = {
+        command: isEditMode ? "Update" : "Insert",
+        Header: header,
+        payload: payload
+      };
+
+      await saveOrUpdatePettyCash(body, isEditMode, values.attachment);
+      toast.success(`Petty Cash ${isPost ? "posted" : "saved"} successfully`);
+
+      if (isEditMode) {
+        history.push("/pettyCash");
+      } else {
+        // Stay in the add page and reset for next entry
+        fetchSeqNo();
+        resetForm();
+      }
     } catch (error) {
-      toast.error("Failed to save or update petty cash");
+      console.error("Save error:", error);
+      toast.error("Failed to save Petty Cash");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const uploadFile = async (file) => {
-    const formData = new FormData();
-    formData.append("file", file);
+  const [defaultCurrencyId, setDefaultCurrencyId] = useState(null);
+  const [defaultExchangeRate, setDefaultExchangeRate] = useState(1);
 
-    const response = await axios.post("/Upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" }
-    });
+  useEffect(() => {
+    if (!isEditMode && currencyOptions.length > 0 && !defaultCurrencyId) {
+      const idr = currencyOptions.find(c => c.label === "IDR");
+      if (idr) {
+        setDefaultCurrencyId(idr.value);
+        setDefaultExchangeRate(idr.ExchangeRate);
+      }
+    }
+  }, [currencyOptions, isEditMode, defaultCurrencyId]);
 
-    return response.data.filePath; // Adjust based on your backend response
+  const initialValues = useMemo(() => {
+    return initialData || {
+      pcNumber: generatedPCNumber,
+      voucherNo: "",
+      expDate: new Date(),
+      currencyid: defaultCurrencyId,
+      exchangeRate: defaultExchangeRate,
+      attachment: null,
+      items: [
+        {
+          category: null,
+          expenseType: null,
+          expenseDescription: "",
+          whom: "",
+          amount: "",
+          amountIDR: ""
+        }
+      ]
+    };
+  }, [initialData, generatedPCNumber, defaultCurrencyId, defaultExchangeRate]);
+
+  const formatWithCommas = (val) => {
+    if (val === null || val === undefined || val === "") return "";
+    const parts = val.toString().split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.join(".");
   };
 
-
-  const onGlobalFilterChange = (e) => {
-    const value = e.target.value;
-    let _filters = { ...filters };
-    _filters["global"].value = value;
-    setFilters(_filters);
-    setGlobalFilterValue(value);
+  const parseNumber = (val) => {
+    if (typeof val === "string") {
+      return val.replace(/,/g, "");
+    }
+    return val;
   };
-
-  const clearFilter = () => {
-    setFilters({ global: { value: null, matchMode: FilterMatchMode.CONTAINS } });
-    setGlobalFilterValue("");
-  };
-
-  const exportToExcel = () => {
-    const exportData = expenses.map((ex) => ({
-      "Date": new Date(ex.expDate).toLocaleDateString(),
-      "Expense Type": ex.expenseType,
-      "Description": ex.expenseDescription,
-      // "Bill Number": ex.billNumber,
-      "Amount(IDR)": ex.amountIDR,
-      "Attachment": ex.attachment ? ex.attachment.name : "",
-      "Status": ex.status,
-    }));
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Expenses");
-    const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-    const data = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    saveAs(data, `Expenses-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  const renderHeader = () => {
-    return (
-      <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <Button color="danger" onClick={clearFilter}>
-          <i className="mdi mdi-filter-off me-1"></i> Clear
-        </Button>
-        <span className="p-input-icon-left">
-          <i className="pi pi-search" />
-          <InputText
-            value={globalFilterValue}
-            onChange={onGlobalFilterChange}
-            placeholder="Global Search"
-          />
-        </span>
-      </div>
-    );
-  };
-  const formatToTwoDecimals = (value) => {
-    const num = parseFloat(value);
-    if (isNaN(num)) return "0.00";
-    return num.toFixed(2);
-  };
-
-
-  const formatDisplay = (val) => {
-    if (val === undefined || val === null) return "";
-    const strVal = String(val); // Convert number to string
-    const [integer, decimal] = strVal.split(".");
-    const withCommas = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    return decimal !== undefined ? `${withCommas}.${decimal}` : withCommas;
-  };
-
-
-  const validationSchema = Yup.object().shape({
-    voucherNo: Yup.string(),
-    expDate: Yup.date().required("Date is required"),
-    expenseType: Yup.mixed().nullable().required("Expense Type is required"),
-    expenseDescription: Yup.string()
-      .max(100, "Expense Description cannot exceed 100 characters")
-      .required("Expense Description is required"),
-    category: Yup.mixed().nullable().required("Category is required"),
-    amount: Yup.number().typeError("Enter a valid amount").positive("Amount must be positive").required("Amount is required"),
-    attachment: Yup.mixed().nullable(),
-    who: Yup.string().required("Please select who"),
-    whom: Yup.string().required("Whom field is required"),
-  });
-
-  const formatDate = (date) => {
-    const d = date.getDate().toString().padStart(2, "0");
-    const m = (date.getMonth() + 1).toString().padStart(2, "0");
-    const y = date.getFullYear();
-    return `${y}-${m}-${d}`;
-  };
-
-
-
-  const statusBodyTemplate = (rowData) => (
-    <Tag value={rowData.status} severity={rowData.status === "Posted" ? "success" : "info"} />
-  );
-
-  const actionBodyTemplate = () => (
-    <div className="d-flex gap-2 justify-content-center">
-      <Button color="link" size="sm"><i className="mdi mdi-pencil"></i></Button>
-      <Button color="link" size="sm"><i className="mdi mdi-delete"></i></Button>
-    </div>
-  );
-
-  const header = renderHeader();
-
-  const initialValues = useMemo(() => ({
-    voucherNo: pettyCashData?.VoucherNo || "",
-    pcNumber: pettyCashData?.PCNumber || generatedPCNumber,
-    expDate: pettyCashData?.ExpDate ? new Date(pettyCashData.ExpDate) : new Date(),
-    expenseType: pettyCashData?.ExpenseType || null,
-    expenseDescription: pettyCashData?.ExpenseDescriptionId || "",
-    // billNumber: pettyCashData?.BillNumber || "",
-    amountIDR: pettyCashData?.AmountIDR || "",
-    currencyid: pettyCashData?.currencyid || null,
-    amount: pettyCashData?.Amount || "",
-    category: pettyCashData?.Category || null,
-    attachment: pettyCashData?.Attachment || null,
-    who: pettyCashData?.Who || "Payer",
-    whom: pettyCashData?.Whom || "",
-    exchangeRate: pettyCashData?.ExchangeRate || 0
-  }), [pettyCashData, generatedPCNumber]);
 
   return (
-    <React.Fragment>
-      <div className="page-content">
-        <Container fluid>
-          <Breadcrumbs title="Finance" breadcrumbItem="PettyCash" />
-          <Row>
-            <Col lg="12">
+    <div className="page-content">
+      <Container fluid>
+        <Formik
+          initialValues={initialValues}
+          validationSchema={validationSchema}
+          enableReinitialize={true}
+          onSubmit={() => { }}
+        >
+          {({ values, errors, touched, setFieldValue, handleChange, validateForm, setTouched, resetForm }) => (
+            <Form>
+              <Breadcrumbs title="Finance" breadcrumbItem="Petty Cash" />
+
               <Card>
                 <CardBody>
-                  {(
-                    <Formik
-                      initialValues={initialValues}
+                  <Row className="mb-3">
+                    <Col className="d-flex justify-content-end gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={isSubmitting}
+                        onClick={() => handleSave(values, false, validateForm, setTouched, () => setFieldValue('items', [{ category: null, expenseType: null, expenseDescription: "", whom: "", amount: "", amountIDR: "" }]))}
+                      >
+                        <i className="bx bx-check me-1"></i> {isEditMode ? "Update" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-success"
+                        disabled={isSubmitting || !!values.IsSubmitted}
+                        onClick={() => handleSave(values, true, validateForm, setTouched, () => setFieldValue('items', [{ category: null, expenseType: null, expenseDescription: "", whom: "", amount: "", amountIDR: "" }]))}
+                      >
+                        <i className="bx bx-save me-1"></i> Post
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        onClick={() => history.push("/pettyCash")}
+                      >
+                        <i className="bx bx-window-close me-1"></i> Close
+                      </button>
+                    </Col>
+                  </Row>
 
-                      enableReinitialize={true}
-                      validationSchema={validationSchema}
+                  {/* Header Section */}
+                  <Row className="mb-4">
+                    <Col md={4}>
+                      <FormGroup>
+                        <Label>Reference number</Label>
+                        <Input value={values.pcNumber} readOnly disabled={!!values.IsSubmitted} className="bg-light" />
+                      </FormGroup>
+                    </Col>
+                    <Col md={4}>
+                      <FormGroup>
+                        <Label className="required-label">Date</Label>
+                        <Flatpickr
+                          className="form-control"
+                          value={values.expDate}
+                          onChange={([date]) => setFieldValue("expDate", date)}
+                          options={{ dateFormat: "d-M-Y" }}
+                        />
+                        {errors.expDate && touched.expDate && <small className="text-danger">{errors.expDate}</small>}
+                      </FormGroup>
+                    </Col>
+                    <Col md={4}>
+                      <FormGroup>
+                        <Label className="required-label">Currency</Label>
+                        <Select
+                          styles={customSelectStyles}
+                          menuPortalTarget={document.body}
+                          menuPosition="fixed"
+                          menuPlacement="auto"
+                          options={currencyOptions}
+                          value={currencyOptions.find(c => String(c.value) === String(values.currencyid)) || null}
+                          onChange={opt => {
+                            console.log("Currency selected:", opt);
+                            setFieldValue("currencyid", opt ? opt.value : null);
+                            setFieldValue("exchangeRate", opt ? opt.ExchangeRate : 1);
+                            values.items.forEach((item, index) => {
+                              const idr = (item.amount || 0) * (opt ? opt.ExchangeRate : 1);
+                              setFieldValue(`items.${index}.amountIDR`, idr.toFixed(2));
+                            });
+                          }}
+                        />
+                        {errors.currencyid && touched.currencyid && <small className="text-danger">{errors.currencyid}</small>}
+                      </FormGroup>
+                    </Col>
+                  </Row>
 
-                    >
-                      {({ errors, touched, setFieldValue, setFieldTouched, values, resetForm }) => {
-                        console.log("Formik values:", values);
-                        return (
-                          <Form>
-                            <Row>
-                              <Col md="8"></Col>
-                              <Col md="4" className="text-end mb-3">
-                                <div className="button-items">
-                                  <button
-                                    type="submit"
-                                    className="btn btn-info me-2"
-                                    onClick={() => handleSaveOrUpdate(values, resetForm, 0)}
-                                    disabled={pettyCashData?.IsSubmitted}
-                                  >
-                                    <i className="bx bx-comment-check label-icon font-size-16 align-middle me-2" ></i>{pettyCashData ? "Update" : "Save"}
-                                  </button>
-                                  <button
-                                    type="submit"
-                                    className="btn btn-success me-2"
-                                    onClick={() => handleSaveOrUpdate(values, resetForm, 1)}
-                                    disabled={pettyCashData?.IsSubmitted}
-                                  >
-                                    Post
-                                  </button>
-                                  <button type="button" className="btn btn-danger" onClick={() => history.push("/pettyCash")} disabled={isSubmitting}>Cancel</button>
-                                </div>
-                              </Col>
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">PC Number</Label>
-                                  <Input
-                                    type="text"
-                                    name="pcNumber"
-                                    placeholder="PC Number"
-                                    value={values.pcNumber}
-                                    readOnly
-                                    style={{ backgroundColor: "#e9ecef", cursor: "not-allowed" }}
-                                  />
-                                </FormGroup>
-                              </Col>
+                  <hr />
 
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Voucher No</Label>
-                                  <Input
-                                    type="text"
-                                    name="voucherNo"
-                                    placeholder="Enter Voucher No"
-                                    value={values.voucherNo}
-                                    onChange={e => setFieldValue("voucherNo", e.target.value)}
-                                    disabled={pettyCashData?.IsSubmitted}
-                                  />
-                                  {errors.voucherNo && touched.voucherNo && (
-                                    <div className="text-danger small mt-1">{errors.voucherNo}</div>
-                                  )}
-                                </FormGroup>
-                              </Col>
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Date</Label>
-                                  <Flatpickr
-                                    name="expDate"
-                                    className="form-control d-block"
-                                    options={{
-                                      dateFormat: "d-m-Y", // keep the format
-                                    }}
-                                    value={values.expDate}
-                                    disabled={pettyCashData?.IsSubmitted}
-                                    onChange={([date]) => {
-                                      const twoDaysAgo = new Date();
-                                      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+                  <FieldArray name="items">
+                    {({ push, remove }) => (
+                      <div className="table-responsive">
+                        <Table bordered hover className="align-middle">
+                          <thead className="table-light text-center">
+                            <tr>
+                              <th style={{ width: "15%" }}>Category</th>
+                              <th style={{ width: "15%" }}>Expense Type</th>
+                              <th style={{ width: "25%" }}>Description</th>
+                              <th style={{ width: "20%" }}>Whom</th>
+                              <th style={{ width: "12%" }}>Amount</th>
+                              <th style={{ width: "13%" }}>Amount (IDR)</th>
 
-                                      // Only restrict user when selecting/changing date
-                                      if (date < twoDaysAgo) {
-                                        alert("Date cannot be more than 2 days in the past.");
-                                        setFieldValue("expDate", twoDaysAgo); // or leave unchanged
-                                      } else {
-                                        setFieldValue("expDate", date);
-                                      }
-                                    }}
-                                  />
-
-
-                                  {errors.expDate && touched.expDate && <div className="text-danger small mt-1">{errors.expDate}</div>}
-                                </FormGroup>
-                              </Col>
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Category</Label>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {values.items.map((item, index) => (
+                              <tr key={index}>
+                                <td>
                                   <Select
-                                    name="category"
+                                    styles={customSelectStyles}
+                                    menuPortalTarget={document.body}
+                                    menuPosition="fixed"
+                                    menuPlacement="auto"
                                     options={categoryOptions}
-                                    value={categoryOptions.find(o => String(o.value) === String(values.category)) || null}
-                                    isDisabled={pettyCashData?.IsSubmitted}
-                                    onChange={selectedOption => {
-                                      const catId = selectedOption?.value || null;
-                                      console.log("Category selected:", selectedOption, "Category ID:", catId);
-                                      setFieldValue("category", catId);
-                                      setFieldTouched("category", true);
-                                      setFieldValue("expenseType", null); // Reset expense type when category changes
-                                      setExpenseOptions([]); // Clear expense options immediately
+                                    value={categoryOptions.find(o => String(o.value) === String(item.category)) || null}
+                                    onChange={opt => {
+                                      const catId = opt ? opt.value : null;
+                                      console.log(`Category selected for row ${index}:`, opt);
+                                      setFieldValue(`items.${index}.category`, catId);
+                                      setFieldValue(`items.${index}.expenseType`, null);
                                       if (catId) {
-                                        loadExpenseDescriptions(catId);
+                                        // Defer fetching to ensure selection is registered first
+                                        setTimeout(() => {
+                                          loadExpenseTypes(catId);
+                                        }, 0);
                                       }
                                     }}
-                                    placeholder="Select Category"
-                                    isClearable
                                   />
-                                  {errors.category && touched.category && <div className="text-danger small mt-1">{errors.category}</div>}
-                                </FormGroup>
-                              </Col>
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Expense Type</Label>
+                                  {errors.items?.[index]?.category && touched.items?.[index]?.category && <small className="text-danger">{errors.items[index].category}</small>}
+                                </td>
+                                <td>
                                   <Select
-                                    name="expenseType"
-                                    options={expenseOptions}
-                                    value={expenseOptions.find(o => String(o.value) === String(values.expenseType)) || null}
-                                    isDisabled={pettyCashData?.IsSubmitted}
-                                    onChange={selectedOption => {
-                                      const expTypeId = selectedOption?.value || null;
-                                      console.log("Expense Type selected:", selectedOption, "Expense Type ID:", expTypeId);
-                                      setFieldValue("expenseType", expTypeId);
+                                    styles={customSelectStyles}
+                                    menuPortalTarget={document.body}
+                                    menuPosition="fixed"
+                                    menuPlacement="auto"
+                                    isDisabled={String(item.category) === "6"}
+                                    options={expenseOptionsMap[String(item.category)] || []}
+                                    value={String(item.category) === "6" ? null : (expenseOptionsMap[String(item.category)] || []).find(o => String(o.value) === String(item.expenseType)) || null}
+                                    onChange={opt => {
+                                      console.log(`Expense Type selected for row ${index}:`, opt);
+                                      setFieldValue(`items.${index}.expenseType`, opt ? opt.value : null);
                                     }}
-                                    placeholder="Select ExpenseType"
-                                    isClearable
+                                    placeholder={String(item.category) === "6" ? "N/A" : "Select Type"}
                                   />
-                                  {errors.expenseType && touched.expenseType && <div className="text-danger small mt-1">{errors.expenseType}</div>}
-                                </FormGroup>
-                              </Col>
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Expense Description</Label>
-                                  {/* <Select
-                                    name="expenseDescription"
-                                    options={expenseOptions}
-                                    value={expenseOptions.find(o => o.value === values.expenseDescription) || null}
-                                    onChange={selectedOption => setFieldValue("expenseDescription", selectedOption?.value || "")}
-                                    placeholder="Select Description"
-                                  /> */}
-
-                                  <Input
-                                    type="text" maxLength={100}
-                                    name="expenseDescription"
-                                    value={values.expenseDescription}
-                                    onChange={e => setFieldValue("expenseDescription", e.target.value)}
-                                    disabled={pettyCashData?.IsSubmitted}
-                                  />
-
-                                  {errors.expenseDescription && touched.expenseDescription && <div className="text-danger small mt-1">{errors.expenseDescription}</div>}
-                                </FormGroup>
-                              </Col>
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Who</Label>
-                                  <div className="d-flex gap-3">
-                                    <FormGroup check inline>
-                                      <Input
-                                        type="radio"
-                                        name="who"
-                                        value="Payer"
-                                        checked={values.who === "Payer"}
-                                        onChange={() => setFieldValue("who", "Payer")}
-                                        disabled={pettyCashData?.IsSubmitted}
-                                      />{" "}
-                                      <Label check>Payer</Label>
-                                    </FormGroup>
-                                    <FormGroup check inline>
-                                      <Input
-                                        type="radio"
-                                        name="who"
-                                        value="Receiver"
-                                        checked={values.who === "Receiver"}
-                                        onChange={() => setFieldValue("who", "Receiver")}
-                                        disabled={pettyCashData?.IsSubmitted}
-                                      />{" "}
-                                      <Label check>Receiver</Label>
-                                    </FormGroup>
-                                  </div>
-                                  {errors.who && touched.who && (
-                                    <div className="text-danger small mt-1">{errors.who}</div>
+                                  {item.category !== 6 && errors.items?.[index]?.expenseType && touched.items?.[index]?.expenseType && (
+                                    <small className="text-danger">{errors.items[index].expenseType}</small>
                                   )}
-                                </FormGroup>
-                              </Col>
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Whom</Label>
+                                </td>
+                                <td>
+                                  <Input
+                                    name={`items.${index}.expenseDescription`}
+                                    value={item.expenseDescription}
+                                    onChange={handleChange}
+                                    maxLength={100}
+                                  />
+                                  {errors.items?.[index]?.expenseDescription && touched.items?.[index]?.expenseDescription && <small className="text-danger">{errors.items[index].expenseDescription}</small>}
+                                </td>
+                                <td>
+                                  <Input
+                                    name={`items.${index}.whom`}
+                                    value={item.whom}
+                                    onChange={handleChange}
+                                  />
+                                  {errors.items?.[index]?.whom && touched.items?.[index]?.whom && <small className="text-danger">{errors.items[index].whom}</small>}
+                                </td>
+                                <td>
                                   <Input
                                     type="text"
-                                    name="whom"
-                                    placeholder="Enter Whom"
-                                    value={values.whom}
-                                    onChange={e => setFieldValue("whom", e.target.value)}
-                                    disabled={pettyCashData?.IsSubmitted}
-                                  />
-                                  {errors.whom && touched.whom && (
-                                    <div className="text-danger small mt-1">{errors.whom}</div>
-                                  )}
-                                </FormGroup>
-                              </Col>
-                              <Col md={4}>   <FormGroup>
-                                <Label for="currency">Currency <span className="text-danger">*</span></Label>
-
-                                <Select
-                                  name="currencyid"
-                                  id="currencyid"
-                                  options={currencyOptions}
-                                  value={currencyOptions.find(option => String(option.value) === String(values.currencyid)) || null}
-
-                                  onChange={(option) => {
-                                    const currId = option?.value || null;
-                                    console.log("Currency selected:", option, "Currency ID:", currId);
-                                    setFieldValue("currencyid", currId);
-                                    setFieldValue("exchangeRate", option?.ExchangeRate || 0);
-                                    const AmountIDR = formatToTwoDecimals(parseFloat(values.amount || 0) * parseFloat(option?.ExchangeRate || 0));
-                                    setFieldValue("amountIDR", AmountIDR);
-                                  }}
-                                  //   onChange={(option) => {
-                                  //     const selected = option;
-                                  //     setSelectedCurrency(selected);
-
-                                  //     setFieldValue("currencyid", selected?.currencyid || "");
-
-
-
-                                  //     const exchangeRate = parseFloat(selected?.ExchangeRate);
-                                  //     const AmountIDR = formatToTwoDecimals(parseFloat(values.amount)    * exchangeRate);
-
-                                  //     setFieldValue("amountIDR", AmountIDR);
-                                  // }}
-                                  classNamePrefix="select"
-                                  isDisabled={pettyCashData?.IsSubmitted}
-                                  menuPortalTarget={document.body}
-                                  isClearable={true}
-
-                                  isSearchable={true}
-
-                                  components={animatedComponents}
-                                  placeholder="Select Transaction Currency"
-                                />
-                              </FormGroup>
-                              </Col>
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Amount </Label>
-                                  {/* <Input type="number" name="amount" placeholder="Enter Amount" value={values.amount} onChange={e =>
-                                    { 
-                                      
-                                      setFieldValue("amount", e.target.value);
-                                      debugger;
-                                      const exchangeRate = parseFloat(values?.exchangeRate);
-                                      
-                                      const AmountIDR = formatToTwoDecimals(parseFloat(e.target.value)   * exchangeRate);
-                                  
-                                      setFieldValue("amountIDR", AmountIDR);
-                                    }
-                                   } /> */}
-                                  <Input
-                                    type="text"
-                                    name="amount"
-                                    placeholder="Enter Amount"
-                                    value={values.amount ? formatDisplay(values.amount) : ""}
-                                    disabled={pettyCashData?.IsSubmitted}
-                                    onChange={(e) => {
-                                      debugger;
-                                      let val = e.target.value;
-
-                                      // Remove all characters except digits and dot
-                                      val = val.replace(/[^0-9.]/g, "");
-
-                                      // Only allow the first dot
-                                      const firstDotIndex = val.indexOf(".");
-                                      if (firstDotIndex !== -1) {
-                                        // Keep only the first dot
-                                        val = val.substring(0, firstDotIndex + 1) + val.substring(firstDotIndex + 1).replace(/\./g, "");
+                                    name={`items.${index}.amount`}
+                                    value={formatWithCommas(item.amount)}
+                                    onChange={e => {
+                                      const rawVal = parseNumber(e.target.value);
+                                      if (rawVal === "" || /^\d*\.?\d*$/.test(rawVal)) {
+                                        setFieldValue(`items.${index}.amount`, rawVal);
+                                        const idr = (parseFloat(rawVal) || 0) * values.exchangeRate;
+                                        setFieldValue(`items.${index}.amountIDR`, idr.toFixed(2));
                                       }
-
-                                      // Split integer and decimal parts
-                                      const [integerPart, decimalPart] = val.split(".");
-
-                                      // Limit integer to 12 digits
-                                      const limitedInteger = integerPart.slice(0, 12);
-
-                                      // decimalPart can be "" if user typed a dot but no digits yet
-                                      const limitedDecimal =
-                                        decimalPart !== undefined ? decimalPart.slice(0, 2) : undefined;
-
-                                      // Combine
-                                      let cleanNumber;
-                                      if (decimalPart !== undefined) {
-                                        // user typed dot, even if empty
-                                        cleanNumber = `${limitedInteger}${decimalPart !== "" ? "." + limitedDecimal : "."}`;
-                                      } else {
-                                        // no dot typed yet
-                                        cleanNumber = limitedInteger;
-                                      }
-
-                                      // Store clean number
-                                      setFieldValue("amount", cleanNumber);
-
-                                      // Calculate IDR
-                                      const exchangeRate = parseFloat(values?.exchangeRate || 0);
-                                      const amountValue = parseFloat(cleanNumber || 0);
-                                      const AmountIDR = formatToTwoDecimals(amountValue * exchangeRate);
-                                      setFieldValue("amountIDR", AmountIDR);
                                     }}
+                                    className="text-end"
                                   />
-
-
-
-
-                                  {errors.amount && touched.amount && <div className="text-danger small mt-1">{errors.amount}</div>}
-                                </FormGroup>
-                              </Col>
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Amount(IDR)</Label>
-                                  <Input disabled={true} type="text" name="amountIDR" placeholder="Enter Amount"
-
-
-                                    value={values.amountIDR ? formatDisplay(values.amountIDR) : ""}
-                                    onChange={e => setFieldValue("amountIDR", e.target.value)} />
-                                  {errors.amountIDR && touched.amountIDR && <div className="text-danger small mt-1">{errors.amountIDR}</div>}
-                                </FormGroup>
-                              </Col>
-
-                              {/* <Col md="4">
-                                <FormGroup>
-                                  <Label className="required-label">Bill Number</Label>
-                                  <Input type="text" name="billNumber" placeholder="Enter Bill Number" value={values.billNumber} onChange={e => setFieldValue("billNumber", e.target.value)} />
-                                  {errors.billNumber && touched.billNumber && <div className="text-danger small mt-1">{errors.billNumber}</div>}
-                                </FormGroup>
-                              </Col> */}
-
-                              <Col md="4">
-                                <FormGroup>
-                                  <Label>Attachment (if any)</Label>
+                                  {errors.items?.[index]?.amount && touched.items?.[index]?.amount && <small className="text-danger">{errors.items[index].amount}</small>}
+                                </td>
+                                <td>
                                   <Input
-                                    type="file"
-                                    name="attachment"
-                                    disabled={pettyCashData?.IsSubmitted}
-                                    onChange={(e) => {
-                                      const file = e.currentTarget.files[0];
-                                      setFieldValue("attachment", file || null);
-                                    }}
-                                  />  </FormGroup>
-                              </Col>
-                            </Row>
-                          </Form>
-                        );
-                      }}
-                    </Formik>
-                  )}
+                                    value={formatWithCommas(item.amountIDR)}
+                                    readOnly
+                                    className="bg-light text-end"
+                                  />
+                                </td>
+
+                              </tr>
+                            ))}
+                          </tbody>
+                        </Table>
+
+                      </div>
+                    )}
+                  </FieldArray>
+
+                  {/* Redundant bottom buttons removed */}
                 </CardBody>
               </Card>
-            </Col>
-          </Row>
-
-
-        </Container>
-      </div>
-
-      {/* Confirmation Modal */}
-      <Modal isOpen={isModalOpen} toggle={() => setIsModalOpen(false)} centered>
-        <ModalHeader toggle={() => setIsModalOpen(false)}>Confirm Action</ModalHeader>
-        <ModalBody className="py-3 px-5 text-center">
-          <i className="mdi mdi-alert-circle-outline" style={{ fontSize: "6em", color: "orange" }} />
-          <h4>Do you want to {submitType === 0 ? "Save" : "Post"}?</h4>
-          <div className="mt-3 d-flex justify-content-center gap-3">
-            <Button color="success" size="lg" onClick={() => setIsModalOpen(false)}>Yes</Button>
-            <Button color="danger" size="lg" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-          </div>
-        </ModalBody>
-      </Modal>
-    </React.Fragment>
+            </Form>
+          )}
+        </Formik>
+      </Container>
+    </div>
   );
 };
 

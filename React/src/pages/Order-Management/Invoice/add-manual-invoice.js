@@ -968,11 +968,11 @@ const AddManualInvoice = () => {
 
                           <Col md="12" className="mb-3">
                             <div className="d-flex justify-content-end align-items-center gap-2">
-                              {access.canSave && (
-                                <Button color="secondary" onClick={(e) => { openpopup(e, 0) }} disabled={isSubmitting} >
-                                  {id > 0 ? "Update" : "Save"}
-                                </Button>
-                              )}
+                                {access.canSave && (
+                                  <Button color="info" onClick={(e) => { openpopup(e, 0) }} disabled={isSubmitting} >
+                                    {id > 0 ? "Update" : "Save"}
+                                  </Button>
+                                )}
 
                               {access.canPost && (
                                 <Button color="success" onClick={(e) => { openpopup(e, 1) }}

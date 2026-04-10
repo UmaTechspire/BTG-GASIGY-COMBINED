@@ -31,6 +31,7 @@ import {
     GetPurchaseRequisitionSupplierList,
     GetSupplierTaxList, GetSupplierVATList, GetAllPO
 } from "common/data/mastersapi";
+import { roundByCurrency, roundIDR } from "common/currencyUtils";
 import Swal from 'sweetalert2';
 import { useLocation } from "react-router-dom";
 import { head } from "lodash";
@@ -366,7 +367,7 @@ const CopyPurchaseRequisition = () => {
                 amount: 0,
                 availableStock: "",
                 prdId: "",
-                taxSign: "+",
+                taxSign: "-",
             }
         ]
     });
@@ -814,22 +815,19 @@ const CopyPurchaseRequisition = () => {
                 const lineAfterDiscount = qty * unitPrice - discountValue;
                 const discountPerc = (discountValue / (qty * unitPrice)) * 100;
 
-                // Apply tax with sign
-                const taxSign = item.taxSign === "-" ? 1 : 0; // 0 = add, 1 = subtract
-                const signedTaxAmount = taxSign === 0
-                    ? (lineAfterDiscount * (parseFloat(item.taxPercent) || 0)) / 100
-                    : -(lineAfterDiscount * (parseFloat(item.taxPercent) || 0)) / 100;
-
-                // VAT after tax
-                const vatBase = lineAfterDiscount + signedTaxAmount;
-                const vatValue = (vatBase * (parseFloat(item.vatPercent) || 0)) / 100;
+                // Apply tax with sign (standardizing as subtraction based on user request)
+                const taxSign = item.taxSign === "-" ? 1 : 0; // 0 for "+", 1 for "-"
+                const taxVal = (lineAfterDiscount * (parseFloat(item.taxPercent) || 0)) / 100;
+                const vatVal = (lineAfterDiscount * (parseFloat(item.vatPercent) || 0)) / 100;
 
                 // Apply rounding
-                const roundedTaxValue = Math.round(Math.abs(signedTaxAmount));
-                const roundedVatValue = Math.round(Math.abs(vatValue));
+                const roundedTaxValue = Math.round(taxVal);
+                const roundedVatValue = Math.round(vatVal);
                 const roundedSubTotal = Math.round(lineAfterDiscount);
                 const roundedDiscountValue = discountValue === undefined || discountValue === null ? "0.00" : discountValue;
-                const roundedNetTotal = Math.round(vatBase - roundedVatValue);
+
+                // Net Total = Base - Discount - Tax + VAT
+                const roundedNetTotal = Math.round(lineAfterDiscount - roundedTaxValue + roundedVatValue);
                 const roundedDiscountPerc = parseFloat(discountPerc.toFixed(2)); // percentage can keep 2 decimals
 
                 return {
@@ -1098,7 +1096,7 @@ const CopyPurchaseRequisition = () => {
     //     };
     // };
 
-    const calculateLineTotals = (item) => {
+    const calculateLineTotals = (item, currencyCode) => {
         const qty = parseFloat(item.qty) || 0;
         const unitPrice = parseFloat(item.unitPrice) || 0;
         const discount = parseFloat(item.discount) || 0;
@@ -1108,10 +1106,12 @@ const CopyPurchaseRequisition = () => {
         const lineTotal = qty * unitPrice;
         const lineAfterDiscount = lineTotal - discount;
 
-        const taxAmount = Math.round((lineAfterDiscount * taxPercent) / 100);
-        const vatAmount = Math.round((lineAfterDiscount * vatPercent) / 100);
+        // Apply currency-specific rounding
+        const taxAmount = roundByCurrency((lineAfterDiscount * taxPercent) / 100, currencyCode);
+        const vatAmount = roundByCurrency((lineAfterDiscount * vatPercent) / 100, currencyCode);
 
-        const totalAmount = (lineAfterDiscount + vatAmount) - taxAmount;
+        // Row Total = Base - Discount - Tax + VAT
+        const totalAmount = roundByCurrency((lineAfterDiscount - taxAmount) + vatAmount, currencyCode);
 
         return {
             taxAmount,
@@ -1314,60 +1314,57 @@ const CopyPurchaseRequisition = () => {
                                                     return;
                                                 }
 
+                                                // Use shared logic for currency identification
+                                                const getCurrencyCode = (c) => (typeof c === 'string' ? c : (c?.label || c?.code || "")).trim().toUpperCase();
+                                                const currencyCode = getCurrencyCode(values.currency);
+                                                const isIDR = currencyCode === 'IDR';
+
                                                 let subtotal = 0;
                                                 let totalDiscount = 0;
-                                                let totalTax = 0;
                                                 let totalTaxFooter = 0;
                                                 let totalVAT = 0;
 
-                                                values.items.forEach((item, index) => {
-                                                    const { lineTotal, taxAmount, lineAfterDiscount } = calculateLineTotals(item);
+                                                const updatedItems = values.items.map((item, index) => {
+                                                    const { lineTotal, taxAmount, vatAmount, lineAfterDiscount } = calculateLineTotals(item, currencyCode);
 
                                                     subtotal += lineTotal;
                                                     totalDiscount += parseFloat(item.discount) || 0;
 
-                                                    // ✅ Apply tax sign
-                                                    const sign = item.taxSign || "+";
-                                                    const signedTaxAmount = sign === "+" ? taxAmount : -taxAmount;
+                                                    // Use helpers for consistency
+                                                    const roundedTaxAmount = taxAmount;
+                                                    const roundedVatAmount = vatAmount;
 
-                                                    // ✅ accumulate totals
-                                                    totalTax += signedTaxAmount;
-                                                    totalTaxFooter += Math.abs(signedTaxAmount);
+                                                    totalTaxFooter += roundedTaxAmount;
+                                                    totalVAT += roundedVatAmount;
 
-                                                    // ✅ VAT AFTER applying tax
-                                                    const vatBase = lineAfterDiscount - signedTaxAmount;
-                                                    let vatAmt = (lineAfterDiscount * (parseFloat(item.vatPercent) || 0)) / 100;
+                                                    // Row Total = Base - Discount - Tax + VAT
+                                                    const adjustedAmount = roundByCurrency(lineAfterDiscount - roundedTaxAmount + roundedVatAmount, currencyCode);
 
-                                                    // ✅ Apply rounding
-                                                    const roundedTaxAmount = Math.round(Math.abs(signedTaxAmount));
-                                                    const roundedVatAmount = Math.round(Math.abs(vatAmt));
-
-                                                    totalVAT -= roundedVatAmount; // if VAT is deduction
-
-                                                    // ✅ Update row fields
-                                                    setFieldValue(`items[${index}].taxAmount`, roundedTaxAmount.toFixed(2));
-                                                    setFieldValue(`items[${index}].vatAmount`, roundedVatAmount.toFixed(2));
-
-                                                    // ✅ Row total: after tax sign, then minus VAT
-                                                    const adjustedAmount = vatBase + roundedVatAmount;
-                                                    setFieldValue(`items[${index}].amount`, adjustedAmount.toFixed(2));
+                                                    // Return updated item values
+                                                    return {
+                                                        ...item,
+                                                        taxAmount: roundedTaxAmount.toFixed(isIDR ? 0 : 2),
+                                                        vatAmount: roundedVatAmount.toFixed(isIDR ? 0 : 2),
+                                                        amount: adjustedAmount.toFixed(isIDR ? 0 : 2)
+                                                    };
                                                 });
 
-                                                const netTotal = subtotal - totalDiscount + Math.abs(totalVAT) - totalTaxFooter;
-                                                const roundedNetTotal = Math.round(netTotal).toFixed(2);
+                                                const netTotal = roundByCurrency(subtotal - totalDiscount - totalTaxFooter + totalVAT, currencyCode);
 
-                                                // setSubTotal(subtotal.toFixed(2));
-                                                // setTotalDiscount(totalDiscount.toFixed(2));
-                                                // setTotalTax(totalTaxFooter.toFixed(2));
-                                                // setTotalVAT(Math.abs(totalVAT).toFixed(2));
-                                                // setNetTotal(roundedNetTotal);
-                                                setFieldValue("subTotal", subtotal.toFixed(2));
-                                                setFieldValue("discountValue", totalDiscount.toFixed(2));
-                                                setFieldValue("taxValue", totalTaxFooter.toFixed(2));
-                                                setFieldValue("vatValue", Math.abs(totalVAT).toFixed(2));
-                                                setFieldValue("netTotal", netTotal.toFixed(2));
+                                                // Update items only if they changed to prevent extra renders
+                                                const itemsChanged = JSON.stringify(updatedItems) !== JSON.stringify(values.items);
+                                                if (itemsChanged) {
+                                                    setFieldValue("items", updatedItems);
+                                                }
 
-                                            }, [values.items]);
+                                                // Update footer totals
+                                                setFieldValue("subTotal", roundByCurrency(subtotal, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("discountValue", roundByCurrency(totalDiscount, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("taxValue", roundByCurrency(totalTaxFooter, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("vatValue", roundByCurrency(totalVAT, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("netTotal", netTotal.toFixed(isIDR ? 0 : 2));
+
+                                            }, [values.items, values.currency]);
 
 
 
@@ -2557,7 +2554,7 @@ const CopyPurchaseRequisition = () => {
                                                                                                 vatPercent: 0,
                                                                                                 vatAmount: "",
                                                                                                 amount: "",
-                                                                                                taxSign: "+",
+                                                                                                taxSign: "-",
                                                                                             })
                                                                                         }
                                                                                     >

@@ -462,8 +462,8 @@ const VerifyCustomer = () => {
     return (
       <div className="d-flex justify-content-center gap-3 align-items-center">
         <i 
-          className={`bx ${isVerified ? 'bx-pencil' : 'bx-check-circle'} font-size-22 ${isVerified ? 'text-info' : 'text-primary'}`} 
-          style={{ cursor: "pointer" }} 
+          className={isVerified ? "mdi mdi-square-edit-outline text-muted" : "bx bx-check-circle text-primary"} 
+          style={{ cursor: "pointer", fontSize: isVerified ? "1.5rem" : "22px" }} 
           title={isVerified ? "Edit/View" : "Verify"} 
           onClick={() => handleVerifyOpen(rowData)}
         ></i>
@@ -496,24 +496,24 @@ const VerifyCustomer = () => {
     );
   };
 
-  const headerStyleObj = { backgroundColor: '#3e90e2', color: 'white' };
-
   return (
     <div className="page-content">
       <div className="container-fluid">
         <Breadcrumbs title="Marketing" breadcrumbItem="AR Verification" />
 
         <div className="d-flex justify-content-end mb-3">
-          <div className="search-box position-relative">
-            <i className="bx bx-search-alt search-icon" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#74788d', zIndex: 1 }}></i>
-            <Input
-              type="text"
-              className="form-control form-control-sm ps-4"
-              placeholder="Search..."
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              style={{ width: '250px' }}
-            />
+          <div className="search-box">
+            <div className="position-relative">
+              <Input
+                type="text"
+                className="form-control"
+                placeholder="Keyword Search"
+                value={globalFilter}
+                onChange={(e) => setGlobalFilter(e.target.value)}
+                style={{ width: '250px' }}
+              />
+              <i className="bx bx-search-alt search-icon" />
+            </div>
           </div>
         </div>
 
@@ -523,21 +523,21 @@ const VerifyCustomer = () => {
             paginator
             rows={20}
             globalFilter={globalFilter}
-            className="p-datatable-gridlines"
-            style={{ fontSize: '15px' }}
+            className="blue-bg"
+            showGridlines
             responsiveLayout="scroll"
             emptyMessage="No pending verifications found."
           >
-            <Column field="receiptDate" header="Receipt Date" sortable body={(r) => formatDate(r.receiptDate)} headerStyle={headerStyleObj}></Column>
-            <Column field="customerNameDisplay" header="Customer" headerStyle={headerStyleObj}></Column>
-            <Column field="receiptAmount" header="Receipt" body={(r) => (r.receiptAmount || 0).toLocaleString()} className="text-end" headerStyle={headerStyleObj}></Column>
-            <Column field="currencyCode" header="Currency" className="text-center" headerStyle={headerStyleObj}></Column>
-            <Column field="entryType" header="Type" className="text-center" headerStyle={headerStyleObj} body={(r) => (
+            <Column field="receiptDate" header="Receipt Date" sortable body={(r) => formatDate(r.receiptDate)}></Column>
+            <Column field="customerNameDisplay" header="Customer"></Column>
+            <Column field="receiptAmount" header="Receipt" body={(r) => (r.receiptAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-end"></Column>
+            <Column field="currencyCode" header="Currency" className="text-center"></Column>
+            <Column field="entryType" header="Type" className="text-center" body={(r) => (
               <span className={`badge ${r.entryType === "Cashbook" ? "bg-info" : "bg-success"}`} style={{ fontSize: '12px', padding: '5px 10px' }}>
                 {r.entryType}
               </span>
             )}></Column>
-            <Column header="Action" body={actionBodyTemplate} className="text-center" headerStyle={headerStyleObj}></Column>
+            <Column header="Action" body={actionBodyTemplate} className="text-center"></Column>
           </DataTable>
         </div>
 
@@ -548,7 +548,7 @@ const VerifyCustomer = () => {
           <ModalBody className="pb-4">
             <Row className="mb-3 bg-light p-3 rounded mx-0">
               <Col md={4}><span className="fw-bold">Customer:</span> <span className="ms-2">{selectedRecord?.customerNameDisplay}</span></Col>
-              <Col md={4} className="text-center"><span className="fw-bold">Amount:</span> <span className="ms-2 text-primary fs-5">{receiptAmount.toLocaleString()} {selectedRecord?.currencyCode}</span></Col>
+              <Col md={4} className="text-center"><span className="fw-bold">Amount:</span> <span className="ms-2 text-primary fs-5">{(receiptAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {selectedRecord?.currencyCode}</span></Col>
               <Col md={4}>
                 <FormGroup className="mb-0 d-flex align-items-center justify-content-end">
                   <Label className="me-2 mb-0 fw-bold">Exchange Rate:</Label>

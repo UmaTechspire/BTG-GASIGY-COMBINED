@@ -38,6 +38,10 @@ class GenerateSPCRequest(BaseModel):
     UserId: int
     CreatedDate: str
 
+class PaymentSummarySyncRequest(BaseModel):
+    summary_id: int
+    net_cash_withdraw: float
+
 def get_db_connection_sync():
     return mysql.connector.connect(
         host=os.getenv('DB_HOST'),
@@ -103,6 +107,32 @@ def generate_spc(payload: GenerateSPCRequest):
 
     except Exception as e:
         print(f"Error generating SPC: {str(e)}")
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+@router.post("/update_payment_summary_sync")
+def update_payment_summary_sync(payload: PaymentSummarySyncRequest):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor()
+        
+        # Call the stored procedure to update bank totals and net cash withdraw
+        # proc_UpdatePaymentSummaryValues(p_SummaryId INT, p_NetCashWithdraw DECIMAL(18,2))
+        cursor.callproc('proc_UpdatePaymentSummaryValues', (payload.summary_id, payload.net_cash_withdraw))
+        conn.commit()
+
+        return {
+            "status": True,
+            "message": "Payment Summary synchronized successfully!"
+        }
+
+    except Exception as e:
+        print(f"Error synchronizing Payment Summary: {str(e)}")
         if conn: conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -508,6 +538,314 @@ def get_gm_director_history(claim_id: int):
         return {"status": True, "data": row[0] or ""}
     except Exception as e:
         print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+@router.get("/get_payment_summary_seq_no")
+def get_payment_summary_seq_no(orgid: int, branchid: int, userid: int):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor()
+        
+        # 🟢 FETCH LATEST: Match the PPP0000000 format seen in the UI
+        # Only consider records for this Org/Branch with a non-empty PPP number
+        query = """
+            SELECT PaymentNo 
+            FROM tbl_PaymentSummary_header 
+            WHERE OrgId = %s AND BranchId = %s 
+              AND PaymentNo LIKE 'PPP%' 
+              AND PaymentNo <> ''
+            ORDER BY SummaryId DESC 
+            LIMIT 1
+        """
+        cursor.execute(query, (orgid, branchid))
+        row = cursor.fetchone()
+        
+        # Fallback: If no records for this specific branch, try to find the last global PPP number
+        if not row:
+            query_global = """
+                SELECT PaymentNo 
+                FROM tbl_PaymentSummary_header 
+                WHERE PaymentNo LIKE 'PPP%' 
+                  AND PaymentNo <> ''
+                ORDER BY SummaryId DESC 
+                LIMIT 1
+            """
+            cursor.execute(query_global)
+            row = cursor.fetchone()
+
+        if row and row[0]:
+            last_no = row[0].strip()  # e.g., "PPP00000060"
+            import re
+            # Extract numbers from any part of the string if suffix fails
+            match = re.search(r'(\d+)$', last_no)
+            if match:
+                last_num = int(match.group(1))
+                next_num = last_num + 1
+                seq_no = f"PPP{str(next_num).zfill(7)}"
+            else:
+                # Handle case where number is not at the end
+                all_nums = re.findall(r'\d+', last_no)
+                if all_nums:
+                    last_num = int(all_nums[-1])
+                    next_num = last_num + 1
+                    seq_no = f"PPP{str(next_num).zfill(7)}"
+                else:
+                    seq_no = "PPP0000001"
+        else:
+            # First record for this Org/Branch or globally
+            seq_no = "PPP0000001"
+        
+        return {
+            "status": True,
+            "data": {
+                "PaymentNo": seq_no,
+                "ClaimNo": seq_no,
+                "debug": {
+                    "received_orgid": orgid,
+                    "received_branchid": branchid,
+                    "found_last_no": row[0] if row else None
+                }
+            }
+        }
+    except Exception as e:
+        print(f"Error generating PPP Sequence: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+# --- NEW: Get All Claims (Migration from .NET proc_claimAndpayment OPT=1) ---
+@router.get("/get_all")
+def get_all_claims(
+    departmentid: int = 0,
+    currencyid: int = 0,
+    categoryid: int = 0,
+    branchId: int = 0,
+    orgid: int = 0,
+    user_id: int = 0,
+    claimtypeid: int = 0
+):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor(dictionary=True)
+
+        user_db = os.getenv('DB_NAME_USER_NEW', 'btggasify_userpanel_live')
+        live_db = os.getenv('DB_NAME_USER', 'btggasify_live')
+        
+        # 1. Check if user is HOD
+        is_hod = 0
+        hod_query = f"SELECT IFNULL(ishod, 0) FROM {live_db}.users WHERE id = %s"
+        cursor.execute(hod_query, (user_id,))
+        row = cursor.fetchone()
+        if row:
+            is_hod = list(row.values())[0]
+
+        # 2. Main Query Logic (Simplified compared to SP string concatenation)
+        # Purpose aggregation subquery or join
+        purpose_subquery = f"""
+            (SELECT Claim_ID, GROUP_CONCAT(DISTINCT Purpose SEPARATOR ', ') as Purpose
+             FROM tbl_claimAndpayment_Details
+             WHERE IsActive = 1 {" AND ClaimTypeId = " + str(claimtypeid) if claimtypeid > 0 else ""}
+             GROUP BY Claim_ID) as tfc
+        """
+
+        query = f"""
+            SELECT 
+                tfc.Purpose AS purpose, 
+                ch.Claim_ID, 
+                ch.ApplicationNo AS claimno,
+                DATE_FORMAT(ch.ApplicationDate, '%d-%b-%Y') AS claimdate,
+                cat.claimcategory AS claimcategory,
+                CASE WHEN ch.ClaimCategoryId=3 THEN IFNULL(u.username,'') ELSE u.username END AS applicantname,
+                CASE WHEN ch.ClaimCategoryId=3 THEN IFNULL(md.departmentname,'') ELSE md.departmentname END AS departmentname,
+                CASE WHEN ch.IsSubmitted=0 AND (IFNULL(ch.Claim_Discussed_Count,0)<=2 
+                    AND IFNULL(ch.PPP_Discussed_Count,0)<=2 AND IFNULL(ch.isdiscussionaccepted,0)=0 
+                    AND IFNULL(ch.pv_dis_count,0)<=2)
+                    THEN 'Saved' ELSE 'Posted' END AS Status,
+                cur.CurrencyCode AS transactioncurrency,
+                IFNULL(pm.PaymentMethod,'') AS paymentmethodname,
+                ch.claimamountintc, 
+                IFNULL(ch.isclaimant_discussed,0) AS isclaimant_discussed,
+                CASE WHEN IFNULL(ch.claim_hod_isapproved,0)=0 THEN 1 ELSE 0 END AS candelete_old,
+                CASE WHEN IFNULL(ch.ppp_gm_approvalone,0)=0 AND IFNULL(ch.Claim_Discussed_Count,0)<=2 THEN 1 ELSE 0 END AS canedit,
+                ch.totalamountinidr, ch.voucherid, ch.voucherno,
+                IFNULL(psh.PaymentNo,'') AS PaymentNo,
+                CASE WHEN IFNULL(ch.isdiscussionaccepted,0)=1 THEN 1 ELSE IFNULL(ch.IsSubmitted,0) END AS isSubmitted,
+                IFNULL(ch.is_delete_required,0) AS is_delete_required,
+                IFNULL(ch.finance_cancel, 0) AS finance_cancel,
+                IFNULL(ch.finance_cancel_remarks, '') AS finance_cancel_remarks,
+                IFNULL(ch.hod_discussed_count,0) AS hod_discussed_count,
+                IFNULL(ch.gm_discussed_count,0) AS gm_discussed_count,
+                IFNULL(ch.director_discussed_count,0) AS director_discussed_count,
+                CASE WHEN IFNULL(ch.Claim_Discussed_Count,0)>2 OR IFNULL(ch.PPP_Discussed_Count,0)>2 OR IFNULL(ch.pv_dis_count,0)> 2 THEN 1 ELSE 0 END AS IsReject,
+                CASE WHEN IFNULL(ch.claim_gm_isapproved,0)=0 AND IFNULL(ch.claim_gm_isdiscussed,0)=1 
+                    AND IFNULL(ch.IsSubmitted,0)=0 AND IFNULL(ch.Claim_Discussed_Count,0)<=2 
+                    AND IFNULL(ch.PPP_Discussed_Count,0)<=2 THEN 1 ELSE 0 END AS candiscuss
+            FROM tbl_claimAndpayment_header ch
+            JOIN master_claimcategory cat ON cat.id = ch.ClaimCategoryId
+            JOIN {purpose_subquery} ON tfc.Claim_ID = ch.Claim_ID
+            LEFT JOIN {live_db}.master_department md ON md.DepartmentId = ch.DepartmentId
+            LEFT JOIN {live_db}.users u ON u.id = ch.ApplicantId
+            JOIN {live_db}.master_currency cur ON cur.currencyid = ch.TransactionCurrencyId
+            LEFT JOIN {live_db}.master_paymentmethod pm ON pm.Id = ch.ModeOfPaymentId
+            LEFT JOIN tbl_PaymentSummary_header psh ON psh.SummaryId = ch.SummaryId AND psh.Isactive=1
+            WHERE ch.IsActive=1
+            AND (ch.ClaimCategoryId = %s OR %s = 0)
+            AND (ch.DepartmentId = %s OR %s = 0)
+            AND (ch.TransactionCurrencyId = %s OR %s = 0)
+            AND (
+                (SELECT hodid FROM {live_db}.users WHERE id=%s) IS NULL
+                OR ch.CreatedBy = %s
+                OR (%s = 1 AND ch.CreatedBy IN (SELECT id FROM {live_db}.users WHERE hodid=%s))
+            )
+            ORDER BY ch.Claim_ID ASC
+        """
+        
+        params = (
+            categoryid, categoryid,
+            departmentid, departmentid,
+            currencyid, currencyid,
+            user_id, user_id,
+            is_hod, user_id
+        )
+
+        cursor.execute(query, params)
+        data = cursor.fetchall()
+
+        return {
+            "status": True,
+            "message": "Success",
+            "data": data
+        }
+
+    except Exception as e:
+        print(f"Error fetching claims: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+# --- NEW: Delete Claim (Migration from .NET) ---
+class DeleteClaimRequest(BaseModel):
+    ClaimId: int
+    InActiveBy: int
+
+@router.post("/delete")
+def delete_claim(req: DeleteClaimRequest):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor()
+        
+        # 1. Update IsActive = 0
+        update_query = """
+            UPDATE tbl_claimAndpayment_header 
+            SET IsActive = 0, 
+                InActiveBy = %s, 
+                InActiveDate = NOW(), 
+                InActiveIP = %s
+            WHERE Claim_ID = %s
+        """
+        # Using ClaimId as IP placeholder if real IP not available, matching .NET logic
+        cursor.execute(update_query, (req.InActiveBy, str(req.ClaimId), req.ClaimId))
+        
+        # 2. Call cleanup procedure
+        cursor.callproc('proc_claimhodapproval', (req.ClaimId,))
+        
+        conn.commit()
+        
+        return {
+            "status": True,
+            "message": "Deleted Successfully"
+        }
+    except Exception as e:
+        print(f"Error deleting claim: {str(e)}")
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+# --- NEW: Get Seq Number (Migration from .NET proc_claimAndpayment OPT=3) ---
+@router.get("/get_seq_num")
+def get_seq_num(branchId: int, orgid: int, userid: int):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor(dictionary=True)
+        
+        live_db = os.getenv('DB_NAME_USER', 'btggasify_live')
+        
+        # This replicates OPT=3 of the stored procedure
+        # It's a bit complex with nested results, so we'll use the existing logic pattern
+        
+        # 1. Get HOD info
+        hod_query = f"""
+            SELECT h.username as HOD, h.id as HODID
+            FROM {live_db}.users a
+            LEFT JOIN {live_db}.users h ON h.id = IFNULL(a.hodid, 158)
+            WHERE a.id = %s
+            LIMIT 1
+        """
+        cursor.execute(hod_query, (userid,))
+        hod_info = cursor.fetchone() or {"HOD": "", "HODID": 0}
+
+        # 2. Get Applicant info
+        app_query = f"""
+            SELECT a.id as applicantid, b.DepartmentId as departmentid, IFNULL(a.IsHOD, 0) as hodlogin, 
+                   a.username as applicantname, b.DepartmentName as departmentname
+            FROM {live_db}.users a 
+            INNER JOIN {live_db}.master_department b ON a.Department = b.DepartmentId 
+            WHERE a.id = %s 
+            LIMIT 1
+        """
+        cursor.execute(app_query, (userid,))
+        app_info = cursor.fetchone() or {}
+
+        # 3. Get Document Number
+        doc_query = f"""
+            SELECT CONCAT(a.prefixtext, LPAD(a.Doc_Number + 1, 7, '0')) AS ClaimNo
+            FROM master_documentnumber a 
+            WHERE a.Doc_Type = 1 AND a.Unit = %s
+            LIMIT 1
+        """
+        cursor.execute(doc_query, (branchId,))
+        doc_info = cursor.fetchone() or {"ClaimNo": ""}
+
+        # 4. Merge results
+        result = {
+            "ClaimNo": doc_info["ClaimNo"],
+            "HOD": hod_info["HOD"],
+            "HODID": hod_info["HODID"],
+            "applicantid": app_info.get("applicantid"),
+            "departmentid": app_info.get("departmentid"),
+            "hodlogin": app_info.get("hodlogin"),
+            "applicantname": app_info.get("applicantname"),
+            "departmentname": app_info.get("departmentname"),
+            # Add other defaults if needed
+            "CurrencyId": 1,
+            "CurrencyName": "IDR",
+            "ExchangeRate": 1.0,
+            "CostCenter": "Main",
+            "CostCenter_id": 1
+        }
+
+        return {
+            "status": True,
+            "message": "Success",
+            "data": result
+        }
+    except Exception as e:
+        print(f"Error fetching sequence: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor: cursor.close()

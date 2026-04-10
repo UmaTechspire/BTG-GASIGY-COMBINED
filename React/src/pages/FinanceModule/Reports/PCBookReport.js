@@ -13,16 +13,18 @@ import { toast } from "react-toastify";
 import axios from "axios";
 import { PYTHON_API_URL } from "../../../common/pyapiconfig";
 import { Dialog } from "primereact/dialog";
-import { ClaimAndPaymentGetById } from "../../../common/data/mastersapi";
+import { Tag } from "primereact/tag"; // Match target page
+import { ClaimAndPaymentGetById, getPettyCashCurrency, getPettyCashCategories, getPettyCashExpenseTypes, getPettyCashById, DownloadFileById, GetAllClaimAndPayment } from "../../../common/data/mastersapi";
+import Select from "react-select";
 
-const formatDate = (dateInput) => {
-    if (!dateInput || dateInput === "N/A") return "";
+const generateDailyVoucherID = (dateInput) => {
+    if (!dateInput) return "";
     const d = new Date(dateInput);
     if (isNaN(d.getTime())) return "";
     const day = String(d.getDate()).padStart(2, "0");
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
+    return `PCV-${year}${month}${day}`;
 };
 
 const PCBookReport = () => {
@@ -35,121 +37,172 @@ const PCBookReport = () => {
     const [globalFilter, setGlobalFilter] = useState("");
     const [loadingData, setLoadingData] = useState(false);
     const [partyFilter, setPartyFilter] = useState("");
-    const [claimModalVisible, setClaimModalVisible] = useState(false);
-    const [claimDetails, setClaimDetails] = useState(null);
-    const [claimLoading, setClaimLoading] = useState(false);
+    const [currencyOptions, setCurrencyOptions] = useState([]);
+    const [selectedCurrency, setSelectedCurrency] = useState(null);
+    const [printModalVisible, setPrintModalVisible] = useState(false);
+    const [printData, setPrintData] = useState([]);
+    const [printVoucherId, setPrintVoucherId] = useState("");
+    const [typeMap, setTypeMap] = useState({});
+    const [categoryMap, setCategoryMap] = useState({}); // New state for category names
+    const [printFilter, setPrintFilter] = useState("expenses"); // 'expenses' or 'transfer'
+    const [pcDetailVisible, setPcDetailVisible] = useState(false);
+    const [selectedPcDetail, setSelectedPcDetail] = useState(null);
+    const [claimDetailVisible, setClaimDetailVisible] = useState(false);
+    const [selectedClaimDetail, setSelectedClaimDetail] = useState(null);
+
     const dtRef = useRef(null);
+    const printAreaRef = useRef(null);
 
-    const openClaimModal = async (row) => {
-        setClaimModalVisible(true);
-        setClaimLoading(true);
-        setClaimDetails(null);
-        try {
-            const claimId = parseInt(row.VoucherNo?.replace(/\D/g, ''), 10);
-            let response = null;
-            if (claimId && !isNaN(claimId)) {
-                response = await ClaimAndPaymentGetById(claimId, 1, 1);
-            }
+    // openPrintModal was removed and shifted to ManageExpense screen.
+    // Top-level Print button now groups and prints all filtered data.
 
-            if (response?.status && response?.data?.Header) {
-                const header = response.data.Header;
-                setClaimDetails({
-                    ...header,
-                    ClaimPaymentId: header.ClaimId,
-                    FormNo: header.ApplicationNo,
-                    TotalPaymentRequest: header.TotalAmountInIDR,
-                    Status: header.IsSubmitted === 1 ? "Posted" : "Saved"
-                });
-            } else if (row.PettyCashId || row.pc_number) {
-                // Fallback for Petty Cash entries
-                setClaimDetails({
-                    ClaimPaymentId: row.pc_number || row.PettyCashId,
-                    PettyCashId: row.PettyCashId,
-                    FormNo: row.VoucherNo,
-                    TotalPaymentRequest: row.Amount,
-                    Status: (row.IsSubmitted === 1 || row.IsSubmitted === true) ? "Posted" : "Saved",
-                    Who: row.Who,
-                    Whom: row.Whom,
-                    CategoryName: row.category_name || "-",
-                    ExpenseType: row.expense_type || "-",
-                    ExpenseDescription: row.ExpenseDescription || row.description || "-",
-                    Currency: row.CurrencyCode || "IDR",
-                    Attachment: row.ExpenseFileName
-                });
-            } else {
-                setClaimDetails({ error: "No associated claim details found for this reference.", VoucherNo: row.VoucherNo });
-            }
-        } catch (error) {
-            console.error(error);
-            if (row.PettyCashId || row.pc_number) {
-                setClaimDetails({
-                    ClaimPaymentId: row.pc_number || row.PettyCashId,
-                    PettyCashId: row.PettyCashId,
-                    FormNo: row.VoucherNo,
-                    TotalPaymentRequest: row.Amount,
-                    Status: (row.IsSubmitted === 1 || row.IsSubmitted === true) ? "Posted" : "Saved",
-                    Who: row.Who,
-                    Whom: row.Whom,
-                    CategoryName: row.category_name || "-",
-                    ExpenseType: row.expense_type || "-",
-                    ExpenseDescription: row.ExpenseDescription || row.description || "-",
-                    Currency: row.CurrencyCode || "IDR",
-                    Attachment: row.ExpenseFileName
-                });
-            } else {
-                setClaimDetails({ error: "No associated claim details found for this reference.", VoucherNo: row.VoucherNo });
-            }
-        } finally {
-            setClaimLoading(false);
-        }
+    const handlePrintVoucher = () => {
+        const printContent = document.getElementById("printableVoucherArea");
+        const WindowPrt = window.open('', '', 'left=0,top=0,width=800,height=900,toolbar=0,scrollbars=0,status=0');
+        WindowPrt.document.write(`
+            <html>
+                <head>
+                    <title>Petty Cash Voucher - ${printVoucherId}</title>
+                    <style>
+                        body { font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #333; line-height: 1.6; }
+                        .header { border-bottom: 2px solid #333; margin-bottom: 30px; padding-bottom: 15px; position: relative; }
+                        .print-time { position: absolute; right: 0; top: -20px; font-size: 11px; color: #888; }
+                        .title { font-size: 24px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #000; margin: 0; }
+                        
+                        .metadata-container { display: flex; justify-content: space-between; margin-bottom: 30px; background: #fcfcfc; padding: 20px; border: 1px solid #eee; border-radius: 4px; }
+                        .metadata-column { flex: 1; }
+                        .metadata-item { display: flex; margin-bottom: 8px; font-size: 13px; }
+                        .metadata-label { width: 140px; font-weight: 600; color: #555; position: relative; }
+                        .metadata-label::after { content: ":"; position: absolute; right: 15px; }
+                        .metadata-value { font-weight: 500; color: #000; flex: 1; }
+
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+                        th { background-color: #f4f4f4; color: #333; font-weight: 700; border: 1px solid #ddd; padding: 12px 10px; text-transform: uppercase; font-size: 11px; }
+                        td { border: 1px solid #eee; padding: 10px; text-align: left; }
+                        tr:nth-child(even) { background-color: #fafafa; }
+                        
+                        .text-end { text-align: right; }
+                        .fw-bold { font-weight: 700; }
+                        
+                        @media print {
+                            body { padding: 0; }
+                            .metadata-container { border: 1px solid #ddd; -webkit-print-color-adjust: exact; }
+                            th { background-color: #f4f4f4 !important; -webkit-print-color-adjust: exact; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    ${printContent.innerHTML}
+                </body>
+            </html>
+        `);
+        WindowPrt.document.close();
+        WindowPrt.focus();
+        setTimeout(() => {
+            WindowPrt.print();
+            WindowPrt.close();
+        }, 500);
     };
 
     const fetchPCBook = async () => {
+        if (!fromDate || !toDate) {
+            toast.warning("Please select both From and To dates");
+            return;
+        }
         setLoadingData(true);
         try {
             const from = fromDate ? format(fromDate, "yyyy-MM-dd") : "";
             const to = toDate ? format(toDate, "yyyy-MM-dd") : "";
+            const curId = selectedCurrency ? selectedCurrency.value : 0;
+            let openingBalance = 0;
 
-            const response = await axios.get(
-                `${PYTHON_API_URL}/pettycash/list?orgid=1&branchid=1&FromDate=${from}&ToDate=${to}`
-            );
+            const [response, typesData, categoriesData] = await Promise.all([
+                axios.get(`${PYTHON_API_URL}/pettycash/list?orgid=1&branchid=1&FromDate=${from}&ToDate=${to}&currencyid=${curId}`),
+                getPettyCashExpenseTypes(1, 1), // orgid=1, branchid=1
+                getPettyCashCategories(1, 1)
+            ]);
+
+            const tMap = {};
+            if (typesData) {
+                typesData.forEach(t => tMap[t.id] = t.expense_type);
+            }
+            setTypeMap(tMap);
+
+            const cMap = {};
+            if (categoriesData) {
+                categoriesData.forEach(c => cMap[c.id] = c.category_name);
+            }
+            setCategoryMap(cMap);
 
             const result = response.data;
-            if (result.status && result.data?.length > 0) {
-                // Sort by date ascending for cumulative calculation
-                const sorted = [...result.data].sort(
-                    (a, b) => new Date(a.ExpDate) - new Date(b.ExpDate)
+            if (result.status && result.data) {
+                // Filter: Show only posted entries OR any CLM claim entries
+                result.data = result.data.filter(item =>
+                    item.issubmitted === 1 ||
+                    item.issubmitted === true ||
+                    item.IsSubmitted === 1 ||
+                    item.IsSubmitted === true ||
+                    (item.pc_number && item.pc_number.startsWith("CLM"))
                 );
-
-                let cumulative = 0;
-                const processed = sorted.map((row) => {
-                    const amount = parseFloat(row.Amount) || 0;
-
-                    // Determine Debit (Receipt) vs Credit (Expense) based on category
-                    // category_id: 1 = Receipt/Debit (+), others = Expense/Credit (-)
-                    const isReceipt = row.category_id === 1;
-                    const debit = isReceipt ? amount : 0;
-                    const credit = isReceipt ? 0 : amount;
-
-                    cumulative += debit - credit;
-
-                    return {
-                        ...row,
-                        debit,
-                        credit,
-                        amount,
-                        cumulativeAmount: cumulative,
-                        // Mapping COA and Description from API response
-                        COA: row.COA || row.coa || row.account_name || "",
-                        description: row.Description || row.description || row.Remarks || row.remarks || ""
-                    };
-                });
-
-                setPcData(processed);
-            } else {
-                setPcData([]);
-                toast.info("No Petty Cash records found for selected date range.");
             }
+
+            let allItems = result.data.map(item => {
+                const isClaim = item.pc_number && item.pc_number.startsWith("CLM");
+                return {
+                    ...item,
+                    isClaim,
+                    expenseTypename: isClaim ? "-" : (tMap[item.expense_type_id] || item.expense_type || "-"),
+                    categoryName: isClaim ? "-" : (cMap[item.category_id] || item.category_name || "-")
+                };
+            });
+
+            // 2. Filter by date FIRST
+            if (fromDate && toDate) {
+                const f = new Date(fromDate); f.setHours(0, 0, 0, 0);
+                const t = new Date(toDate); t.setHours(23, 59, 59, 999);
+                allItems = allItems.filter(row => {
+                    const rd = new Date(row.expdate || row.ExpDate);
+                    return rd >= f && rd <= t;
+                });
+            }
+
+            // 3. Sort by date ascending
+            allItems.sort((a, b) => {
+                const dateA = new Date(a.expdate || a.ExpDate);
+                const dateB = new Date(b.expdate || b.ExpDate);
+                return dateA - dateB;
+            });
+
+            // 4. Calculate running totals ONLY for filtered items
+            let runningTotal = 0;
+            let processed = allItems.map((row) => {
+                const amount = parseFloat(row.amount || row.Amount) || 0;
+                const isDebit = (row.category_id === 1 || (row.pc_number && row.pc_number.startsWith("CLM")));
+
+                const debit = isDebit ? amount : 0;
+                const credit = isDebit ? 0 : amount;
+                runningTotal += debit - credit;
+
+                let amountidr = parseFloat(row.amountidr || row.AmountIDR || 0);
+                // Fallback for claims or IDR currency if IDR amount is 0
+                if (amountidr === 0 && (selectedCurrency?.label === "IDR" || row.isClaim)) {
+                    amountidr = amount;
+                }
+
+                return {
+                    ...row,
+                    debit,
+                    credit,
+                    amount,
+                    amountidr,
+                    cumulativeAmount: runningTotal,
+                    dailyVoucher: row.dailyvoucher || row.dailyVoucher || generateDailyVoucherID(row.expdate || row.ExpDate),
+                    COA: row.coa || row.COA || row.account_name || "",
+                    description: row.isClaim ? "claim and payment" : (row.expensedescription || row.ExpenseDescription || row.description || row.Description || row.remarks || row.Remarks || "")
+                };
+            });
+
+            setPcData(processed);
         } catch (err) {
             console.error("Error fetching PC Book:", err);
             toast.error("Failed to load Petty Cash data.");
@@ -159,42 +212,41 @@ const PCBookReport = () => {
         }
     };
 
+    const loadCurrencies = async () => {
+        try {
+            const res = await getPettyCashCurrency(1, 1);
+            const allowed = ['IDR', 'USD', 'MYR', 'SGD', 'CNY'];
+            const options = res
+                .filter(c => allowed.includes(c.CurrencyCode || c.currency_code || c.Currency || c.currency))
+                .map(c => ({
+                    value: c.CurrencyId || c.currencyid || c.id,
+                    label: c.Currency || c.CurrencyCode || c.currency || c.currency_code
+                }));
+            setCurrencyOptions(options);
+            const idr = options.find(o => o.label === "IDR");
+            if (idr) setSelectedCurrency(idr);
+        } catch (err) {
+            console.error("Failed to load currencies", err);
+        }
+    };
+
     useEffect(() => {
-        const timer = setTimeout(() => {
-            fetchPCBook();
-        }, 100);
-        return () => clearTimeout(timer);
+        loadCurrencies();
     }, []);
 
-    // Kept totalAmount in case it is needed for other internal calculations, but removed from UI
-    const totalAmount = useMemo(() => {
-        return pcData.reduce((sum, r) => sum + (r.amount || 0), 0);
-    }, [pcData]);
+    useEffect(() => {
+        if (selectedCurrency && fromDate && toDate) {
+            fetchPCBook();
+        }
+    }, [selectedCurrency, fromDate, toDate]);
 
-    const totalDebit = useMemo(() => {
-        return pcData.reduce((sum, r) => sum + (r.debit || 0), 0);
-    }, [pcData]);
-
-    const totalCredit = useMemo(() => {
-        return pcData.reduce((sum, r) => sum + (r.credit || 0), 0);
-    }, [pcData]);
-
-    const filteredPcData = useMemo(() => {
-        if (!partyFilter) return pcData;
-        const lowerFilter = partyFilter.toLowerCase();
-        return pcData.filter(row =>
-            (row.Who && row.Who.toLowerCase().includes(lowerFilter)) ||
-            (row.Whom && row.Whom.toLowerCase().includes(lowerFilter)) ||
-            (row.partyName && row.partyName.toLowerCase().includes(lowerFilter))
-        );
-    }, [pcData, partyFilter]);
+    const totalDebit = pcData.reduce((sum, r) => sum + (r.debit || 0), 0);
+    const totalCredit = pcData.reduce((sum, r) => sum + (r.credit || 0), 0);
 
     const exportExcel = () => {
         const exportData = pcData.map((item) => ({
-            "Date": formatDate(item.ExpDate),
-            "PC Number": item.pc_number || "",
-            "Voucher No": item.VoucherNo || "",
-            "COA": item.COA,
+            "Date": item.expdate || item.ExpDate,
+            "Reference number": item.pc_number || "",
             "Description": item.description,
             "Debit (+)": item.debit,
             "Credit (-)": item.credit,
@@ -212,22 +264,126 @@ const PCBookReport = () => {
             ? Number(val).toLocaleString("en-US", { minimumFractionDigits: 2 })
             : "0.00";
 
+    const handleReferenceClick = async (row) => {
+        const ref = row.pc_number || "";
+        if (ref.startsWith("CLM")) {
+            setLoadingData(true);
+            try {
+                let claimId = null;
+
+                // 1. Fetch ALL claims to find the one with matching claimno
+                // This is required because the row is a Petty Cash record, so its IDs are PC IDs, not Claim IDs.
+                const listRes = await GetAllClaimAndPayment(0, 0, 1, 1, 0);
+                if (listRes?.status && listRes.data) {
+                    const match = listRes.data.find(c => c.claimno === ref);
+                    if (match) {
+                        claimId = match.Claim_ID;
+                    }
+                }
+
+                // Fallback to parsing digits from "CLM0001647" -> 1647 if not found in list
+                if (!claimId) {
+                    claimId = parseInt(ref.replace(/\D/g, ''), 10);
+                }
+
+                if (!claimId || isNaN(claimId)) {
+                    toast.error("Claim ID could not be identified from reference number.");
+                    setLoadingData(false);
+                    return;
+                }
+
+                const res = await ClaimAndPaymentGetById(claimId, 1, 1);
+                if (res && res.status) {
+                    setSelectedClaimDetail(res.data);
+                    setClaimDetailVisible(true);
+                } else {
+                    toast.error("Failed to fetch claim details");
+                }
+            } catch (err) {
+                console.error("Error fetching claim details:", err);
+                toast.error("Error loading claim info");
+            } finally {
+                setLoadingData(false);
+            }
+        } else if (ref.startsWith("PC")) {
+            const pcId = row.petty_cash_id || row.pettycashid || row.id;
+            if (!pcId) {
+                toast.error("Petty Cash ID not found");
+                return;
+            }
+            setLoadingData(true);
+            try {
+                const res = await getPettyCashById(pcId, 1, 1);
+                if (res) {
+                    setSelectedPcDetail(res);
+                    setPcDetailVisible(true);
+                } else {
+                    toast.error("Failed to fetch petty cash details");
+                }
+            } catch (err) {
+                console.error("Error fetching petty cash details:", err);
+                toast.error("Error loading petty cash info");
+            } finally {
+                setLoadingData(false);
+            }
+        }
+    };
+
+    const handleDownloadAttachment = async (path, filename) => {
+        if (!path) return;
+        try {
+            const fileUrl = await DownloadFileById(0, path);
+            // DownloadFileById often handles the open/download internally or returns a blob URL
+        } catch (err) {
+            console.error("Download failed:", err);
+            toast.error("Failed to download attachment");
+        }
+    };
+
+    const clearFilter = () => {
+        setFromDate(firstDay);
+        setToDate(today);
+        setGlobalFilter("");
+        setPartyFilter("");
+        setSelectedCurrency(null);
+    };
+
+    const renderHeader = () => {
+        return (
+            <div className="row align-items-center g-3 clear-spa">
+                <div className="col-12 col-lg-9">
+                    <button type="button" className="btn btn-danger btn-label" onClick={clearFilter}>
+                        <i className="mdi mdi-filter-off label-icon" /> Clear
+                    </button>
+                </div>
+                <div className="col-12 col-lg-3">
+                    <input
+                        className="form-control"
+                        type="search"
+                        value={globalFilter}
+                        onChange={(e) => setGlobalFilter(e.target.value)}
+                        placeholder="Keyword Search"
+                    />
+                </div>
+            </div>
+        );
+    };
+
+    const header = renderHeader();
+
     return (
         <div className="page-content">
             <Container fluid>
                 <Breadcrumbs title="Finance" breadcrumbItem="Petty Cash Book" />
                 <Row>
                     <Col lg="12">
-                        <Card>
+                        <Card className="shadow-sm">
                             <CardBody>
-                                {/* Date Filters */}
-                                <Row className="mb-3">
-                                    <Col md="3" className="d-flex align-items-center mb-2">
-                                        <Label className="me-2 mb-0" style={{ minWidth: "50px" }}>
-                                            From:
-                                        </Label>
+                                <Row className="mb-3 align-items-center g-2">
+                                    <Col md="auto" className="d-flex align-items-center pe-1">
+                                        <Label className="fw-bold mb-0 me-1 text-nowrap">From</Label>
                                         <Flatpickr
-                                            className="form-control"
+                                            className="form-control form-control-sm"
                                             value={fromDate}
                                             onChange={(date) => setFromDate(date[0])}
                                             options={{
@@ -235,14 +391,13 @@ const PCBookReport = () => {
                                                 altFormat: "d-M-Y",
                                                 dateFormat: "Y-m-d",
                                             }}
+                                            style={{ width: "100px", height: "31px" }}
                                         />
                                     </Col>
-                                    <Col md="3" className="d-flex align-items-center mb-2">
-                                        <Label className="me-2 mb-0" style={{ minWidth: "30px" }}>
-                                            To:
-                                        </Label>
+                                    <Col md="auto" className="d-flex align-items-center pe-1">
+                                        <Label className="fw-bold mb-0 me-1 text-nowrap">To</Label>
                                         <Flatpickr
-                                            className="form-control"
+                                            className="form-control form-control-sm"
                                             value={toDate}
                                             onChange={(date) => setToDate(date[0])}
                                             options={{
@@ -250,140 +405,162 @@ const PCBookReport = () => {
                                                 altFormat: "d-M-Y",
                                                 dateFormat: "Y-m-d",
                                             }}
+                                            style={{ width: "100px", height: "31px" }}
                                         />
                                     </Col>
-                                    <Col md="3" className="d-flex align-items-center mb-2">
-                                        <Label className="me-2 mb-0" style={{ minWidth: "50px" }}>
-                                            Party:
-                                        </Label>
-                                        <input
-                                            type="text"
-                                            className="form-control"
-                                            placeholder="Employee/Supplier"
-                                            value={partyFilter}
-                                            onChange={(e) => setPartyFilter(e.target.value)}
+                                    <Col md="auto" className="d-flex align-items-center">
+                                        <Label className="fw-bold mb-0 me-1 text-nowrap">Currency</Label>
+                                        <Select
+                                            options={currencyOptions}
+                                            value={selectedCurrency}
+                                            onChange={(opt) => setSelectedCurrency(opt)}
+                                            isClearable
+                                            placeholder="All"
+                                            styles={{
+                                                control: (base) => ({
+                                                    ...base,
+                                                    minHeight: '31px',
+                                                    height: '31px',
+                                                    fontSize: '12px',
+                                                    width: '85px'
+                                                }),
+                                                valueContainer: (base) => ({
+                                                    ...base,
+                                                    padding: '0 4px',
+                                                    height: '31px'
+                                                }),
+                                                indicatorsContainer: (base) => ({
+                                                    ...base,
+                                                    height: '31px'
+                                                }),
+                                                dropdownIndicator: (base) => ({
+                                                    ...base,
+                                                    padding: '2px'
+                                                }),
+                                                clearIndicator: (base) => ({
+                                                    ...base,
+                                                    padding: '2px'
+                                                })
+                                            }}
                                         />
                                     </Col>
-                                    <Col md="auto" className="d-flex justify-content-start gap-2 align-items-center mb-2">
+                                    <Col md="auto" className="d-flex gap-1 ms-auto">
                                         <button
                                             type="button"
-                                            className="btn btn-primary"
+                                            className="btn btn-info"
                                             onClick={fetchPCBook}
                                             disabled={loadingData}
                                         >
+                                            <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i>
                                             {loadingData ? "Loading..." : "Search"}
                                         </button>
                                         <button
                                             type="button"
-                                            className="btn btn-success"
+                                            className="btn btn-secondary"
                                             onClick={exportExcel}
                                         >
+                                            <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i>
                                             Export
                                         </button>
                                         <button
                                             type="button"
-                                            className="btn btn-secondary"
-                                            onClick={() => window.print()}
+                                            className="btn btn-primary"
+                                            onClick={() => { setPrintFilter("expenses"); setPrintModalVisible(true); }}
                                         >
-                                            Print
+                                            Expenses Print
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-success"
+                                            onClick={() => { setPrintFilter("transfer"); setPrintModalVisible(true); }}
+                                        >
+                                            Cash Transfer Print
                                         </button>
                                     </Col>
                                 </Row>
-
-                                {/* Totals */}
                                 <Row className="mb-3 border-top pt-3">
-                                    <Col md="3">
+                                    <Col md="4">
                                         <div className="d-flex align-items-center">
-                                            <h6 className="mb-0 me-2 text-muted">Total Debit:</h6>
-                                            <h5
+                                            <h5 className="mb-0 me-2 fw-bold text-dark">Total Debit:</h5>
+                                            <h4
                                                 className="mb-0 fw-bold"
                                                 style={{ color: "green" }}
                                             >
                                                 {fmtNum(totalDebit)}
-                                            </h5>
+                                            </h4>
                                         </div>
                                     </Col>
-                                    <Col md="3">
+                                    <Col md="4">
                                         <div className="d-flex align-items-center">
-                                            <h6 className="mb-0 me-2 text-muted">Total Credit:</h6>
-                                            <h5
+                                            <h5 className="mb-0 me-2 fw-bold text-dark">Total Credit:</h5>
+                                            <h4
                                                 className="mb-0 fw-bold"
                                                 style={{ color: "firebrick" }}
                                             >
                                                 {fmtNum(totalCredit)}
-                                            </h5>
+                                            </h4>
                                         </div>
                                     </Col>
-                                    <Col md="3">
+                                    <Col md="4">
                                         <div className="d-flex align-items-center">
-                                            <h6 className="mb-0 me-2 text-muted">Balance:</h6>
-                                            <h5
+                                            <h5 className="mb-0 me-2 fw-bold text-dark">Balance:</h5>
+                                            <h4
                                                 className="mb-0 fw-bold"
                                                 style={{ color: "navy" }}
                                             >
                                                 {fmtNum(totalDebit - totalCredit)}
-                                            </h5>
-                                        </div>
-                                    </Col>
-                                    <Col md="3">
-                                        <div className="d-flex align-items-center justify-content-end">
-                                            <input
-                                                type="search"
-                                                placeholder="Search..."
-                                                className="form-control"
-                                                style={{ width: "200px" }}
-                                                value={globalFilter}
-                                                onChange={(e) => setGlobalFilter(e.target.value)}
-                                            />
+                                            </h4>
                                         </div>
                                     </Col>
                                 </Row>
 
-                                {/* DataTable */}
-                                <div className="table-responsive mt-2">
+                                <div className="mt-2">
                                     <DataTable
                                         ref={dtRef}
-                                        value={filteredPcData}
+                                        value={pcData}
                                         paginator
-                                        rows={20}
+                                        rows={10}
+                                        header={header}
                                         loading={loadingData}
                                         globalFilter={globalFilter}
-                                        style={{ fontSize: "13px" }}
+                                        className="blue-bg"
                                         responsiveLayout="scroll"
                                         showGridlines
                                     >
                                         <Column
-                                            field="ExpDate"
+                                            field="expdate"
                                             header="Date"
-                                            body={(row) => formatDate(row.ExpDate)}
+                                            body={(row) => format(new Date(row.expdate || row.ExpDate), "dd-MMM-yyyy")}
                                             sortable
-                                            headerStyle={{ whiteSpace: "nowrap" }}
+                                            className="text-left text-nowrap"
                                         />
                                         <Column
                                             field="pc_number"
-                                            header="PC Number"
-                                            sortable
-                                            headerStyle={{ whiteSpace: "nowrap" }}
-                                        />
-                                        <Column
-                                            field="VoucherNo"
-                                            header="Voucher No"
+                                            header="Reference"
                                             body={(row) => (
                                                 <span
-                                                    style={{ color: "blue", cursor: "pointer", textDecoration: "underline" }}
-                                                    onClick={() => openClaimModal(row)}
+                                                    className="fw-bold cursor-pointer"
+                                                    style={{ color: "blue", textDecoration: "underline", cursor: "pointer" }}
+                                                    onClick={() => handleReferenceClick(row)}
                                                 >
-                                                    {row.VoucherNo || "-"}
+                                                    {row.pc_number || "N/A"}
                                                 </span>
                                             )}
                                             sortable
+                                            className="text-left"
                                             headerStyle={{ whiteSpace: "nowrap" }}
                                         />
                                         <Column
-                                            field="COA"
-                                            header="COA"
+                                            field="dailyVoucher"
+                                            header="PCV No"
+                                            body={(row) => (
+                                                <span className="text-muted">
+                                                    {row.dailyVoucher}
+                                                </span>
+                                            )}
                                             sortable
-                                            headerStyle={{ whiteSpace: "nowrap" }}
+                                            headerStyle={{ whiteSpace: "nowrap", minWidth: "130px" }}
+                                            className="text-center"
                                         />
                                         <Column
                                             field="description"
@@ -436,99 +613,243 @@ const PCBookReport = () => {
                     </Col>
                 </Row>
 
-                {/* Claim Details Modal */}
                 <Dialog
-                    header="Claim Details"
-                    visible={claimModalVisible}
-                    style={{ width: "50vw" }}
-                    onHide={() => setClaimModalVisible(false)}
-                >
-                    {claimLoading ? (
-                        <div className="text-center p-4">Loading claim details...</div>
-                    ) : claimDetails?.error ? (
-                        <div className="text-center p-4">
-                            <h5 className="text-danger">Info</h5>
-                            <p>{claimDetails.error}</p>
-                            <p className="text-muted">Extracted Ref: {claimDetails.VoucherNo}</p>
+                    header="Print Petty Cash Vouchers"
+                    visible={printModalVisible}
+                    style={{ width: "85vw" }}
+                    headerStyle={{ padding: '12px 1.5rem', borderBottom: '1px solid #dee2e6' }}
+                    closable={false}
+                    onHide={() => setPrintModalVisible(false)}
+                    footer={
+                        <div className="d-flex justify-content-end gap-2 px-3 pb-2">
+                            <button className="btn btn-secondary" style={{ minWidth: '100px' }} onClick={() => setPrintModalVisible(false)}>
+                                Close
+                            </button>
+                            <button className="btn btn-primary" style={{ minWidth: '150px' }} onClick={handlePrintVoucher}>
+                                <i className="mdi mdi-printer me-1"></i> Confirm Print All
+                            </button>
                         </div>
-                    ) : claimDetails ? (
-                        <div className="p-2">
+                    }
+                >
+                    <div id="printableVoucherArea">
+                        <style>{`
+                            .pc-voucher-page { page-break-after: always; font-family: 'Inter', sans-serif; padding: 10px 15px 40px 15px; color: #333; line-height: 1.6; }
+                            .pc-voucher-page:last-child { page-break-after: auto; }
+                            .v-header { border-bottom: 2px solid #333; margin-bottom: 10px; padding-bottom: 5px; position: relative; }
+                            .v-print-time { position: absolute; right: 0; top: -20px; font-size: 11px; color: #888; }
+                            .v-title { font-size: 24px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #000; margin: 0; text-align: left; }
+                            
+                            .v-metadata { 
+                                display: grid; 
+                                grid-template-columns: repeat(3, 1fr); 
+                                gap: 15px 25px; 
+                                margin-bottom: 10px; 
+                                background: #fcfcfc; 
+                                padding: 20px; 
+                                border: 1px solid #eee; 
+                                border-radius: 4px; 
+                            }
+                            .v-meta-item { display: flex; align-items: baseline; font-size: 13px; }
+                            .v-label { width: 120px; font-weight: 600; color: #555; position: relative; }
+                            .v-label::after { content: ":"; position: absolute; right: 10px; }
+                            .v-value { font-weight: 500; color: #000; flex: 1; }
+                            
+                            .v-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+                            .v-table th { background-color: #f4f4f4; color: #333; font-weight: 700; border: 1px solid #ddd; padding: 12px 10px; text-transform: uppercase; font-size: 11px; text-align: left; }
+                            .v-table th.nowrap, .v-table td.nowrap { white-space: nowrap; }
+                            .v-table td { border: 1px solid #eee; padding: 10px; text-align: left; }
+                            .v-table tr:nth-child(even) { background-color: #fafafa; }
+                            
+                            @media print {
+                                .v-metadata { border: 1px solid #ddd; -webkit-print-color-adjust: exact; }
+                                .v-table th { background-color: #f4f4f4 !important; -webkit-print-color-adjust: exact; }
+                            }
+                        `}</style>
+
+                        {(() => {
+                            const filtered = pcData.filter(item =>
+                                printFilter === "expenses" ? (item.category_id !== 6 && !item.isClaim) : item.category_id === 6
+                            );
+                            const grouped = {};
+                            filtered.forEach(ex => {
+                                const dateStr = ex.dailyVoucher || "DATELESS";
+                                if (!grouped[dateStr]) grouped[dateStr] = [];
+                                grouped[dateStr].push(ex);
+                            });
+
+                            return Object.entries(grouped).map(([pcvNo, items], gIdx) => (
+                                <div key={gIdx} className="pc-voucher-page">
+                                    <div className="v-header">
+                                        <div className="v-print-time">Printed on: {format(new Date(), "dd-MMM-yyyy, HH:mm")}</div>
+                                        <div className="v-title">{pcvNo}</div>
+                                    </div>
+                                    <div className="v-metadata">
+                                        <div className="v-meta-item"><span className="v-label">PC Date</span><span className="v-value">{format(new Date(items[0].expdate || items[0].ExpDate), "dd-MMM-yyyy")}</span></div>
+                                        <div className="v-meta-item"><span className="v-label">Currency</span><span className="v-value">{selectedCurrency?.label || "IDR"}</span></div>
+                                        <div className="v-meta-item"><span className="v-label">Total Amount</span><span className="v-value">{fmtNum(items.reduce((s, i) => s + (parseFloat(i.amount || 0)), 0))}</span></div>
+                                    </div>
+                                    <table className="v-table">
+                                        <thead>
+                                            <tr><th>S.no</th><th className="nowrap">PC Date</th>{printFilter !== "transfer" && <><th>Expense Category</th><th>Expense Type</th></>}<th>Description</th><th>Whom</th><th style={{ textAlign: 'right' }}>Amount</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {items.map((it, idx) => (
+                                                <tr key={idx}>
+                                                    <td>{idx + 1}</td>
+                                                    <td className="nowrap">{format(new Date(it.expdate || it.ExpDate), "dd-MMM-yyyy")}</td>
+                                                    {printFilter !== "transfer" && (
+                                                        <>
+                                                            <td>{it.categoryName}</td>
+                                                            <td>{it.expenseTypename}</td>
+                                                        </>
+                                                    )}
+                                                    <td>{it.description}</td>
+                                                    <td>{it.whom || it.Whom || "-"}</td>
+                                                    <td style={{ textAlign: 'right' }}>{fmtNum(it.amount)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ));
+                        })()}
+                    </div>
+                </Dialog>
+
+                {/* Petty Cash Detail Modal */}
+                <Dialog
+                    header={`Petty Cash Details - ${selectedPcDetail?.pc_number || ""}`}
+                    visible={pcDetailVisible}
+                    style={{ width: "70vw" }}
+                    onHide={() => setPcDetailVisible(false)}
+                    footer={
+                        <div>
+                            <button className="btn btn-secondary" onClick={() => setPcDetailVisible(false)}>
+                                Close
+                            </button>
+                        </div>
+                    }
+                >
+                    {selectedPcDetail ? (
+                        <div className="p-3">
                             <style>{`
-                                .claim-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
-                                .claim-table th, .claim-table td { padding: 8px 12px; border: 1px solid #eee; text-align: left; }
-                                .claim-table th { background-color: #f8f9fa; width: 35%; color: #495057; font-weight: 600; }
-                                .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-                                .status-posted { background-color: #d4edda; color: #155724; }
-                                .status-saved { background-color: #fff3cd; color: #856404; }
+                                .claim-label { font-weight: 700; color: #333; font-size: 13px; white-space: nowrap; }
+                                .claim-value { font-weight: 500; color: #000; font-size: 13px; }
+                                .claim-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px 30px; margin-bottom: 25px; background: #fcfcfc; padding: 20px; border: 1px solid #eee; border-radius: 4px; }
+                                .claim-item { display: flex; gap: 8px; align-items: baseline; }
                             `}</style>
-                            <table className="claim-table">
-                                <tbody>
-                                    <tr>
-                                        <th>PC Number</th>
-                                        <td>{claimDetails.ClaimPaymentId || "-"}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Voucher No</th>
-                                        <td>{claimDetails.FormNo || "-"}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Category</th>
-                                        <td>{claimDetails.CategoryName || "-"}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Expense Type</th>
-                                        <td>{claimDetails.ExpenseType || "-"}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Description</th>
-                                        <td>{claimDetails.ExpenseDescription || "-"}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Amount</th>
-                                        <td className="fw-bold">
-                                            {claimDetails.Currency} {fmtNum(claimDetails.TotalPaymentRequest)}
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th>Who (Payer/Receiver)</th>
-                                        <td>{claimDetails.Who || "-"}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Whom</th>
-                                        <td>{claimDetails.Whom || "-"}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Status</th>
-                                        <td>
-                                            <span className={`status-badge ${claimDetails.Status === "Posted" ? "status-posted" : "status-saved"}`}>
-                                                {claimDetails.Status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    {claimDetails.Attachment && (
-                                        <tr>
-                                            <th>Attachment</th>
-                                            <td>
-                                                <a
-                                                    href={`${PYTHON_API_URL}/pettycash/download/${claimDetails.PettyCashId}`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="btn btn-sm btn-soft-primary"
-                                                >
-                                                    <i className="mdi mdi-download me-1"></i> {claimDetails.Attachment}
-                                                </a>
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                            <div className="mt-3 text-end">
-                                <button className="btn btn-secondary" onClick={() => setClaimModalVisible(false)}>
-                                    Close
-                                </button>
+
+                            <div className="claim-grid shadow-sm">
+                                <div className="claim-item"><div className="claim-label">Date:</div><div className="claim-value">{format(new Date(selectedPcDetail.expdate || selectedPcDetail.ExpDate), "dd-MMM-yyyy")}</div></div>
+                                <div className="claim-item"><div className="claim-label">Reference No:</div><div className="claim-value">{selectedPcDetail.pc_number || "-"}</div></div>
+                                <div className="claim-item"><div className="claim-label">Currency:</div><div className="claim-value">{selectedCurrency?.label || "IDR"}</div></div>
+                            </div>
+
+                            <div className="table-responsive">
+                                <DataTable
+                                    value={[selectedPcDetail]}
+                                    className="p-datatable-sm showGridlines blue-bg"
+                                    responsiveLayout="scroll"
+                                    showGridlines
+                                >
+                                    <Column header="#" body={() => 1} style={{ width: '50px' }} />
+                                    <Column header="Expense Type" body={() => typeMap[selectedPcDetail.expense_type_id] || selectedPcDetail.expense_type || "-"} />
+                                    <Column header="Description" body={(r) => r.ExpenseDescription || r.expensedescription || r.description || "-"} />
+                                    <Column header="Whom" body={(r) => r.Whom || r.whom || "-"} />
+                                    <Column
+                                        header="Amount"
+                                        className="text-end"
+                                        body={(r) => fmtNum(r.Amount || r.amount)}
+                                    />
+                                    <Column
+                                        header="Amount (IDR)"
+                                        className="text-end"
+                                        body={(r) => fmtNum(r.AmountIDR || r.amountidr)}
+                                        headerStyle={{ whiteSpace: "nowrap" }}
+                                    />
+                                </DataTable>
+                            </div>
+
+                            {selectedPcDetail.filepath && (
+                                <div className="mt-4 pt-3 border-top">
+                                    <Label className="fw-bold text-muted mb-1">Attachment:</Label>
+                                    <div>
+                                        <button
+                                            className="btn btn-link p-0 text-decoration-underline"
+                                            onClick={() => handleDownloadAttachment(selectedPcDetail.filepath, selectedPcDetail.filename)}
+                                        >
+                                            <i className="bx bx-paperclip me-1"></i> {selectedPcDetail.filename || "Download Attachment"}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="text-center p-4">Loading details...</div>
+                    )}
+                </Dialog>
+
+                {/* Claim Detail Modal */}
+                <Dialog
+                    header={`Claim Details - ${selectedClaimDetail?.header?.claimno || selectedClaimDetail?.header?.ApplicationNo || selectedClaimDetail?.claimno || selectedClaimDetail?.ApplicationNo || ""}`}
+                    visible={claimDetailVisible}
+                    style={{ width: "70vw" }}
+                    onHide={() => setClaimDetailVisible(false)}
+                    footer={
+                        <div>
+                            <button className="btn btn-secondary" onClick={() => setClaimDetailVisible(false)}>
+                                Close
+                            </button>
+                        </div>
+                    }
+                >
+                    {selectedClaimDetail ? (
+                        <div className="p-3">
+                            <style>{`
+                                .claim-label { font-weight: 700; color: #333; font-size: 13px; white-space: nowrap; }
+                                .claim-value { font-weight: 500; color: #000; font-size: 13px; }
+                                .claim-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px 30px; margin-bottom: 25px; background: #fcfcfc; padding: 20px; border: 1px solid #eee; border-radius: 4px; }
+                                .claim-item { display: flex; gap: 8px; align-items: baseline; }
+                            `}</style>
+
+                            <div className="claim-grid shadow-sm">
+                                <div className="claim-item"><div className="claim-label">Category:</div><div className="claim-value">{selectedClaimDetail.header?.claimcategory || selectedClaimDetail.claimcategory || "-"}</div></div>
+                                <div className="claim-item"><div className="claim-label">Application Date:</div><div className="claim-value">{selectedClaimDetail.header?.ApplicationDatevw || selectedClaimDetail.ApplicationDatevw || selectedClaimDetail.header?.ApplicationDate || selectedClaimDetail.ApplicationDate || "-"}</div></div>
+                                <div className="claim-item"><div className="claim-label">Application No:</div><div className="claim-value">{selectedClaimDetail.header?.ApplicationNo || selectedClaimDetail.header?.claimno || selectedClaimDetail.ApplicationNo || selectedClaimDetail.claimno || "-"}</div></div>
+
+                                <div className="claim-item"><div className="claim-label">Department:</div><div className="claim-value">{selectedClaimDetail.header?.departmentname || selectedClaimDetail.departmentname || "-"}</div></div>
+                                <div className="claim-item"><div className="claim-label">Applicant:</div><div className="claim-value">{selectedClaimDetail.header?.applicantname || selectedClaimDetail.applicantname || "-"}</div></div>
+                                <div className="claim-item"><div className="claim-label">HOD:</div><div className="claim-value">{selectedClaimDetail.header?.HOD_Name || selectedClaimDetail.HOD_Name || "-"}</div></div>
+
+                                <div className="claim-item"><div className="claim-label">Currency:</div><div className="claim-value">{selectedClaimDetail.header?.transactioncurrency || selectedClaimDetail.transactioncurrency || "-"}</div></div>
+                                <div className="claim-item"><div className="claim-label fw-bold">Amount (TC):</div><div className="claim-value fw-bold text-primary">{fmtNum(selectedClaimDetail.header?.ClaimAmountInTC || selectedClaimDetail.ClaimAmountInTC || selectedClaimDetail.header?.TotalAmountInIDR || selectedClaimDetail.TotalAmountInIDR)}</div></div>
+                            </div>
+
+                            <div className="table-responsive">
+                                <DataTable
+                                    value={selectedClaimDetail.details}
+                                    className="p-datatable-sm showGridlines blue-bg"
+                                    responsiveLayout="scroll"
+                                    showGridlines
+                                >
+                                    <Column header="#" body={(_, { rowIndex }) => rowIndex + 1} style={{ width: '50px' }} />
+                                    <Column field="claimtype" header="Claim Type" />
+                                    <Column field="PaymentDescription" header="Description" />
+                                    <Column field="ExpenseDatevw" header="Expense Date" className="text-center" />
+                                    <Column field="Purpose" header="Purpose" />
+                                    <Column
+                                        field="TotalAmount"
+                                        header="Amount"
+                                        className="text-end"
+                                        body={(r) => fmtNum(r.TotalAmount)}
+                                        headerStyle={{ whiteSpace: "nowrap" }}
+                                    />
+                                </DataTable>
                             </div>
                         </div>
-                    ) : null}
+                    ) : (
+                        <div className="text-center p-4">Loading details...</div>
+                    )}
                 </Dialog>
             </Container>
         </div>

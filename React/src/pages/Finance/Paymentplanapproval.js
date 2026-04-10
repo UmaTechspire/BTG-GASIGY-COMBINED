@@ -40,7 +40,19 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import useAccess from "../../common/access/useAccess";
 
+const getUserDetails = () => {
+  if (localStorage.getItem("authUser")) {
+    const obj = JSON.parse(localStorage.getItem("authUser"))
+    return obj;
+  }
+}
+
 const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
+
+  const user = getUserDetails();
+  const userId = user?.u_id || 1;
+  const orgId = user?.orgId || 1;
+  const branchId = user?.branchId || 1;
 
   const types = [
     "Claim Approval",
@@ -112,7 +124,7 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
   const [selectedClaim, setSelectedClaim] = useState(null);
   const [action1, setAction1] = useState({});
   const [action2, setAction2] = useState({});
-  const [Claimheader, setClaimheader] = useState({});
+  const [Claimheader, setClaimheader] = useState({ alravailable: 0 });
   const handleDiscuss = (rowData) => {
     setSelectedClaim(rowData);
     setShowModal(true);
@@ -161,13 +173,13 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
   const sel = claims.filter(c => selectedRows.includes(c.id));
 
   const summary = getSummaryByTypeAndCurrency(sel);
-  const handleConvertClick = () => {
+  const handleConvertClick = async () => {
     if (selectedRows.length === 0) {
       Swal.fire("Error", "Please select at least one record", "error");
       return;
     }
 
-    GetSeqNo();
+    await GetSeqNo();
 
     if (Claimheader.alravailable == 1) {
       setConvertFromDate(Claimheader.FromDate ? new Date(Claimheader.FromDate) : null);
@@ -191,7 +203,7 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
 
 
 
-    const totalA = parseFloat(cashInHand || 0) + parseFloat(cashFromSales || 0);
+    const totalA = (parseFloat(cashInHand?.IDR) || 0) + (parseFloat(cashFromSales?.IDR) || 0);
 
     const selectedCurrencies = Array.from(new Set(selectedRows.map(r => r.curr)));
     const categories = ["Claim", "Cash Advance", "Supplier Payment"];
@@ -225,7 +237,8 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
         .reduce((sum, r) => {
           const amt = cleanAmount(r.amount);
           const rate = parseFloat(r.exchangerate || 1);
-          return sum + (currency === 'IDR' ? amt : amt * rate);
+          const converted = currency === 'IDR' ? amt : amt * rate;
+          return sum + Math.round(converted);
         }, 0);
 
     categories.forEach(category => {
@@ -283,7 +296,7 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
       Currency: "IDR",
       Amount: 0,
       Conversion: "Cash Gap",
-      ConvertedToIDR: 0,
+      ConvertedToIDR: totalB_IDR - totalA,
       CurrencyId: 0,
       TypeId: 0
     });
@@ -332,17 +345,17 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
         ToDate: convertToDate
           ? formatDateToDateOnly(convertToDate)
           : null,
-        CashInHand: 0,
-        TotalInHandCash: 0,
+        CashInHand: totalA,
+        TotalInHandCash: totalA,
         CashFromSalesAtFactory: 0,
-        CashNeeded: 0,
+        CashNeeded: totalB_IDR - totalA,
         IsSubmitted: type,
         CashInHands: { ...cashInHand },
         CashFromSales: { ...cashFromSales },
 
-        userId: 1,     // Replace with actual user ID
-        orgid: 1,      // Replace with actual org ID
-        branchid: 1,
+        userId: userId,
+        orgid: orgId,
+        branchid: branchId,
         seqno: Seqno,
         PaymentId: Claimheader?.SummaryId
       },
@@ -362,9 +375,9 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
           ispaymentgenerated: true,
           remarks: c.comment || ""
         })),
-        userId: 1,     // Replace with actual user ID
-        orgid: 1,      // Replace with actual org ID
-        branchid: 1,   // Replace with actual branch ID
+        userId: userId,
+        orgid: orgId,
+        branchid: branchId,
         summary: Summarypayload
       }
     };
@@ -420,7 +433,7 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
   }
 
   const load = async () => {
-    const res = await GetPaymentPlandetails(1, 1, 1, 1);
+    const res = await GetPaymentPlandetails(1, orgId, branchId, userId);
     if (res.status) {
 
 
@@ -460,6 +473,9 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
 
         setConvertFromDate(header.FromDate ? new Date(header.FromDate) : null);
         setConvertToDate(header.ToDate ? new Date(header.ToDate) : null);
+      } else {
+        // Fetch new sequence number if no active summary exists
+        GetSeqNo();
       }
 
     } else {
@@ -472,30 +488,22 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
   };
 
   const GetSeqNo = async () => {
-
-
-    if (Claimheader.alravailable == 0) {
-      const res = await GetPaymentSummaryseqno(1, 1, 1);
-      if (res.status) {
-
-        if (res.data != undefined && res.data != null) {
-          setSeqno(res.data.ClaimNo);
-        }
-
-
-      } else {
-        Swal.fire({
-          icon: 'error',
-          title: 'Load Failed',
-          text: res.message || 'Unable to fetch seq no data.',
-        });
+    try {
+      const user = getUserDetails();
+      const res = await GetPaymentSummaryseqno(user?.orgId || 1, user?.branchId || 1, user?.u_id || 1);
+      if (res.status && res.data) {
+        const data = Array.isArray(res.data) ? res.data[0] : res.data;
+        const seq = data.PaymentNo || data.ClaimNo || (typeof data === 'string' ? data : "");
+        setSeqno(seq);
       }
+    } catch (err) {
+      console.error("Error fetching sequence number:", err);
     }
   };
   useEffect(() => {
 
     const fetchClaimApprovedDetails = async () => {
-      const res = await GetPaymentPlandetails(1, 1, 1, 1);
+      const res = await GetPaymentPlandetails(1, orgId, branchId, userId);
       if (res.status) {
 
 
@@ -535,6 +543,9 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
 
           setConvertFromDate(header.FromDate ? new Date(header.FromDate) : null);
           setConvertToDate(header.ToDate ? new Date(header.ToDate) : null);
+        } else {
+          // 🟢 NEW: Fetch Next SeqNo if this is a new PPP
+          GetSeqNo();
         }
       } else {
         Swal.fire({

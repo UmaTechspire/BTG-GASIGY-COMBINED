@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     Card,
     CardBody,
@@ -19,6 +19,7 @@ import {
 import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
 import { Dialog } from "primereact/dialog";
+import { Tag } from "primereact/tag";
 import Select from "react-select";
 import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/themes/material_blue.css";
@@ -27,6 +28,9 @@ import { toast } from "react-toastify";
 import { format } from "date-fns";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+
+// Import Breadcrumb
+import Breadcrumbs from "components/Common/Breadcrumb";
 
 // Configuration
 import { GetCustomerFilter } from "../../FinanceModule/service/financeapi";
@@ -86,11 +90,11 @@ const formatDatePrint = (dateInput) => {
 // --- HELPER: Parse Invoices from Reference (handles combined pipes as well) ---
 const parseInvoices = (refNo) => {
     if (!refNo) return [];
-    
+
     // Split by pipe for combined vouchers: "Ref1 | Ref2"
     const parts = refNo.split('|').map(p => p.trim());
     let allInvoices = [];
-    
+
     parts.forEach(part => {
         const match = part.match(/\(Inv:\s*(.*?)\)/);
         if (match && match[1]) {
@@ -103,6 +107,30 @@ const parseInvoices = (refNo) => {
 
     // Remove duplicates
     return [...new Set(allInvoices)];
+};
+
+// --- HELPER: Number with Commas ---
+const formatWithCommas = (val) => {
+    if (val === null || val === undefined || val === "") return "";
+    const cleanValue = String(val).replace(/[^0-9.]/g, '');
+    const parts = cleanValue.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.join('.');
+};
+
+// --- HELPER: Tag Severities ---
+const getSeverity = (status) => {
+    switch (status) {
+        case 'Posted':
+        case 'Completed':
+            return 'success';
+        case 'Saved':
+            return 'danger';
+        case 'Pending':
+            return 'info';
+        default:
+            return 'info';
+    }
 };
 
 const AddBankBook = () => {
@@ -149,6 +177,11 @@ const AddBankBook = () => {
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [messageHistory, setMessageHistory] = useState([]);
     const [newMessage, setNewMessage] = useState("");
+
+    // --- FILTER STATES ---
+    const [filterFromDate, setFilterFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const [filterToDate, setFilterToDate] = useState(new Date());
+    const [filterCurrency, setFilterCurrency] = useState(null);
 
     // --- INITIAL LOAD ---
     useEffect(() => {
@@ -240,7 +273,10 @@ const AddBankBook = () => {
                         const cust = customerList.find(c => c.value === item.customer_id) || supplierList.find(s => s.value === item.customer_id);
                         if (cust) cName = cust.label;
                     }
-                    
+
+                    const curId = item.currencyid || currencyList.find(c => c.label === item.CurrencyCode)?.value;
+                    const curCode = item.CurrencyCode || currencyList.find(c => c.value === item.currencyid)?.label || "";
+
                     return {
                         ...item,
                         bankName: bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || item.bank_name || item.deposit_bank_id,
@@ -248,7 +284,8 @@ const AddBankBook = () => {
                         displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
                         verificationStatus: item.verification_status,
                         customerId: item.customer_id,
-                        currencyCode: currencyList.find(c => c.value === item.currencyid)?.label || ""
+                        currencyid: curId,
+                        currencyCode: curCode
                     };
                 });
                 setEntryList(mapped);
@@ -256,6 +293,46 @@ const AddBankBook = () => {
         } catch (err) { console.error(err); }
         setLoading(false);
     };
+
+    // --- CLIENT-SIDE FILTERING ---
+    const filteredEntries = useMemo(() => {
+        return entryList.filter(entry => {
+            // 1. Date Filter
+            if (entry.date) {
+                const entryDate = new Date(entry.date);
+                entryDate.setHours(0, 0, 0, 0); // Normalize to midnight
+                
+                const from = new Date(filterFromDate);
+                from.setHours(0, 0, 0, 0);
+                
+                const to = new Date(filterToDate);
+                to.setHours(23, 59, 59, 999);
+
+                if (entryDate < from || entryDate > to) return false;
+            }
+
+            // 2. Currency Filter
+            if (filterCurrency && entry.currencyid !== filterCurrency.value) {
+                return false;
+            }
+
+            // 3. Global Filter (Keyword)
+            if (globalFilter) {
+                const searchTerm = globalFilter.toLowerCase();
+                const match = 
+                    (entry.customerName?.toLowerCase().includes(searchTerm)) ||
+                    (entry.bankName?.toLowerCase().includes(searchTerm)) ||
+                    (entry.receipt_id?.toString().includes(searchTerm)) ||
+                    (entry.custom_voucher_no?.toLowerCase().includes(searchTerm)) ||
+                    (entry.reference_no?.toLowerCase().includes(searchTerm)) ||
+                    (entry.bank_amount?.toString().includes(searchTerm));
+                
+                if (!match) return false;
+            }
+
+            return true;
+        });
+    }, [entryList, filterFromDate, filterToDate, filterCurrency, globalFilter]);
 
     const handleMessageOpen = async (rowData) => {
         setSelectedEntry(rowData);
@@ -381,6 +458,12 @@ const AddBankBook = () => {
         setEditMode(true);
         const bank = bankList.find(b => b.value === parseInt(rowData.deposit_bank_id));
         setSelectedBank(bank || null);
+
+        // Fetch and set selected currency (Handle null currencyid by falling back to CurrencyCode)
+        const currency = currencyList.find(c => c.value === rowData.currencyid) || 
+                         currencyList.find(c => c.label === rowData.CurrencyCode);
+        setSelectedCurrency(currency || null);
+
         const amount = parseFloat(rowData.bank_amount);
         const type = amount < 0 ? "Payment" : "Receipt";
 
@@ -407,9 +490,27 @@ const AddBankBook = () => {
             toast.error("Please select a Bank first");
             return;
         }
+        if (!selectedCurrency) {
+            toast.error("Please select a Currency");
+            return;
+        }
         if (rows.length === 0) {
             toast.error("Please add at least one transaction row");
             return;
+        }
+
+        // Validate each row for mandatory party (for relevant types)
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const needsParty = !['Bank Charges', 'Bank Interest', 'Cash Deposit'].includes(row.type);
+            if (needsParty && !row.customerId) {
+                toast.error(`Please select a Party for row ${i + 1}`);
+                return;
+            }
+            if (!row.amount || parseFloat(row.amount) <= 0) {
+                toast.error(`Please enter a valid amount for row ${i + 1}`);
+                return;
+            }
         }
 
         try {
@@ -559,9 +660,9 @@ const AddBankBook = () => {
 
         // Basic consistency check: Same Date, Party, Bank
         const first = selectedVouchers[0];
-        const mismatch = selectedVouchers.some(v => 
-            v.receipt_date !== first.receipt_date || 
-            v.customer_id !== first.customer_id || 
+        const mismatch = selectedVouchers.some(v =>
+            v.receipt_date !== first.receipt_date ||
+            v.customer_id !== first.customer_id ||
             v.deposit_bank_id !== first.deposit_bank_id
         );
 
@@ -587,7 +688,7 @@ const AddBankBook = () => {
             const payload = {
                 receipt_ids: selectedVouchers.map(v => v.receipt_id),
                 new_reference: combineReference,
-                userId: 505, 
+                userId: 505,
                 orgId: 1,
                 branchId: 1,
                 userIp: "127.0.0.1"
@@ -810,67 +911,94 @@ const AddBankBook = () => {
         }
     };
 
-    const statusBodyTemplate = (rowData) => (
-        <div className="d-flex justify-content-center">
-            <span className={`circle-badge ${rowData.is_posted ? 'bg-posted' : 'bg-saved'}`}>
-                {rowData.is_posted ? 'P' : 'S'}
-            </span>
-        </div>
-    );
+    const statusBodyTemplate = (rowData) => {
+        const isPosted = rowData.is_posted;
+        const statusVal = isPosted ? "Posted" : "Saved";
+        const statusShort = isPosted ? "P" : "S";
+        return <Tag value={statusShort} severity={getSeverity(statusVal)} />;
+    };
 
     const verificationBodyTemplate = (rowData) => {
         if (!rowData.is_posted) return null;
-        const isCompleted = rowData.verificationStatus === 'Completed';
-        const isPending = rowData.verificationStatus === 'Pending';
+        const isVerified = rowData.verificationStatus === 'Completed';
+        const statusVal = isVerified ? "Completed" : "Pending";
+        const statusShort = isVerified ? "C" : "MP";
+        return <Tag value={statusShort} severity={getSeverity(statusVal)} />;
+    };
 
-        if (isPending) return (<div className="d-flex justify-content-center"><span className="circle-badge bg-danger" title="Verification Pending">P</span></div>);
-        if (isCompleted) return (<div className="d-flex justify-content-center"><span className="circle-badge bg-success" title="Verification Completed">C</span></div>);
-        return null;
+    const viewBodyTemplate = (rowData) => {
+        return (
+            <div className="d-flex justify-content-center">
+                <i
+                    className="fas fa-eye text-secondary cursor-pointer font-size-18"
+                    onClick={() => handlePreview(rowData)}
+                    title="View Details"
+                ></i>
+            </div>
+        );
+    };
+
+    const printBodyTemplate = (rowData) => {
+        return (
+            <div className="d-flex justify-content-center">
+                <i
+                    className="bx bx-printer text-secondary cursor-pointer font-size-22"
+                    onClick={() => handlePrintPreview(rowData)}
+                    title="Print"
+                    style={{ cursor: 'pointer' }}
+                ></i>
+            </div>
+        );
+    };
+
+    const postBodyTemplate = (rowData) => {
+        const isActionable = rowData.verificationStatus === 'Completed';
+        return (
+            <div className="d-flex justify-content-center">
+                <i
+                    className={`bx bx-check-circle font-size-22 ${isActionable ? 'text-secondary cursor-pointer' : 'text-muted opacity-50'}`}
+                    onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }}
+                    title={isActionable ? "Post" : "Verification Pending"}
+                    style={{ cursor: isActionable ? 'pointer' : 'not-allowed' }}
+                ></i>
+            </div>
+        );
     };
 
     const actionBodyTemplate = (rowData) => {
-        const isEditable = rowData.verificationStatus !== 'Completed';
-        const isActionable = rowData.verificationStatus === 'Completed';
-        const isVerified = rowData.verificationStatus === 'Completed';
+        const isEditable = !(rowData.is_posted && rowData.verificationStatus === 'Completed');
 
         return (
-            <div className="d-flex justify-content-center gap-3 align-items-center table-actions">
-                <button className={`btn-icon ${isEditable ? 'text-primary' : 'text-muted'}`} onClick={() => { if (isEditable) openEditModal(rowData); }} disabled={!isEditable} title="Edit">
-                    <i className="bx bx-pencil font-size-18"></i>
-                </button>
+            <div className="d-flex justify-content-center align-items-center gap-3">
                 <i
-                    className={`bx bx-show action-link preview ${!isVerified ? 'text-muted opacity-50' : ''}`}
-                    title={isVerified ? "Preview Invoices" : "Verification Pending"}
-                    onClick={isVerified ? () => handlePreview(rowData) : null}
-                    style={{ cursor: isVerified ? 'pointer' : 'not-allowed', fontSize: '18px' }}
+                    className="mdi mdi-square-edit-outline"
+                    style={{
+                        fontSize: '1.5rem',
+                        cursor: isEditable ? 'pointer' : 'default',
+                        color: isEditable ? '#495057' : '#ced4da',
+                        opacity: isEditable ? 1 : 0.5
+                    }}
+                    onClick={() => { if (isEditable) openEditModal(rowData); else handlePreview(rowData); }}
+                    title={isEditable ? "Edit" : "View Details (Read-only)"}
                 ></i>
-                <button className={`btn-icon ${isActionable ? 'text-success' : 'text-muted'}`} onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }} disabled={!isActionable} title="Post">
-                    <i className="bx bx-check-circle font-size-18"></i>
-                </button>
-                <button className={`btn-icon ${isActionable ? 'text-secondary' : 'text-muted'}`} onClick={() => { if (isActionable) handlePrintPreview(rowData); }} disabled={!isActionable} title="Print Receipt">
-                    <i className="bx bx-printer font-size-18"></i>
-                </button>
                 <div style={{ position: 'relative', display: 'inline-block' }}>
-                    <button 
-                        className={`btn-icon ${rowData.is_combined ? 'text-muted' : (rowData.unread_count > 0 ? 'text-danger' : 'text-info')}`} 
-                        disabled={rowData.is_combined} 
-                        title={rowData.is_combined ? "Messaging unavailable for combined entries" : (rowData.unread_count > 0 ? `Comments (${rowData.unread_count} unread)` : "Comments")} 
-                        onClick={() => handleMessageOpen(rowData)}
-                    >
-                        <i className="bx bx-chat font-size-18"></i>
-                    </button>
-                    {rowData.unread_count > 0 && !rowData.is_combined && (
-                        <Badge 
-                            color="danger" 
-                            pill 
-                            style={{ 
-                                position: 'absolute', 
-                                top: '-2px', 
-                                right: '-3px', 
-                                fontSize: '9px', 
+                    <i
+                        className={`bx bx-chat font-size-20 ${(rowData.is_posted && !rowData.is_combined) ? (rowData.unread_count > 0 ? 'text-danger' : 'text-dark cursor-pointer') : 'text-muted opacity-50'}`}
+                        title={rowData.is_combined ? "Messaging unavailable for combined entries" : (!rowData.is_posted ? "Comments only available for posted entries" : "Comments")}
+                        onClick={() => rowData.is_posted && !rowData.is_combined && handleMessageOpen(rowData)}
+                        style={{ cursor: (rowData.is_posted && !rowData.is_combined) ? 'pointer' : 'default' }}
+                    ></i>
+                    {rowData.unread_count > 0 && !rowData.is_combined && rowData.is_posted && (
+                        <Badge
+                            color="danger"
+                            pill
+                            style={{
+                                position: 'absolute',
+                                top: '-6px',
+                                right: '-8px',
+                                fontSize: '8px',
                                 padding: '2px 4px',
-                                border: '1px solid white',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                border: '1px solid white'
                             }}
                         >
                             {rowData.unread_count}
@@ -887,70 +1015,137 @@ const AddBankBook = () => {
         menuPortal: (base) => ({ ...base, zIndex: 9999 })
     };
 
+    const renderHeader = () => {
+        const handleClearAll = () => {
+            setGlobalFilter('');
+            setFilterFromDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+            setFilterToDate(new Date());
+            setFilterCurrency(null);
+        };
+
+        return (
+            <div className="d-flex justify-content-between align-items-center">
+                <Button color="danger" onClick={handleClearAll} className="btn-label" style={{ minWidth: '100px' }}>
+                    <i className="mdi mdi-filter-off label-icon font-size-16 align-middle me-2"></i> Clear
+                </Button>
+                <div className="d-flex align-items-center gap-3">
+                    <div className="d-flex align-items-center gap-3 border-end pe-3">
+                        <div className="d-flex align-items-center gap-1">
+                            <span className="fw-bold me-1" style={{ fontSize: '11px' }}>Status:</span>
+                            <Tag value="S" severity={getSeverity("Saved")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Saved</small>
+                        </div>
+                        <div className="d-flex align-items-center gap-1">
+                            <Tag value="P" severity={getSeverity("Posted")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Posted</small>
+                        </div>
+                        <div className="d-flex align-items-center gap-1 border-start ps-3">
+                            <span className="fw-bold me-1" style={{ fontSize: '11px' }}>Verify:</span>
+                            <Tag value="MP" severity={getSeverity("Pending")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Pending</small>
+                        </div>
+                        <div className="d-flex align-items-center gap-1">
+                            <Tag value="C" severity={getSeverity("Completed")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Completed</small>
+                        </div>
+                    </div>
+                    <input
+                        className="form-control"
+                        type="text"
+                        value={globalFilter}
+                        onChange={(e) => setGlobalFilter(e.target.value)}
+                        placeholder="Keyword Search..."
+                        style={{ width: '250px' }}
+                    />
+                </div>
+            </div>
+        );
+    };
+
+    const header = renderHeader();
+
     return (
         <div className="page-content bg-modern">
             <Container fluid>
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                    <h5 className="page-heading mb-0">BANK BOOK ENTRY</h5>
-                    <div className="d-flex align-items-center gap-3">
-                        <div className="search-box">
-                            <i className="bx bx-search-alt search-icon" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#74788d' }}></i>
-                            <Input
-                                type="text"
-                                className="form-control form-control-sm ps-4"
-                                placeholder="Search..."
-                                value={globalFilter}
-                                onChange={(e) => setGlobalFilter(e.target.value)}
-                                style={{ width: '220px', borderRadius: '4px', position: 'relative' }}
-                            />
-                        </div>
-                        <div className="d-flex gap-2">
+                <Breadcrumbs title="Finance" breadcrumbItem="Bank Book Entries" />
+
+                <Row className="mb-3 align-items-center g-3">
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">From</label>
+                        <Flatpickr
+                            className="form-control"
+                            value={filterFromDate}
+                            onChange={(d) => setFilterFromDate(d[0])}
+                            options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }}
+                        />
+                    </Col>
+
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">To</label>
+                        <Flatpickr
+                            className="form-control"
+                            value={filterToDate}
+                            onChange={(d) => setFilterToDate(d[0])}
+                            options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }}
+                        />
+                    </Col>
+
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-1 fw-bold text-nowrap" style={{ minWidth: '70px' }}>Currency</label>
+                        <Select
+                            className="flex-grow-1"
+                            options={currencyList}
+                            value={filterCurrency}
+                            onChange={setFilterCurrency}
+                            isClearable
+                            placeholder="All"
+                            styles={{
+                                control: (base) => ({ ...base, minHeight: '38px', fontSize: '13px', borderColor: '#ced4da' }),
+                                menu: (base) => ({ ...base, fontSize: '13px', zIndex: 9999 }),
+                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                container: (base) => ({ ...base, width: '100%' })
+                            }}
+                        />
+                    </Col>
+
+                    <Col lg="6" className="text-end">
+                        <div className="d-flex gap-2 justify-content-end align-items-center">
                             {selectedVouchers.length >= 2 && (
-                                <button className="btn-toolbar btn-combine-blue" onClick={() => setIsCombineModalOpen(true)}>
-                                    <i className="bx bx-git-merge"></i> Combine ({selectedVouchers.length})
+                                <button type="button" className="btn btn-primary btn-label" onClick={() => setIsCombineModalOpen(true)}>
+                                    <i className="bx bx-git-merge label-icon font-size-16 align-middle me-2"></i> Combine ({selectedVouchers.length})
                                 </button>
                             )}
-                            <button className="btn-toolbar btn-new-green" onClick={openNewModal}><i className="bx bx-plus"></i> New Entry</button>
+                            <button type="button" className="btn btn-success btn-label" onClick={openNewModal}>
+                                <i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i> New
+                            </button>
                         </div>
-                    </div>
-                </div>
+                    </Col>
+                </Row>
 
                 <Card className="main-card border-0">
                     <CardBody>
-                        {/* --- LEGENDS SECTION (Moved to Right) --- */}
-                        <div className="d-flex justify-content-end gap-4 mb-3 pb-2 border-bottom">
-                            <div className="d-flex align-items-center gap-2">
-                                <span className="fw-bold small text-muted">Status:</span>
-                                <span className="circle-badge bg-posted">P</span> <small className="text-muted" style={{ fontSize: '11px' }}>Posted</small>
-                                <span className="circle-badge bg-saved">S</span> <small className="text-muted" style={{ fontSize: '11px' }}>Saved</small>
-                            </div>
-                            <div className="d-flex align-items-center gap-2 border-start ps-4">
-                                <span className="fw-bold small text-muted">Verify:</span>
-                                <span className="circle-badge bg-danger">P</span> <small className="text-muted" style={{ fontSize: '11px' }}>Pending</small>
-                                <span className="circle-badge bg-success">C</span> <small className="text-muted" style={{ fontSize: '11px' }}>Completed</small>
-                            </div>
-                        </div>
-                        <DataTable 
-                            value={entryList} 
-                            paginator 
-                            rows={10} 
-                            loading={loading} 
-                            globalFilter={globalFilter} 
-                            className="p-datatable-modern p-datatable-gridlines" 
+                        <DataTable
+                            value={filteredEntries}
+                            paginator
+                            rows={20}
+                            loading={loading}
+                            globalFilter={globalFilter}
+                            header={header}
+                            emptyMessage="No records found."
+                            showGridlines
+                            className="blue-bg"
                             responsiveLayout="scroll"
                             selection={selectedVouchers}
                             onSelectionChange={(e) => setSelectedVouchers(e.value)}
                             dataKey="receipt_id"
+                            rowClick={false}
+                            selectionMode="checkbox"
                         >
                             <Column selectionMode="multiple" headerStyle={{ width: '3em' }}></Column>
                             <Column field="displayDate" header="Date" sortable filter style={{ width: '8%' }} />
-                            <Column field="bankName" header="Bank Name" sortable filter style={{ width: '15%' }} />
-                            <Column field="customerName" header="Party" sortable filter style={{ width: '22%' }} />
-                            <Column 
-                                field="receipt_id" 
-                                header="Voucher" 
-                                sortable 
-                                filter 
+                            <Column field="bankName" header="Bank Name" sortable filter style={{ width: '12%' }} />
+                            <Column field="customerName" header="Party" sortable filter style={{ width: '20%' }} />
+                            <Column
+                                field="receipt_id"
+                                header="Voucher"
+                                sortable
+                                filter
                                 body={(rowData) => {
                                     if (rowData.verificationStatus !== 'Completed') {
                                         return <span title="">-</span>;
@@ -961,54 +1156,51 @@ const AddBankBook = () => {
                                         </span>
                                     );
                                 }}
-                                style={{ width: '10%' }} 
+                                style={{ width: '10%' }}
                             />
-                            <Column field="bank_amount" header="Amount" textAlign="right" body={(d) => {
+                            <Column field="bank_amount" header="Amount" className="text-end" body={(d) => {
                                 const val = parseFloat(d.bank_amount || 0);
                                 return val === 0 ? "" : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
                             }} style={{ width: '10%' }} />
-                            <Column field="bank_charges" header="Bank Charges" textAlign="right" body={(d) => {
+                            <Column field="bank_charges" header="Bank Charges" className="text-end" body={(d) => {
                                 const val = parseFloat(d.bank_charges || 0);
                                 return val === 0 ? "" : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
                             }} style={{ width: '10%' }} />
                             <Column header="Status" body={statusBodyTemplate} style={{ width: '5%' }} className="text-center" />
                             <Column header="Verify" body={verificationBodyTemplate} style={{ width: '5%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
-                            <Column header="Action" body={actionBodyTemplate} style={{ width: '15%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="View" body={viewBodyTemplate} style={{ width: '5%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Print" body={printBodyTemplate} style={{ width: '5%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Post" body={postBodyTemplate} style={{ width: '5%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Action" body={actionBodyTemplate} style={{ width: '8%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
                         </DataTable>
                     </CardBody>
                 </Card>
 
                 <style>{`
-                    .p-datatable-modern .p-datatable-thead > tr > th {
-                        background-color: #f8f9fa !important;
-                        color: #333 !important;
-                    }
-                    .p-datatable-modern .p-datatable-tbody > tr > td {
-                        border-color: #f2f2f2 !important;
-                    }
-                    .modern-dialog .table-bordered, 
-                    .modern-dialog .table-bordered td, 
-                    .modern-dialog .table-bordered th {
-                        border-color: #f2f2f2 !important;
-                    }
-                    .circle-badge {
-                        width: 20px;
-                        height: 20px;
-                        border-radius: 50%;
+                    .cursor-pointer { cursor: pointer; }
+                    .btn-toolbar {
                         display: flex;
                         align-items: center;
-                        justify-content: center;
-                        color: white;
-                        font-weight: bold;
-                        font-size: 10px;
+                        gap: 8px;
+                        padding: 6px 16px;
+                        border-radius: 4px;
+                        font-size: 13px;
+                        font-weight: 600;
+                        transition: all 0.2s;
+                        border: 1px solid transparent;
                     }
-                    .bg-posted { background-color: #4b6cb7; }
-                    .bg-saved { background-color: #6c757d; }
+                    .btn-toolbar i { font-size: 16px; }
+                    .btn-save { background: #eef2ff; color: #4b6cb7; border-color: #d1d5db; }
+                    .btn-save:hover { background: #4b6cb7; color: white; }
+                    .btn-post { background: #ecfdf5; color: #059669; border-color: #d1d5db; }
+                    .btn-post:hover { background: #059669; color: white; }
+                    .btn-cancel { background: #fff1f2; color: #e11d48; border-color: #d1d5db; }
+                    .btn-cancel:hover { background: #e11d48; color: white; }
                 `}</style>
 
                 {/* --- BATCH ENTRY MODAL --- */}
                 <Dialog
-                    header={editMode ? "Edit Entry" : "New Bank Book Entry (Batch)"}
+                    header={editMode ? "Edit Entry" : "New Bank Book Entry"}
                     visible={isModalOpen}
                     onHide={() => setIsModalOpen(false)}
                     className="modern-dialog"
@@ -1018,7 +1210,7 @@ const AddBankBook = () => {
                 >
                     <div className="bg-light p-3 rounded mb-3 d-flex justify-content-between align-items-center">
                         <div className="d-flex align-items-center gap-3" style={{ width: '55%' }}>
-                            <Label className="fw-bold mb-0 text-nowrap">Bank Account:</Label>
+                            <Label className="fw-bold mb-0 text-nowrap">Bank Account <span className="text-danger">*</span>:</Label>
                             <Select
                                 className="flex-grow-1"
                                 options={bankList}
@@ -1029,7 +1221,7 @@ const AddBankBook = () => {
                                         const matchCur = currencyList.find(c => c.value === bank.currencyId);
                                         if (matchCur) setSelectedCurrency(matchCur);
                                     }
-                                    
+
                                     // Clear customerId for 'Bank transfer' rows if it matches the new main bank
                                     setRows(prevRows => prevRows.map(row => {
                                         if (row.type === 'Bank transfer' && Number(row.customerId) === Number(bank?.value)) {
@@ -1042,7 +1234,7 @@ const AddBankBook = () => {
                                 styles={customSelectStyles}
                                 isDisabled={editMode}
                             />
-                            <Label className="fw-bold mb-0 text-nowrap">Currency:</Label>
+                            <Label className="fw-bold mb-0 text-nowrap">Currency <span className="text-danger">*</span>:</Label>
                             <Select
                                 className="flex-grow-1"
                                 options={currencyList}
@@ -1071,7 +1263,7 @@ const AddBankBook = () => {
                                 <tr>
                                     <th style={{ width: '90px' }} className="text-center">Type</th>
                                     <th style={{ width: '110px' }} className="text-center">Date</th>
-                                    <th style={{ width: '220px' }}>Party</th>
+                                    <th style={{ width: '220px' }}>Party <span className="text-danger">*</span></th>
                                     <th style={{ width: '120px' }}>Reference No.</th>
                                     <th style={{ width: '130px' }} className="text-end">Amount</th>
                                     <th style={{ width: '130px' }}>Method</th>
@@ -1115,9 +1307,9 @@ const AddBankBook = () => {
                                                 onChange={(opt) => handleRowChange(index, 'customerId', opt?.value)}
                                                 styles={customSelectStyles}
                                                 menuPortalTarget={document.body}
-                                                placeholder={ (row.type === 'Bank Charges' || row.type === 'Bank Interest' || row.type === 'Cash Deposit') ? "Disabled" : 
-                                                            (row.type === 'Payment' ? "Select Supplier..." : 
-                                                            (row.type === 'Bank transfer' ? "Select Bank..." : "Select Customer..."))}
+                                                placeholder={(row.type === 'Bank Charges' || row.type === 'Bank Interest' || row.type === 'Cash Deposit') ? "Disabled" :
+                                                    (row.type === 'Payment' ? "Select Supplier..." :
+                                                        (row.type === 'Bank transfer' ? "Select Bank..." : "Select Customer..."))}
                                                 isDisabled={row.type === 'Bank Charges' || row.type === 'Bank Interest' || row.type === 'Cash Deposit'}
                                             />
                                         </td>
@@ -1125,7 +1317,14 @@ const AddBankBook = () => {
                                             <Input bsSize="sm" value={row.referenceNo} onChange={(e) => handleRowChange(index, 'referenceNo', e.target.value)} style={{ fontSize: '12px' }} />
                                         </td>
                                         <td>
-                                            <Input type="number" bsSize="sm" value={row.amount} onChange={(e) => handleRowChange(index, 'amount', e.target.value)} className="text-end" style={{ fontSize: '12px' }} />
+                                            <Input
+                                                type="text"
+                                                bsSize="sm"
+                                                value={formatWithCommas(row.amount)}
+                                                onChange={(e) => handleRowChange(index, 'amount', e.target.value.replace(/,/g, ''))}
+                                                className="text-end"
+                                                style={{ fontSize: '12px' }}
+                                            />
                                         </td>
                                         <td>
                                             <div className="d-flex flex-column gap-1">
@@ -1152,7 +1351,14 @@ const AddBankBook = () => {
                                             </div>
                                         </td>
                                         <td>
-                                            <Input type="number" bsSize="sm" value={row.bankCharges} onChange={(e) => handleRowChange(index, 'bankCharges', e.target.value)} className="text-end" style={{ fontSize: '12px' }} />
+                                            <Input
+                                                type="text"
+                                                bsSize="sm"
+                                                value={formatWithCommas(row.bankCharges)}
+                                                onChange={(e) => handleRowChange(index, 'bankCharges', e.target.value.replace(/,/g, ''))}
+                                                className="text-end"
+                                                style={{ fontSize: '12px' }}
+                                            />
                                         </td>
                                         <td>
                                             <Select
@@ -1176,14 +1382,19 @@ const AddBankBook = () => {
 
                     <div className="mt-2">
                         <Button color="primary" size="sm" onClick={handleAddRow} style={{ fontSize: '12px', padding: '5px 12px', color: 'white' }}>
-                            <i className="bx bx-plus me-1"></i> Add Entry
+                            <i className="bx bx-plus me-1"></i>
                         </Button>
                     </div>
-
-                    <div className="d-flex justify-content-end gap-2 border-top pt-3 mt-3">
-                        <button className="btn-modal btn-cancel" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                        <button className="btn-modal btn-save" onClick={() => handleBatchSubmit("SAVE")}>{editMode ? "Update" : "Save Draft"}</button>
-                        <button className="btn-modal btn-post" onClick={() => handleBatchSubmit("POST")}>Post</button>
+                    <div className="d-flex justify-content-end gap-2">
+                        <button type="button" className="btn btn-info btn-label" onClick={() => handleBatchSubmit("SAVE")}>
+                            <i className="bx bx-comment-check label-icon font-size-16 align-middle me-2"></i> {editMode ? "Update" : "Save"}
+                        </button>
+                        <button type="button" className="btn btn-success btn-label" onClick={() => handleBatchSubmit("POST")}>
+                            <i className="bx bxs-save label-icon font-size-16 align-middle me-2"></i> Post
+                        </button>
+                        <button type="button" className="btn btn-danger btn-label" onClick={() => setIsModalOpen(false)}>
+                            <i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i> Close
+                        </button>
                     </div>
                 </Dialog>
 
@@ -1203,25 +1414,25 @@ const AddBankBook = () => {
                         <div className="pt-2">
                             <div className="p-3 bg-light rounded mb-3">
                                 {selectedEntry?.is_combined && selectedEntry?.custom_voucher_no && (
-                                    <div className="mb-2">
+                                    <div className="mb-3 border-bottom pb-2">
                                         <span className="fw-bold text-secondary me-2">Combined Receipt No:</span>
                                         <span className="fw-bold fs-5 text-primary">
                                             {selectedEntry.custom_voucher_no}
                                         </span>
                                     </div>
                                 )}
-                                {selectedEntry?.bank_amount && (
-                                    <div className="mb-2">
-                                        <span className="fw-bold text-secondary me-2">Receipt Amount:</span>
+                                <Row className="align-items-center">
+                                    <Col md={6} className="d-flex align-items-center">
+                                        <span className="fw-bold text-secondary me-2" style={{ minWidth: '120px' }}>Receipt Amount:</span>
                                         <span className="fw-bold fs-5" style={{ color: '#B22222' }}>
-                                            {selectedEntry.currencyCode} {parseFloat(selectedEntry.bank_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                            {selectedEntry.currencyCode} {parseFloat(selectedEntry.bank_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                         </span>
-                                    </div>
-                                )}
-                                <div className="d-flex align-items-center">
-                                    <span className="fw-bold text-secondary me-2">Party:</span>
-                                    <span className="fw-bold text-dark">{selectedEntry.customerName}</span>
-                                </div>
+                                    </Col>
+                                    <Col md={6} className="d-flex align-items-center">
+                                        <span className="fw-bold text-secondary me-2" style={{ minWidth: '60px' }}>Party:</span>
+                                        <span className="fw-bold text-dark fs-6">{selectedEntry.customerName}</span>
+                                    </Col>
+                                </Row>
                             </div>
 
                             {loadingInvoices ? (
@@ -1429,7 +1640,7 @@ const AddBankBook = () => {
                 .clear-icon { display: flex; align-items: center; justify-content: center; }
                 .legend-label { font-size: 14px; font-weight: 700; color: #2a3142; }
                 .minimal-search { border: 1px solid #ced4da; border-radius: 4px; padding: 5px 12px; font-size: 13px; width: 280px; outline: none; }
-                .p-datatable-modern .p-datatable-thead > tr > th { background-color: #5584d4 !important; color: white !important; font-size: 12px; padding: 12px; border: 1px solid #ffffff22; }
+                .p-datatable-modern .p-datatable-thead > tr > th { font-size: 13px; padding: 12px; border: 1px solid #ffffff22; }
                 .verif-badge { padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; width: 90px; text-align: center; }
                 .bg-pend { background-color: #ffe8d6; color: #c05621; } 
                 .bg-comp { background-color: #d1fae5; color: #065f46; border: 1px solid #065f46; } 
@@ -1444,8 +1655,8 @@ const AddBankBook = () => {
                 .submit { color: #27ae60; }
                 .preview { color: #17a2b8; } 
                 .divider { color: #ced4da; }
-                .modern-dialog .p-dialog-header { padding: 1.25rem; border-bottom: 1px solid #eff2f7; background: #fff; border-top-left-radius: 8px; border-top-right-radius: 8px; }
-                .modern-dialog .p-dialog-content { padding: 1.5rem; background: #fff; }
+                .modern-dialog .p-dialog-header { padding: 0.75rem 1.25rem; border-bottom: 1px solid #eff2f7; background: #fff; border-top-left-radius: 8px; border-top-right-radius: 8px; }
+                .modern-dialog .p-dialog-content { padding: 1rem 1.25rem; background: #fff; }
                 .modal-label { font-size: 13px; font-weight: 600; color: #495057; margin-bottom: 6px; }
                 .btn-modal { padding: 8px 24px; font-size: 13px; font-weight: 600; border-radius: 4px; border: none; transition: 0.2s; }
                 .btn-cancel { background: white; border: 1px solid #ced4da; color: #74788d; }
@@ -1457,10 +1668,10 @@ const AddBankBook = () => {
                 .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
             `}</style>
             {/* --- COMBINE VOUCHERS DIALOG --- */}
-            <Dialog 
-                header="Combine Vouchers" 
-                visible={isCombineModalOpen} 
-                style={{ width: '450px' }} 
+            <Dialog
+                header="Combine Vouchers"
+                visible={isCombineModalOpen}
+                style={{ width: '450px' }}
                 onHide={() => setIsCombineModalOpen(false)}
                 footer={
                     <div className="d-flex justify-content-end gap-2">
@@ -1474,15 +1685,15 @@ const AddBankBook = () => {
                 <div className="p-2">
                     <div className="alert alert-info py-2 small mb-3">
                         <i className="bx bx-info-circle me-1"></i>
-                        Combining will merge <strong>{selectedVouchers.length} vouchers</strong> into one new entry. 
+                        Combining will merge <strong>{selectedVouchers.length} vouchers</strong> into one new entry.
                         Total amount: <strong>{selectedVouchers.reduce((acc, v) => acc + parseFloat(v.bank_amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
                     </div>
 
                     <div className="mb-3">
                         <Label className="small fw-bold">Combined Reference Description (Optional)</Label>
-                        <Input 
-                            type="text" 
-                            placeholder="e.g. Combined payment for..." 
+                        <Input
+                            type="text"
+                            placeholder="e.g. Combined payment for..."
                             value={combineReference}
                             onChange={(e) => setCombineReference(e.target.value)}
                         />
@@ -1501,10 +1712,10 @@ const AddBankBook = () => {
             </Dialog>
 
             {/* --- MESSAGING DIALOG --- */}
-            <Dialog 
-                header={`Message Thread — ${selectedEntry?.customerName || ""}`}
-                visible={isMessageModalOpen} 
-                style={{ width: '450px' }} 
+            <Dialog
+                header={`${selectedEntry?.customerName || ""}`}
+                visible={isMessageModalOpen}
+                style={{ width: '1050px' }}
                 onHide={() => setIsMessageModalOpen(false)}
                 footer={
                     <div className="d-flex justify-content-end gap-2">
@@ -1516,7 +1727,7 @@ const AddBankBook = () => {
                 }
             >
                 <div className="p-2">
-                    <div className="mb-3" style={{ maxHeight: '250px', overflowY: 'auto', padding: '10px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #eee' }}>
+                    <div className="mb-3" style={{ maxHeight: '700px', overflowY: 'auto', padding: '10px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #eee' }}>
                         {messageHistory.length === 0 ? (
                             <div className="text-center text-muted py-3 small">No previous messages.</div>
                         ) : (
@@ -1541,10 +1752,10 @@ const AddBankBook = () => {
                     </div>
                     <div>
                         <Label className="small fw-bold">Reply to Marketing:</Label>
-                        <Input 
-                            type="textarea" 
-                            rows="3" 
-                            placeholder="Enter your message..." 
+                        <Input
+                            type="textarea"
+                            rows="4"
+                            placeholder="Enter your message..."
                             value={newMessage}
                             onChange={(e) => setNewMessage(e.target.value)}
                             style={{ fontSize: '13px' }}

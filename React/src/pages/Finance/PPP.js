@@ -267,14 +267,27 @@ const PPP = ({ selectedType, setSelectedType }) => {
   };
 
   const handleGenerateVoucher = async (groupRows) => {
-    if (!groupRows || groupRows.length === 0) {
-      toast.warning('No records found in this group.');
+    // 🚫 Filter out CASH rows - Vouchers should not be created for Cash payments
+    const validGroupRows = groupRows.filter(row => {
+      const modeOfPaymentId = row.ModeOfPaymentId ?? row.modeOfPaymentId;
+      const isCash = modeOfPaymentOptions.find(opt => opt.value === Number(modeOfPaymentId))?.label === "Cash";
+      return !isCash;
+    });
+
+    if (!validGroupRows || validGroupRows.length === 0) {
+      toast.warning('This group contains only Cash payments. Vouchers cannot be generated for Cash.');
       return;
     }
 
-    // Validation
-    for (const row of groupRows) {
-      if (row.ModeOfPaymentId !== 1 && !row.bank) {
+    const selectedGroupRows = validGroupRows;
+
+    // Validation (Now only for selected rows)
+    for (const row of selectedGroupRows) {
+      // Use case-agnostic lookup for ModeOfPaymentId
+      const modeOfPaymentId = row.ModeOfPaymentId ?? row.modeOfPaymentId;
+
+      // Use Number() to ensure type-safe comparison (string "1" vs number 1)
+      if (Number(modeOfPaymentId) !== 1 && !(row.bank ?? row.bankId ?? row.BankId)) {
         toast.warning(`Please select a bank for claim #${row.claimno || row.id}.`);
         return;
       }
@@ -290,10 +303,9 @@ const PPP = ({ selectedType, setSelectedType }) => {
       let failureCount = 0;
       const successfulRows = []; // Track rows that generated vouchers successfully
 
-      // Filter rows
-      // Case-insensitive check just to be safe
-      const cashAdvanceRows = groupRows.filter(r => (r.type || "").toUpperCase() === "CASH ADVANCE");
-      const otherRows = groupRows.filter(r => (r.type || "").toUpperCase() !== "CASH ADVANCE");
+      // Filter rows (Now only for selected rows)
+      const cashAdvanceRows = selectedGroupRows.filter(r => (r.type || "").toUpperCase() === "CASH ADVANCE");
+      const otherRows = selectedGroupRows.filter(r => (r.type || "").toUpperCase() !== "CASH ADVANCE");
 
       // 1. Process "Cash Advance" rows individually (One Voucher per Claim)
       for (const row of cashAdvanceRows) {
@@ -301,14 +313,15 @@ const PPP = ({ selectedType, setSelectedType }) => {
           claimid: row.id,
           ispaymentgenerated: true,
           remarks: "",
-          modeOfPaymentId: row.ModeOfPaymentId,
-          bankId: row.bank,
+          modeOfPaymentId: row.ModeOfPaymentId ?? row.modeOfPaymentId,
+          bankId: row.bank ?? row.bankId ?? row.BankId,
           paymentDate: row.paymentDate
             ? formatDateToDateOnly(row.paymentDate)
             : row.date
               ? formatDateToDateOnly(row.date)
               : null,
         }];
+
 
         const payload = {
           approve: {
@@ -340,8 +353,8 @@ const PPP = ({ selectedType, setSelectedType }) => {
           claimid: row.id,
           ispaymentgenerated: true,
           remarks: "",
-          modeOfPaymentId: row.ModeOfPaymentId,
-          bankId: row.bank,
+          modeOfPaymentId: row.ModeOfPaymentId ?? row.modeOfPaymentId,
+          bankId: row.bank ?? row.bankId ?? row.BankId,
           paymentDate: row.paymentDate
             ? formatDateToDateOnly(row.paymentDate)
             : row.date
@@ -1621,9 +1634,15 @@ let severity = 'secondary'; // default gray
                       const hasVoucher = group.rows.some(row => row.voucherid);
                       const allHaveVoucher = group.rows.every(row => row.voucherid);
 
-                      // RESTRICTION: Hide "Update Voucher" for users 138, 139, 140
+                      // 🔒 Lockdown Logic: Disable if GM or Director approved (unless Super Admin 158)
+                      const isLockedByApproval = group.rows.some(
+                        row => (Number(row.approvedone) === 1) || (Number(row.approvedtwo) === 1)
+                      );
+
                       const authUser = JSON.parse(localStorage.getItem("authUser"));
                       const currentUserId = authUser ? (parseInt(authUser.u_id) || 0) : 0;
+                      const isSuperAdmin = currentUserId === 158;
+
                       const restrictedUpdateVoucherUsers = [138, 139, 140];
                       // If user is restricted, they should ONLY see "Generate Voucher" (when hasVoucher is false).
                       // If hasVoucher is true (Update mode), hide the button.
@@ -1635,16 +1654,21 @@ let severity = 'secondary'; // default gray
                           header={`Payment Plan Date: ${group.PaymentPlanDate} / PPP Number: ${group.PaymentNo}`}
                         >
                           <div className="d-flex justify-content-end mb-2">
-                            <button
-                              className="btn btn-primary"
-                              style={{ marginRight: "10px" }}
-                              onClick={() => handlePVViewClick(group)}
-                            >
-                              PV View
-                            </button>
+                            {group.type !== "PPP PV" && (
+                              <button
+                                style={{ marginRight: "10px" }}
+                                className="btn btn-primary"
+                                onClick={() => handlePVViewClick(group)}
+                              >
+                                PV View
+                              </button>
+                            )}
                             {showVoucherButton && (
                               <button className="btn btn-success" style={{ marginRight: "10px" }}
-                                disabled={allHaveVoucher && group.rows.some(row => row.VouCmrStatus === 1 || row.VouCmrStatus === 'Approved')}
+                                disabled={
+                                  (allHaveVoucher && group.rows.some(row => row.VouCmrStatus === 1 || row.VouCmrStatus === 'Approved')) ||
+                                  (isLockedByApproval && !isSuperAdmin)
+                                }
                                 onClick={() => handleGenerateVoucher(group.rows)}>
                                 {hasVoucher ? "Update Voucher" : "Generate Voucher"}
                               </button>
@@ -1678,21 +1702,25 @@ let severity = 'secondary'; // default gray
                             </button>
                           </div>
 
-                          <ApprovalTable
-                            setData={setclaims}
-                            type={group.type}
-                            data={group.rows}
-                            ApproverIndicator={ApproverIndicator}
-                            selectedRows={selectedRows}
-                            setSelectedRows={setSelectedRows}
-                            handleCheckboxChange={handleCheckboxChange}
-                            handleShowDetails={handleShowDetails}
-                            handleVoucherClick={handleVoucherClick}
-                            ApproverGridIndicator={ApproverGridIndicator}
-                            access={access}
-                            modeOfPaymentOptions={modeOfPaymentOptions}
-                            bankOptions={bankOptions}
-                          />
+                          {group.type === "PPP PV" ? (
+                            <PaymentSummaryTable claims={group.rows} approvedata={group} onRefresh={() => load()} />
+                          ) : (
+                            <ApprovalTable
+                              setData={setclaims}
+                              type={group.type}
+                              data={group.rows}
+                              ApproverIndicator={ApproverIndicator}
+                              selectedRows={selectedRows}
+                              setSelectedRows={setSelectedRows}
+                              handleCheckboxChange={handleCheckboxChange}
+                              handleShowDetails={handleShowDetails}
+                              handleVoucherClick={handleVoucherClick}
+                              ApproverGridIndicator={ApproverGridIndicator}
+                              access={access}
+                              modeOfPaymentOptions={modeOfPaymentOptions}
+                              bankOptions={bankOptions}
+                            />
+                          )}
                         </AccordionTab>
                       )
                     })}
@@ -2901,41 +2929,29 @@ const ApprovalTable = ({
         ? new Date(value)
         : value;
 
-    // ✅ IDs of rows in the same summary accordion that are selected
+    // ✅ IDs of rows in the same summary accordion that are selected (Type-safe coercion & Case-agnostic)
     const selectedIdsInSameGroup = selectedRows
-      .filter(r => r.SummaryId === summaryId)
-      .map(r => r.id);
+      .filter(r => Number(r.SummaryId ?? r.summaryId) === Number(summaryId))
+      .map(r => Number(r.id));
 
-    const isRowSelected = selectedIdsInSameGroup.includes(editedRowId);
+    const isRowSelected = selectedIdsInSameGroup.includes(Number(editedRowId));
 
     setData(prevData =>
       prevData.map(row => {
-        // if (row.type !== type) return row;
-
-        //   Skip updating bank if mode of payment is Cash
-        // if (
-        //   field === "bank" &&
-        //   (row.paymentMethod === "Cash" )
-        // ) {
-        //   return row;
-        // }
-
-        // 🏦 Bank updates → always single-row update
-        if (field === "bank") {
-
-          if (row.id === editedRowId) {
-            return row.id === editedRowId ? { ...row, [field]: newValue } : row;
-          }
-
-        }
-
-        // 📝 Non-bank fields:
-        if (!isRowSelected && row.id === editedRowId) {
-          // Row not selected → only update this row
+        // 🏦 Bank updates → always single-row update for now (to avoid accidental bulk changes unless row is selected) (Type-safe coercion)
+        if (field === "bank" && Number(row.id) === Number(editedRowId)) {
           return { ...row, [field]: newValue };
         }
-        if (isRowSelected && selectedIdsInSameGroup.includes(row.id)) {
-          // Row selected → update all selected rows in this group
+
+        // 📝 Collective updates (BULK): ONLY for Payment Date (per requirement)
+        if (field === "paymentDate" && isRowSelected && selectedIdsInSameGroup.includes(Number(row.id))) {
+          // Row selected & field is date → update all selected rows in this group
+          return { ...row, [field]: newValue };
+        }
+
+        // 🏦 Individual updates (Bank, ModeOfPaymentId, and unselected Date)
+        if (Number(row.id) === Number(editedRowId)) {
+          // Update the edited row regardless of selection status
           return { ...row, [field]: newValue };
         }
 
@@ -2977,16 +2993,16 @@ const ApprovalTable = ({
 
         if (field === "bank") {
 
-          if (row.id === editedRowId) {
-            return row.id === editedRowId ? { ...row, [field]: newValue } : row;
+          if (Number(row.id) === Number(editedRowId)) {
+            return Number(row.id) === Number(editedRowId) ? { ...row, [field]: newValue } : row;
           }
 
 
         }
 
 
-        if (selectedIdsInSameGroup.includes(editedRowId) &&
-          selectedIdsInSameGroup.includes(row.id)) {
+        if (selectedIdsInSameGroup.includes(Number(editedRowId)) &&
+          selectedIdsInSameGroup.includes(Number(row.id))) {
           return { ...row, [field]: newValue };
         }
 
@@ -3106,9 +3122,13 @@ const ApprovalTable = ({
         formattedDate = `${day}-${month}-${year}`;
       }
 
+      const isCash = modeOfPaymentOptions.find(opt => opt.value === r.ModeOfPaymentId)?.label === "Cash";
+      const cashInHandBankId = bankOptions.find(opt => opt.label === "Cash in Hand")?.value;
+
       return {
         ...r,
-        bankName: bankOptions.find(x => x.value === Number(r.bank))?.label || "",
+        bank: isCash && cashInHandBankId ? cashInHandBankId : r.bank,
+        bankName: bankOptions.find(x => x.value === Number(isCash && cashInHandBankId ? cashInHandBankId : r.bank))?.label || "",
         paymentDateText: formattedDate
       };
     });
@@ -3227,13 +3247,39 @@ const ApprovalTable = ({
 
       {/* ✅ Mode of Payment */}
       <Column
-        field="ModeOfPayment"
+        field="ModeOfPaymentId"
         header="Mode Of Payment"
         body={(rowData) => {
-          const payMode = modeOfPaymentOptions.find(
-            (option) => option.value === rowData.ModeOfPaymentId
-          )?.label || "-";
-          return <span>{payMode}</span>;
+          return (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <Select
+                options={modeOfPaymentOptions}
+                value={modeOfPaymentOptions.find(opt => opt.value === rowData.ModeOfPaymentId) || null}
+                onChange={(selected) => {
+                  const newMopId = selected?.value || null;
+                  updateClaimField(rowData.id, "ModeOfPaymentId", newMopId, rowData.SummaryId);
+
+                  // 🤖 If changed to Cash, auto-set bank to Cash in Hand
+                  const isNowCash = selected?.label === "Cash";
+                  if (isNowCash) {
+                    const cihBank = bankOptions.find(opt => opt.label === "Cash in Hand");
+                    if (cihBank) {
+                      updateClaimField(rowData.id, "bank", cihBank.value, rowData.SummaryId);
+                    }
+                  }
+                }}
+                classNamePrefix="select"
+                menuPortalTarget={document.body}
+                styles={{
+                  control: (base) => ({ ...base, minWidth: '150px' }),
+                  menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                }}
+              />
+            </div>
+          );
         }}
       />
 
@@ -3255,15 +3301,22 @@ const ApprovalTable = ({
 
               <Select
                 name="bank"
-                options={bankOptions}
+                options={
+                  modeOfPaymentOptions.find(opt => opt.value === rowData.ModeOfPaymentId)?.label?.toLowerCase().includes("contra")
+                    ? bankOptions.filter(opt => opt.label.toLowerCase().includes("contra") && opt.label.toLowerCase().includes("recievable"))
+                    : bankOptions
+                }
                 placeholder="Select"
                 isClearable
-                value={bankOptions.find(opt => opt.value === Number(rowData.bank)) || null}
-                onChange={(selected) =>
-
-                  updateClaimField(rowData.id, "bank", selected?.value || null, rowData.SummaryId)
+                value={
+                  isCash
+                    ? (bankOptions.find(opt => opt.label === "Cash in Hand") || null)
+                    : (bankOptions.find(opt => opt.value === Number(rowData.bank)) || null)
                 }
-                // isDisabled={isCash}
+                onChange={(selected) => {
+                  updateClaimField(rowData.id, "bank", selected?.value || null, rowData.SummaryId)
+                }}
+                isDisabled={isCash}
                 menuPortalTarget={document.body}
                 styles={{
                   control: (base) => ({
@@ -3272,7 +3325,6 @@ const ApprovalTable = ({
                   }),
                   menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                 }}
-
               />
             </div>
           );

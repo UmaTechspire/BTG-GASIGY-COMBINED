@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     Card,
     CardBody,
@@ -18,6 +18,7 @@ import {
 import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
 import { Dialog } from "primereact/dialog";
+import { Tag } from "primereact/tag";
 import Select from "react-select";
 import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/themes/material_blue.css";
@@ -82,6 +83,49 @@ const formatDatePrint = (dateInput) => {
     return `${day}-${month}-${year}`;
 };
 
+// --- HELPER: Format Number with Commas ---
+const formatWithCommas = (val) => {
+    if (val === null || val === undefined || val === "") return "";
+    // Remove all non-numeric characters except for the decimal point
+    const cleanValue = String(val).replace(/[^0-9.]/g, '');
+    const parts = cleanValue.split('.');
+    // Format the integer part with commas
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    // Limit to two decimal places if needed or keep as is
+    return parts.join('.');
+};
+
+// --- HELPER: Get Severity for Tags ---
+const getSeverity = (status) => {
+    switch (status) {
+        case 'Posted':
+        case 'Completed':
+        case 'Approved':
+            return 'success';
+        case 'Saved':
+            return 'danger';
+        case 'Pending':
+            return 'info';
+        case 'Discussed':
+            return 'warning';
+        default:
+            return 'info';
+    }
+};
+
+// --- BREADCRUMBS COMPONENT ---
+const Breadcrumbs = ({ title, breadcrumbItem }) => (
+    <div className="page-title-box d-sm-flex align-items-center justify-content-between">
+        <h4 className="mb-sm-0 font-size-18">{breadcrumbItem}</h4>
+        <div className="page-title-right">
+            <ol className="breadcrumb m-0">
+                <li className="breadcrumb-item"><a href="/#">{title}</a></li>
+                <li className="breadcrumb-item active"><a href="/#">{breadcrumbItem}</a></li>
+            </ol>
+        </div>
+    </div>
+);
+
 const AddCashBook = () => {
     // --- UI STATES ---
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -115,6 +159,42 @@ const AddCashBook = () => {
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [printRecord, setPrintRecord] = useState(null);
 
+    // --- CANCEL MODAL STATES ---
+    const [cancelModal, setCancelModal] = useState({ isOpen: false, rowIndex: null, claimId: null, remark: "" });
+
+    // --- FILTER STATES ---
+    const [filterFromDate, setFilterFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const [filterToDate, setFilterToDate] = useState(new Date());
+    const [filterCurrency, setFilterCurrency] = useState(null);
+
+    // --- CLAIM STATES (per-row cache) ---
+    const [claimListCache, setClaimListCache] = useState({});  // { category: [...options] }
+
+    const CLAIM_CATEGORIES = [
+        { value: 'Claim', label: 'Claim' },
+        { value: 'Cash Advance', label: 'Cash Advance' },
+        { value: 'Supplier Payment', label: 'Supplier Payment' },
+    ];
+
+    const loadClaimsForCategory = async (category) => {
+        // Force reload if cache exists but lacks necessary party ID fields (older data format)
+        const cachedData = claimListCache[category];
+        const isStale = cachedData && cachedData.length > 0 && !Object.prototype.hasOwnProperty.call(cachedData[0], 'supplier_id');
+
+        if (cachedData && !isStale) return; 
+
+        try {
+            const res = await axios.get(`${PYTHON_API_URL}/AR/cash/get-cash-claims`, {
+                params: { claim_category: category }
+            });
+            if (res.data?.status === 'success') {
+                setClaimListCache(prev => ({ ...prev, [category]: res.data.data }));
+            }
+        } catch (err) {
+            console.error(`Error loading claims for ${category}`, err);
+        }
+    };
+
     // --- INITIAL LOAD ---
     useEffect(() => {
         const loadInitialData = async () => {
@@ -123,10 +203,13 @@ const AddCashBook = () => {
                 const currRes = await GetAllCurrencies({ currencyCode: "", currencyName: "" });
                 const currData = currRes.data || currRes;
                 if (Array.isArray(currData)) {
-                    setCurrencyList(currData.map(c => ({
+                    const options = currData.map(c => ({
                         value: c.CurrencyId,
                         label: c.CurrencyCode
-                    })));
+                    }));
+                    setCurrencyList(options);
+                    const idr = options.find(o => o.label === "IDR");
+                    if (idr) setSelectedCurrency(idr);
                 }
             } catch (err) { console.error("Failed to load currencies", err); }
 
@@ -167,9 +250,10 @@ const AddCashBook = () => {
     // --- CALCULATE TOTALS ---
     useEffect(() => {
         const t = rows.reduce((acc, row) => {
-            const amt = parseFloat(row.amount || 0);
-            if (row.type === 'Receipt' || row.type === 'Other Income') acc.receipt += amt;
-            else acc.payment += amt;
+            const amtStr = String(row.amount || 0).replace(/,/g, '');
+            const amt = parseFloat(amtStr || 0);
+            if (row.type === 'Receipt' || row.type === 'Other Income' || row.type === 'Round minus') acc.receipt += amt;
+            else if (row.type === 'Payment' || row.type === 'Round plus' || row.type === 'Deposit') acc.payment += amt;
             return acc;
         }, { receipt: 0, payment: 0 });
         setTotals(t);
@@ -199,22 +283,165 @@ const AddCashBook = () => {
             const response = await axios.get(`${PYTHON_API_URL}/AR/cash/get-daily-entries`);
             console.log("CASHBOOK API RESPONSE DATA:", response.data); // Added for debugging
             if (response.data?.status === "success" && Array.isArray(response.data.data)) {
-                const mapped = response.data.data.map(item => ({
-                    ...item,
-                    bankName: bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || "-",
-                    customerName: customerList.find(c => c.value === item.customer_id)?.label || item.customerName || item.customer_id,
-                    displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
-                    verificationStatus: item.verification_status,
-                    is_submitted: item.is_submitted,
-                    customerId: item.customer_id
-                }));
+                const mapped = response.data.data.map(item => {
+                    const isPosted = item.is_posted === 1;
+                    const isVerified = item.verification_status === "Completed";
+                    const amountVal = parseFloat(item.cash_amount || 0);
+
+                    const name = customerList.find(c => c.value === item.customer_id)?.label || item.customerName || item.customer_id || "-";
+                    const customerName = (name === "Unknown Customer" || name === "unknown customer") ? "-" : name;
+
+                    return {
+                        ...item,
+                        bankName: bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || "-",
+                        customerName: customerName,
+                        displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
+                        verificationStatus: item.verification_status,
+                        is_submitted: item.is_submitted,
+                        customerId: item.customer_id,
+                        currencyCode: currencyList.find(c => c.value === item.currencyid)?.label || "",
+
+                        // Searchable fields for global filter
+                        receiptIdStr: String(item.receipt_id),
+                        searchableAmount: amountVal === 0 ? "" : amountVal.toLocaleString('en-US', { minimumFractionDigits: 2 }),
+                        statusText: isPosted ? "Posted" : "Saved",
+                        verificationText: (item.transaction_type === 'Receipt' && isPosted) ? (isVerified ? "Completed" : "Pending") : ""
+                    };
+                });
                 setEntryList(mapped);
             }
-        } catch (err) { console.error(err); }
-        setLoading(false);
+        } catch (err) { console.error("Failed to load entries", err); }
+        finally { setLoading(false); }
     };
 
+    // --- CLIENT-SIDE FILTERING ---
+    const filteredEntries = useMemo(() => {
+        return entryList.filter(entry => {
+            // 1. Date Filter
+            if (entry.date) {
+                const entryDate = new Date(entry.date);
+                entryDate.setHours(0, 0, 0, 0); // Normalize to midnight
+                
+                const from = new Date(filterFromDate);
+                from.setHours(0, 0, 0, 0);
+                
+                const to = new Date(filterToDate);
+                to.setHours(23, 59, 59, 999);
+
+                if (entryDate < from || entryDate > to) return false;
+            }
+
+            // 2. Currency Filter
+            if (filterCurrency && entry.currencyid !== filterCurrency.value) {
+                return false;
+            }
+
+            // 3. Global Filter (Keyword)
+            if (globalFilter) {
+                const searchLower = globalFilter.toLowerCase();
+                const match = [
+                    entry.customerName,
+                    entry.transaction_type,
+                    entry.receiptIdStr,
+                    entry.reference_no,
+                    entry.searchableAmount,
+                    entry.statusText,
+                    entry.verificationText,
+                    entry.displayDate,
+                    entry.currencyCode
+                ].some(val => val?.toString().toLowerCase().includes(searchLower));
+                
+                if (!match) return false;
+            }
+
+            return true;
+        });
+    }, [entryList, filterFromDate, filterToDate, filterCurrency, globalFilter]);
+
+    const customSelectStyles = {
+        control: (base) => ({ ...base, minHeight: '32px', fontSize: '12px', borderColor: '#ced4da' }),
+        menu: (base) => ({ ...base, fontSize: '12px', zIndex: 9999 }),
+        menuPortal: (base) => ({ ...base, zIndex: 9999 })
+    };
+
+    const renderHeader = () => {
+        const handleClearAll = () => {
+            setGlobalFilter('');
+            setFilterFromDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+            setFilterToDate(new Date());
+            setFilterCurrency(null);
+        };
+
+        return (
+            <div className="d-flex justify-content-between align-items-center">
+                <Button color="danger" onClick={handleClearAll} className="btn-label" style={{ minWidth: '100px' }}>
+                    <i className="mdi mdi-filter-off label-icon font-size-16 align-middle me-2"></i> Clear
+                </Button>
+                <div className="d-flex align-items-center gap-3">
+                    <div className="d-flex align-items-center gap-3 border-end pe-3">
+                        <div className="d-flex align-items-center gap-1">
+                            <span className="fw-bold me-1" style={{ fontSize: '11px' }}>Status:</span>
+                            <Tag value="S" severity={getSeverity("Saved")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Saved</small>
+                        </div>
+                        <div className="d-flex align-items-center gap-1">
+                            <Tag value="P" severity={getSeverity("Posted")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Posted</small>
+                        </div>
+                        <div className="d-flex align-items-center gap-1 border-start ps-3">
+                            <span className="fw-bold me-1" style={{ fontSize: '11px' }}>Verify:</span>
+                            <Tag value="MP" severity={getSeverity("Pending")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Pending</small>
+                        </div>
+                        <div className="d-flex align-items-center gap-1">
+                            <Tag value="C" severity={getSeverity("Completed")} /> <small className="text-muted" style={{ fontSize: '10px' }}>Completed</small>
+                        </div>
+                    </div>
+                    <input
+                        className="form-control"
+                        type="text"
+                        value={globalFilter}
+                        onChange={(e) => setGlobalFilter(e.target.value)}
+                        placeholder="Keyword Search..."
+                        style={{ width: '250px' }}
+                    />
+                </div>
+            </div>
+        );
+    };
+
+    const header = renderHeader();
+
     // --- HANDLERS ---
+    const openCancelModal = (index, claimId) => {
+        if (!claimId) {
+            toast.error("Please select a Claim No. first.");
+            return;
+        }
+        setCancelModal({ isOpen: true, rowIndex: index, claimId, remark: "" });
+    };
+
+    const confirmCancelClaim = async () => {
+        if (!cancelModal.claimId) return;
+        if (!cancelModal.remark.trim()) {
+            toast.error("Remark is required to cancel a claim.");
+            return;
+        }
+
+        try {
+            await axios.put(`${PYTHON_API_URL}/AR/cash/cancel-claim/${cancelModal.claimId}`, {
+                remark: cancelModal.remark
+            });
+            toast.success("Claim cancelled successfully!");
+            
+            if (cancelModal.rowIndex !== null) {
+                handleRemoveRow(cancelModal.rowIndex);
+            }
+            
+            setCancelModal({ isOpen: false, rowIndex: null, claimId: null, remark: "" });
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to cancel claim.");
+        }
+    };
+
     const handleAddRow = () => {
         setRows(prevRows => [...prevRows, {
             id: Date.now(),
@@ -225,7 +452,9 @@ const AddCashBook = () => {
             referenceNo: "",
             amount: "",
             salesPersonId: "",
-            sendNotification: false
+            sendNotification: false,
+            claimCategory: "",
+            linkedClaimId: null
         }]);
     };
 
@@ -235,26 +464,98 @@ const AddCashBook = () => {
         setRows(newRows);
     };
 
-    // Helper to switch options based on type
-    const getOptionsForType = (type) => {
-        if (type === 'Receipt' || type === 'Other Income') return customerList;
-        if (type === 'Payment') return supplierList;
+    // Helper to filter claims based on selected Party (Supplier/Applicant)
+    const getFilteredClaims = (row) => {
+        const allClaims = claimListCache[row.claimCategory] || [];
+        
+        // Skip filtering for Claim and Cash Advance categories
+        if (['Claim', 'Cash Advance'].includes(row.claimCategory)) {
+            return allClaims;
+        }
+
+        if (!row.customerId) return [];
+
+        const targetId = String(row.customerId).trim();
+        
+        return allClaims.filter(c => {
+            const claimSupId = c.supplier_id != null ? String(c.supplier_id).trim() : '';
+            const claimAppId = c.applicant_id != null ? String(c.applicant_id).trim() : '';
+            
+            return claimSupId === targetId || claimAppId === targetId;
+        });
+    };
+
+    // Helper to switch options based on type and claim category
+    const getOptionsForType = (type, claimCategory) => {
+        if (['Receipt', 'Other Income', 'Round minus'].includes(type)) return customerList;
+        if (['Payment', 'Round plus', 'Deposit'].includes(type)) {
+            return supplierList;
+        }
         return [];
     };
 
     const handleRowChange = (index, field, value) => {
         const newRows = [...rows];
 
-        // Reset selections if type changes
+        // 1. Reset selections if type changes
         if (field === 'type' && newRows[index].type !== value) {
             newRows[index]['customerId'] = "";
             newRows[index]['salesPersonId'] = "";
+            newRows[index]['claimCategory'] = "";
+            newRows[index]['linkedClaimId'] = null;
+            newRows[index]['referenceNo'] = "";
+            newRows[index]['amount'] = "";
         }
 
-        newRows[index][field] = value;
+        // 2. Load claims and clear data when claim category changes
+        if (field === 'claimCategory' && newRows[index].claimCategory !== value) {
+            newRows[index]['linkedClaimId'] = null;
+            newRows[index]['referenceNo'] = "";
+            newRows[index]['amount'] = "";
+            
+            if (value) {
+                loadClaimsForCategory(value);
+                // Clear party if Cash Advance or Claim is selected for a Payment
+                if (['Cash Advance', 'Claim'].includes(value) && newRows[index].type === 'Payment') {
+                    newRows[index]['customerId'] = 0;
+                } else {
+                    newRows[index]['customerId'] = "";
+                }
+            }
+        }
 
-        // Auto-populate Sales Person only for Receipts/Customers
-        if (field === 'customerId' && (newRows[index].type === 'Receipt' || newRows[index].type === 'Other Income')) {
+        // 3. Reset claim data if Party changes
+        if (field === 'customerId' && newRows[index].customerId !== value) {
+            newRows[index]['linkedClaimId'] = null;
+            newRows[index]['referenceNo'] = "";
+            newRows[index]['amount'] = "";
+        }
+
+        // 4. Auto-fill from selected claim
+        if (field === 'linkedClaimId' && value) {
+            const cat = newRows[index].claimCategory;
+            const claimOpt = (claimListCache[cat] || []).find(c => c.value === value);
+            if (claimOpt) {
+                newRows[index]['referenceNo'] = claimOpt.label;
+                if (claimOpt.payment_date) {
+                    newRows[index]['date'] = new Date(claimOpt.payment_date);
+                }
+                if (claimOpt.amount) {
+                    newRows[index]['amount'] = formatWithCommas(claimOpt.amount);
+                }
+            }
+        }
+
+        // 5. Normal input handling with amount formatting
+        if (field === 'amount') {
+            newRows[index][field] = formatWithCommas(value);
+        } else {
+            newRows[index][field] = value;
+        }
+
+        // Auto-populate Sales Person only for Customer-based types
+        const isCustomerType = ['Receipt', 'Other Income', 'Round plus'].includes(newRows[index].type);
+        if (field === 'customerId' && isCustomerType) {
             const defaultSP = customerDefaults[value] || customerDefaults[String(value)];
             if (defaultSP) {
                 const spID = Number(defaultSP);
@@ -272,24 +573,26 @@ const AddCashBook = () => {
         setRows(newRows);
     };
 
+    const getInitialRow = () => ({
+        id: Date.now(),
+        rowId: 0,
+        type: "Receipt",
+        date: new Date(),
+        customerId: "",
+        referenceNo: "",
+        amount: "",
+        salesPersonId: "",
+        sendNotification: false,
+        claimCategory: "",
+        linkedClaimId: null
+    });
+
     const openNewModal = () => {
         setEditMode(false);
-        setSelectedCurrency(null);
+        const idr = currencyList.find(c => c.label === "IDR");
+        setSelectedCurrency(idr || null);
         setTotals({ receipt: 0, payment: 0 });
-
-        const initialRow = {
-            id: Date.now(),
-            rowId: 0,
-            type: "Receipt",
-            date: new Date(),
-            customerId: "",
-            referenceNo: "",
-            amount: "",
-            salesPersonId: "",
-            sendNotification: false
-        };
-
-        setRows([initialRow]);
+        setRows([getInitialRow()]);
         setIsModalOpen(true);
     };
 
@@ -298,16 +601,21 @@ const AddCashBook = () => {
         const amount = parseFloat(rowData.cash_amount);
         const type = amount < 0 ? "Payment" : "Receipt";
 
+        // Set currency from row data
+        setSelectedCurrency(currencyList.find(c => c.value === rowData.currencyid) || null);
+
         setRows([{
             id: Date.now(),
             rowId: rowData.receipt_id,
-            type: type,
+            type: rowData.transaction_type || type,
             date: new Date(rowData.date || new Date()),
             customerId: rowData.customer_id,
             referenceNo: rowData.reference_no,
             amount: Math.abs(amount),
             salesPersonId: rowData.sales_person_id,
-            sendNotification: rowData.send_notification
+            sendNotification: rowData.send_notification,
+            claimCategory: "",
+            linkedClaimId: null
         }]);
 
         setIsModalOpen(true);
@@ -319,12 +627,27 @@ const AddCashBook = () => {
             return;
         }
 
+        if (!selectedCurrency) {
+            toast.error("Please select a Currency");
+            return;
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+            // Skip Party validation for Claim and Cash Advance categories
+            const isOptionalParty = ['Claim', 'Cash Advance'].includes(rows[i].claimCategory);
+            if (!isOptionalParty && !rows[i].customerId) {
+                toast.error(`Please select a Party for row ${i + 1}`);
+                return;
+            }
+        }
+
         try {
             const isPosted = mode === "POST";
             const headerPayload = rows.map(row => {
-                // Calculate amount (Negative for Payment)
-                let finalAmount = Math.abs(parseFloat(row.amount));
-                if (row.type === 'Payment') {
+                // Calculate amount (Negative for Payment items)
+                const amtStr = String(row.amount || 0).replace(/,/g, '');
+                let finalAmount = Math.abs(parseFloat(amtStr || 0));
+                if (['Payment', 'Round plus', 'Deposit'].includes(row.type)) {
                     finalAmount = -finalAmount;
                 }
 
@@ -332,10 +655,13 @@ const AddCashBook = () => {
                     receipt_id: row.rowId || 0,
                     customer_id: parseInt(row.customerId || 0),
                     cash_amount: finalAmount,
+                    currencyid: selectedCurrency?.value || 3,
                     receipt_date: format(row.date, "yyyy-MM-dd"),
                     reference_no: row.referenceNo,
                     sales_person_id: row.salesPersonId ? parseInt(row.salesPersonId) : null,
                     send_notification: row.sendNotification,
+                    transaction_type: row.type,
+                    linked_claim_id: row.linkedClaimId || null,
                     status: isPosted ? "Posted" : "Saved",
                     is_posted: isPosted
                 };
@@ -359,7 +685,13 @@ const AddCashBook = () => {
             }
 
             toast.success(`${rows.length} Entries ${isPosted ? 'Posted' : 'Saved'} Successfully`);
-            setIsModalOpen(false);
+
+            // Stay in the modal and reset it for the next entry (for both new and edit modes)
+            setRows([getInitialRow()]);
+            setTotals({ receipt: 0, payment: 0 });
+            setEditMode(false);
+            // We keep the selectedCurrency as the user might want to enter multiple records for the same currency
+
             loadEntryList();
         } catch (err) {
             console.error(err);
@@ -369,11 +701,14 @@ const AddCashBook = () => {
 
     const handleSubmitRow = async (id) => {
         try {
+            const entry = entryList.find(e => e.receipt_id === id);
+            const isReceipt = entry?.transaction_type === 'Receipt';
+            
             await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${id}`, {});
-            toast.success("Marketing Verification Generated!");
+            toast.success(isReceipt ? "Marketing Verification Generated!" : "Posted to Cash Book Successfully!");
             loadEntryList();
         } catch (err) {
-            toast.error("Generation failed");
+            toast.error("Process failed");
         }
     };
 
@@ -532,131 +867,192 @@ const AddCashBook = () => {
         }
     };
 
-    const statusBodyTemplate = (rowData) => (
-        <div className="d-flex justify-content-center">
-            <span className={`circle-badge ${rowData.is_posted ? 'bg-posted' : 'bg-saved'}`}>
-                {rowData.is_posted ? 'P' : 'S'}
-            </span>
-        </div>
-    );
-
-    const verificationBodyTemplate = (rowData) => {
-        if (!rowData.is_posted) return null;
-        const isCompleted = rowData.verificationStatus === 'Completed';
-        const isPending = rowData.verificationStatus === 'Pending';
-
-        if (isPending) return (<div className="d-flex justify-content-center"><span className="circle-badge bg-danger" title="Verification Pending">P</span></div>);
-        if (isCompleted) return (<div className="d-flex justify-content-center"><span className="circle-badge bg-success" title="Verification Completed">C</span></div>);
-        return null;
+    const statusBodyTemplate = (rowData) => {
+        const isPosted = rowData.is_posted === 1;
+        const statusVal = isPosted ? "Posted" : "Saved";
+        const statusShort = isPosted ? "P" : "S";
+        return <Tag value={statusShort} severity={getSeverity(statusVal)} />;
     };
 
-    const actionBodyTemplate = (rowData) => {
-        const isEditable = rowData.verificationStatus !== 'Completed';
-        const isPreviewable = true;
-        const isActionable = rowData.verificationStatus === 'Completed';
-        const isPostable = isActionable && !rowData.is_submitted;
+    const verificationBodyTemplate = (rowData) => {
+        if (rowData.transaction_type !== 'Receipt' || rowData.is_posted !== 1) return null;
+        const isVerified = rowData.verificationStatus === "Completed";
+        const statusVal = isVerified ? "Completed" : "Pending";
+        const statusShort = isVerified ? "C" : "MP";
+        return <Tag value={statusShort} severity={getSeverity(statusVal)} />;
+    };
 
-        const linkStyle = (enabled, color = '#0d6efd') => ({
-            color: enabled ? color : '#adb5bd',
-            cursor: enabled ? 'pointer' : 'not-allowed',
-            fontWeight: '500',
-            fontSize: '12px',
-            textDecoration: 'none',
-            padding: '0 2px',
-            background: 'none',
-            border: 'none',
-        });
-
-        const sep = <span style={{ color: '#ced4da', margin: '0 2px' }}>|</span>;
-
+    const viewBodyTemplate = (rowData) => {
         return (
-            <div className="d-flex justify-content-center align-items-center table-actions">
-                <button style={linkStyle(isEditable, '#0d6efd')} onClick={() => { if (isEditable) openEditModal(rowData); }} disabled={!isEditable} title="Edit">Edit</button>
-                {sep}
-                <button style={linkStyle(isPreviewable, '#0dcaf0')} onClick={() => { if (isPreviewable) handlePreview(rowData); }} disabled={!isPreviewable} title="View">View</button>
-                {sep}
-                <button style={linkStyle(isActionable, '#6c757d')} onClick={() => { if (isActionable) handlePrintPreview(rowData); }} disabled={!isActionable} title="Print">Print</button>
-                {sep}
-                {rowData.is_submitted ? (
-                    <span style={{ color: '#198754', fontSize: '11px', fontWeight: 'bold' }}>POSTED</span>
-                ) : (
-                    <button style={linkStyle(isPostable, '#198754')} onClick={() => { if (isPostable) handleFinalizePost(rowData.receipt_id); }} disabled={!isPostable} title="Post to Cash Book">Post</button>
-                )}
+            <div className="d-flex justify-content-center">
+                <i
+                    className="fas fa-eye text-secondary cursor-pointer font-size-18"
+                    onClick={() => handlePreview(rowData)}
+                    title="View Details"
+                ></i>
             </div>
         );
     };
 
-    const customSelectStyles = {
-        control: (base) => ({ ...base, minHeight: '32px', fontSize: '12px', borderColor: '#ced4da' }),
-        menu: (base) => ({ ...base, fontSize: '12px', zIndex: 9999 }),
-        menuPortal: (base) => ({ ...base, zIndex: 9999 })
+
+    const printBodyTemplate = (rowData) => {
+        return (
+            <div className="d-flex justify-content-center">
+                <i
+                    className="bx bx-printer text-secondary cursor-pointer font-size-22"
+                    onClick={() => handlePrintPreview(rowData)}
+                    title="Print"
+                    style={{ cursor: 'pointer' }}
+                ></i>
+            </div>
+        );
+    };
+
+    const postBodyTemplate = (rowData) => {
+        const isPaymentSaved = rowData.transaction_type === 'Payment' && rowData.is_posted === 0;
+        const isReceiptReady = rowData.is_posted === 1 && rowData.verificationStatus === 'Completed' && rowData.is_submitted !== 1;
+        const isActionable = isPaymentSaved || isReceiptReady;
+
+        const handleAction = () => {
+            if (!isActionable) return;
+            if (isPaymentSaved) {
+                handleSubmitRow(rowData.receipt_id);
+            } else {
+                handleFinalizePost(rowData.receipt_id);
+            }
+        };
+
+        const getTooltip = () => {
+            if (rowData.is_submitted === 1) return "Already Posted";
+            if (isPaymentSaved) return "Post to Cash Book";
+            if (isReceiptReady) return "Post to Cash Book";
+            return "Pending Verification (P+C required)";
+        };
+
+        return (
+            <div className="d-flex justify-content-center">
+                <i
+                    className={`bx bx-check-circle font-size-22 ${isActionable ? 'text-secondary cursor-pointer' : 'text-muted opacity-50'}`}
+                    onClick={handleAction}
+                    title={getTooltip()}
+                    style={{ cursor: isActionable ? 'pointer' : 'not-allowed' }}
+                ></i>
+            </div>
+        );
+    };
+
+    const actionBodyTemplate = (rowData) => {
+        return (
+            <div className="d-flex justify-content-center">
+                <i
+                    className="mdi mdi-square-edit-outline"
+                    style={{ fontSize: '1.5rem', cursor: 'pointer', color: '#495057' }}
+                    onClick={() => openEditModal(rowData)}
+                    title="Edit"
+                ></i>
+            </div>
+        );
     };
 
     return (
         <div className="page-content bg-modern">
             <Container fluid>
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                    <h5 className="page-heading mb-0">CASH BOOK ENTRY</h5>
-                    <div className="d-flex align-items-center">
-                        <div className="d-flex gap-2">
-                            <button className="btn-toolbar btn-new-green" onClick={openNewModal}><i className="bx bx-plus"></i> New Entry</button>
-                        </div>
-                    </div>
-                </div>
+                <Breadcrumbs title="Finance" breadcrumbItem="Cash Book Entry" />
+                <Row className="mb-3 align-items-center g-3">
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">From</label>
+                        <Flatpickr
+                            className="form-control"
+                            value={filterFromDate}
+                            onChange={(d) => setFilterFromDate(d[0])}
+                            options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }}
+                        />
+                    </Col>
+
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">To</label>
+                        <Flatpickr
+                            className="form-control"
+                            value={filterToDate}
+                            onChange={(d) => setFilterToDate(d[0])}
+                            options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }}
+                        />
+                    </Col>
+
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-1 fw-bold text-nowrap" style={{ minWidth: '70px' }}>Currency</label>
+                        <Select
+                            className="flex-grow-1"
+                            options={currencyList}
+                            value={filterCurrency}
+                            onChange={setFilterCurrency}
+                            isClearable
+                            placeholder="All"
+                            styles={{
+                                control: (base) => ({ ...base, minHeight: '38px', fontSize: '13px', borderColor: '#ced4da' }),
+                                menu: (base) => ({ ...base, fontSize: '13px', zIndex: 9999 }),
+                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                container: (base) => ({ ...base, width: '100%' })
+                            }}
+                        />
+                    </Col>
+
+                    <Col lg="6" className="text-end">
+                        <button type="button" className="btn btn-success" onClick={openNewModal}>
+                            <i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New
+                        </button>
+                    </Col>
+                </Row>
 
                 <Card className="main-card border-0">
                     <CardBody>
-                        <div className="d-flex justify-content-end mb-2">
-                            <input
-                                type="text"
-                                value={globalFilter}
-                                onChange={(e) => setGlobalFilter(e.target.value)}
-                                placeholder="Global Search"
-                                className="form-control"
-                                style={{ width: '250px' }}
-                            />
-                        </div>
                         <DataTable
-                            value={entryList}
+                            value={filteredEntries}
                             paginator
                             rows={20}
                             loading={loading}
                             globalFilter={globalFilter}
-                            globalFilterFields={["displayDate", "customerName", "reference_no", "cash_amount"]}
-                            className="p-datatable-modern"
+                            globalFilterFields={["displayDate", "transaction_type", "receiptIdStr", "customerName", "reference_no", "searchableAmount", "statusText", "verificationText", "currencyCode"]}
+                            className="blue-bg"
                             responsiveLayout="scroll"
                             showGridlines
                             filterDisplay="menu"
                             filter
+                            header={header}
                             emptyMessage="No records found."
                         >
-                            <Column field="displayDate" header="Date" sortable filter filterPlaceholder="Search Date" style={{ width: '10%' }} />
+                            <Column field="displayDate" sortField="date" header="Date" sortable filter filterPlaceholder="Search Date" style={{ width: '10%' }} />
+                            <Column field="transaction_type" header="Type" sortable filter filterPlaceholder="Search Type" style={{ width: '10%' }} />
+                            <Column field="receipt_id" header="Voucher Number" sortable filter filterPlaceholder="Search Voucher" style={{ width: '10%' }} />
                             <Column field="customerName" header="Party" sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }} />
-                            <Column field="reference_no" header="Reference" sortable filter filterPlaceholder="Search Ref" style={{ width: '10%' }} />
-                            <Column field="cash_amount" header="Amount" className="text-end" body={(d) => {
+                            <Column field="reference_no" header="Description" sortable filter filterPlaceholder="Search Desc" style={{ width: '10%' }} />
+                            <Column field="cash_amount" header="Amount" sortable className="text-end" body={(d) => {
                                 const val = parseFloat(d.cash_amount || 0);
                                 return val === 0 ? "" : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
                             }} style={{ width: '10%' }} />
-                            <Column header="Status" body={statusBodyTemplate} style={{ width: '8%' }} className="text-center" />
-                            <Column header="Verify" body={verificationBodyTemplate} style={{ width: '8%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
-                            <Column header="Action" body={actionBodyTemplate} style={{ width: '16%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column field="is_posted" header="Status" sortable body={statusBodyTemplate} style={{ width: '6%' }} className="text-center" />
+                            <Column field="verificationStatus" header="Verify" sortable body={verificationBodyTemplate} style={{ width: '6%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="View" body={viewBodyTemplate} style={{ width: '6%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Print" body={printBodyTemplate} style={{ width: '6%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Post" body={postBodyTemplate} style={{ width: '6%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
+                            <Column header="Action" body={actionBodyTemplate} style={{ width: '6%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
                         </DataTable>
                     </CardBody>
                 </Card>
 
                 {/* --- BATCH ENTRY MODAL --- */}
                 <Dialog
-                    header={editMode ? "Edit Entry" : "New Cash Book Entry (Batch)"}
+                    header={editMode ? "Edit Entry" : "New Cash Book Entry"}
                     visible={isModalOpen}
                     onHide={() => setIsModalOpen(false)}
                     className="modern-dialog"
-                    style={{ width: '90vw', maxWidth: '1250px' }}
+                    style={{ width: '98vw', maxWidth: '1600px' }}
                     draggable={false}
                     resizable={false}
                 >
                     <div className="bg-light p-3 rounded mb-3 d-flex justify-content-between align-items-center">
                         <div className="d-flex align-items-center gap-3" style={{ width: '35%' }}>
-                            <Label className="fw-bold mb-0 text-nowrap">Currency:</Label>
+                            <Label className="fw-bold mb-0 text-nowrap">Currency <span className="text-danger">*</span>:</Label>
                             <Select
                                 className="flex-grow-1"
                                 options={currencyList}
@@ -685,11 +1081,14 @@ const AddCashBook = () => {
                                 <tr>
                                     <th style={{ width: '90px' }} className="text-center">Type</th>
                                     <th style={{ width: '110px' }} className="text-center">Date</th>
-                                    <th style={{ width: '220px' }}>Party</th>
-                                    <th style={{ width: '120px' }}>Reference No.</th>
-                                    <th style={{ width: '130px' }} className="text-end">Amount</th>
-                                    <th style={{ width: '160px' }}>Sales Person</th>
-                                    <th style={{ width: '40px' }} className="text-center">Del</th>
+                                    <th style={{ width: '110px' }}>Claim Category</th>
+                                    <th style={{ width: '170px' }}>Party <span className="text-danger">*</span></th>
+                                    <th style={{ width: '180px' }}>Claim No.</th>
+                                    <th style={{ width: '110px' }}>Description</th>
+                                    <th style={{ width: '110px' }} className="text-end">Amount</th>
+                                    <th style={{ width: '140px' }}>Sales Person</th>
+                                    <th style={{ width: '45px' }} className="text-center">Del</th>
+                                    <th style={{ width: '60px' }} className="text-center">Cancel</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -705,6 +1104,9 @@ const AddCashBook = () => {
                                                 <option value="Receipt">Receipt</option>
                                                 <option value="Payment">Payment</option>
                                                 <option value="Other Income">Other Income</option>
+                                                <option value="Round plus">Round plus</option>
+                                                <option value="Round minus">Round minus</option>
+                                                <option value="Deposit">Deposit</option>
                                             </select>
                                         </td>
                                         <td>
@@ -716,21 +1118,50 @@ const AddCashBook = () => {
                                                 style={{ fontSize: '12px' }}
                                             />
                                         </td>
+                                        {/* Claim Category — shown/enabled only for Payment */}
                                         <td>
                                             <Select
-                                                options={getOptionsForType(row.type)}
-                                                value={getOptionsForType(row.type).find(c => c.value === row.customerId)}
+                                                options={CLAIM_CATEGORIES}
+                                                value={CLAIM_CATEGORIES.find(c => c.value === row.claimCategory) || null}
+                                                onChange={(opt) => handleRowChange(index, 'claimCategory', opt?.value || '')}
+                                                styles={customSelectStyles}
+                                                isDisabled={row.type !== 'Payment'}
+                                                menuPortalTarget={document.body}
+                                                placeholder={row.type === 'Payment' ? "Select..." : ""}
+                                            />
+                                        </td>
+                                        <td>
+                                            <Select
+                                                options={getOptionsForType(row.type, row.claimCategory)}
+                                                value={getOptionsForType(row.type, row.claimCategory).find(c => c.value === row.customerId)}
                                                 onChange={(opt) => handleRowChange(index, 'customerId', opt?.value)}
                                                 styles={customSelectStyles}
+                                                isDisabled={row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory)}
                                                 menuPortalTarget={document.body}
-                                                placeholder={row.type === 'Payment' ? "Select Supplier..." : "Select Customer..."}
+                                                placeholder={['Payment', 'Deposit'].includes(row.type) ? "Select Supplier..." : "Select Customer..."}
+                                            />
+                                        </td>
+                                        {/* Claim No — enabled only for Payment with category */}
+                                        <td>
+                                            <Select
+                                                options={getFilteredClaims(row)}
+                                                value={getFilteredClaims(row).find(c => c.value === row.linkedClaimId) || null}
+                                                onChange={(opt) => handleRowChange(index, 'linkedClaimId', opt?.value)}
+                                                styles={customSelectStyles}
+                                                isDisabled={
+                                                    row.type !== 'Payment' || 
+                                                    !row.claimCategory || 
+                                                    (row.claimCategory === 'Supplier Payment' && getFilteredClaims(row).length === 0)
+                                                }
+                                                menuPortalTarget={document.body}
+                                                placeholder={row.type === 'Payment' ? (getFilteredClaims(row).length > 0 ? "Select Claim..." : "No Claims Found") : ""}
                                             />
                                         </td>
                                         <td>
                                             <Input bsSize="sm" value={row.referenceNo} onChange={(e) => handleRowChange(index, 'referenceNo', e.target.value)} style={{ fontSize: '12px' }} />
                                         </td>
                                         <td>
-                                            <Input type="number" bsSize="sm" value={row.amount} onChange={(e) => handleRowChange(index, 'amount', e.target.value)} className="text-end" style={{ fontSize: '12px' }} />
+                                            <Input type="text" bsSize="sm" value={row.amount} onChange={(e) => handleRowChange(index, 'amount', e.target.value)} className="text-end" style={{ fontSize: '12px' }} disabled={row.claimCategory === 'Supplier Payment'} />
                                         </td>
                                         <td>
                                             <Select
@@ -740,11 +1171,20 @@ const AddCashBook = () => {
                                                 styles={customSelectStyles}
                                                 menuPortalTarget={document.body}
                                                 placeholder="Select..."
-                                                isDisabled={row.type !== 'Receipt' && row.type !== 'Other Income'}
+                                                isDisabled={!['Receipt', 'Other Income', 'Round plus'].includes(row.type)}
                                             />
                                         </td>
                                         <td className="text-center">
                                             <i className="bx bx-trash text-danger cursor-pointer" onClick={() => handleRemoveRow(index)}></i>
+                                        </td>
+                                        <td className="text-center">
+                                            {row.type === 'Payment' && ['Claim', 'Cash Advance'].includes(row.claimCategory) && (
+                                                <i 
+                                                    className="bx bx-x-circle text-warning cursor-pointer fs-5 align-middle" 
+                                                    onClick={() => openCancelModal(index, row.linkedClaimId)}
+                                                    title="Cancel Claim"
+                                                ></i>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -754,14 +1194,20 @@ const AddCashBook = () => {
 
                     <div className="mt-2">
                         <Button color="primary" size="sm" onClick={handleAddRow} style={{ fontSize: '12px', padding: '5px 12px', color: 'white' }}>
-                            <i className="bx bx-plus me-1"></i> Add Entry
+                            <i className="bx bx-plus me-1"></i>
                         </Button>
                     </div>
 
                     <div className="d-flex justify-content-end gap-2 border-top pt-3 mt-3">
-                        <button className="btn-modal btn-cancel" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                        <button className="btn-modal btn-save" onClick={() => handleBatchSubmit("SAVE")}>{editMode ? "Update" : "Save Draft"}</button>
-                        <button className="btn-modal btn-post" onClick={() => handleBatchSubmit("POST")}>Post</button>
+                        <button type="button" className="btn btn-info btn-label" onClick={() => handleBatchSubmit("SAVE")}>
+                            <i className="bx bx-comment-check label-icon font-size-16 align-middle me-2"></i> {editMode ? "Update" : "Save"}
+                        </button>
+                        <button type="button" className="btn btn-success btn-label" onClick={() => handleBatchSubmit("POST")}>
+                            <i className="bx bxs-save label-icon font-size-16 align-middle me-2"></i> Post
+                        </button>
+                        <button type="button" className="btn btn-danger btn-label" onClick={() => setIsModalOpen(false)}>
+                            <i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i> Close
+                        </button>
                     </div>
                 </Dialog>
 
@@ -955,6 +1401,29 @@ const AddCashBook = () => {
                         <Button color="secondary" onClick={() => setIsPrintModalOpen(false)}>Close</Button>
                         <Button color="success" onClick={triggerDownload}><i className="bx bx-download me-1"></i> Download</Button>
                         <Button color="info" onClick={triggerPrint}><i className="bx bx-printer me-1"></i> Print</Button>
+                    </ModalFooter>
+                </Modal>
+
+                <Modal isOpen={cancelModal.isOpen} toggle={() => setCancelModal({ isOpen: false, rowIndex: null, claimId: null, remark: "" })} centered size="lg" zIndex={2000} style={{ zIndex: 2000 }}>
+                    <ModalHeader toggle={() => setCancelModal({ isOpen: false, rowIndex: null, claimId: null, remark: "" })}>Cancel Claim</ModalHeader>
+                    <ModalBody>
+                        <div className="mb-3">
+                            <Label for="cancelRemark">Remark <span className="text-danger">*</span></Label>
+                            <Input 
+                                type="textarea" 
+                                id="cancelRemark" 
+                                value={cancelModal.remark} 
+                                onChange={(e) => setCancelModal({...cancelModal, remark: e.target.value})} 
+                                maxLength={100} 
+                                rows="3"
+                                placeholder="Enter reason for cancellation (max 100 characters)" 
+                            />
+                            <small className="text-muted">{cancelModal.remark.length}/100</small>
+                        </div>
+                    </ModalBody>
+                    <ModalFooter>
+                        <Button color="secondary" onClick={() => setCancelModal({ isOpen: false, rowIndex: null, claimId: null, remark: "" })}>Cancel</Button>
+                        <Button color="primary" onClick={confirmCancelClaim}>OK</Button>
                     </ModalFooter>
                 </Modal>
 

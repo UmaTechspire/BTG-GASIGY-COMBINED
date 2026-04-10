@@ -88,7 +88,7 @@ const BankBook = () => {
     const [showClaimsDialog, setShowClaimsDialog] = useState(false);
     const [selectedClaims, setSelectedClaims] = useState(null);
     const [claimsFilter, setClaimsFilter] = useState("");
-    
+
     // --- NESTED DETAIL DIALOG STATE ---
     const [showClaimDetailModal, setShowClaimDetailModal] = useState(false);
     const [claimDetailData, setClaimDetailData] = useState(null);
@@ -101,7 +101,7 @@ const BankBook = () => {
 
     const handleInvoiceClick = async (invoiceNo) => {
         if (!invoiceNo || invoiceNo === "-") return;
-        
+
         // Fix for 404 error: Strip party name suffix and invoice suffix if present
         // Example: "CLM0002566 - SMART GAS PTE TD" -> "CLM0002566"
         const pureInvoiceId = invoiceNo.split(" - ")[0].split(" (Inv:")[0];
@@ -126,7 +126,7 @@ const BankBook = () => {
 
     const fetchRecordDetail = async (row) => {
         if (row.transactionType?.toLowerCase() === "cash deposit") return;
-        
+
         const voucherNo = row.VoucherNo;
         const receiptId = row.receipt_id;
         const isClaim = voucherNo?.includes("CLM") || row.transactionType?.toLowerCase() === "payment";
@@ -139,12 +139,12 @@ const BankBook = () => {
             if (isClaim) {
                 // Find 'CLM' part in string if exists, otherwise fallback to first part
                 const pureClaimNo = (voucherNo || "").split(" - ").find(p => p.trim().startsWith("CLM"))?.split(" ")[0] || (voucherNo || "").split(" - ")[0];
-                
+
                 // 1. Fetch ALL claims to find the one with matching ApplicationNo
                 // Searching by ApplicationNo is the only reliable way since digits in string != Claim_ID necessarily
                 const listRes = await GetAllClaimAndPayment(0, 0, 1, 1, 0);
                 let claimId = null;
-                
+
                 if (listRes?.status && listRes.data) {
                     const match = listRes.data.find(c => c.claimno === pureClaimNo);
                     if (match) {
@@ -203,43 +203,43 @@ const BankBook = () => {
                     params: { receipt_id: receiptId }
                 });
 
-                    if (res.data?.status === "success" && res.data?.data) {
-                        const data = res.data.data;
-                        
-                        // 🟢 Fetch Allocated Invoices
-                        let allocatedInvoices = [];
-                        try {
-                            const invRes = await axios.get(`${PYTHON_API_URL}/AR/get-outstanding-invoices/${data.customer_id}`, {
-                                params: {
-                                    receipt_id: receiptId,
-                                    only_allocated: true
-                                }
-                            });
-                            if (invRes.data?.status === "success") {
-                                allocatedInvoices = invRes.data.data;
-                            }
-                        } catch (err) {
-                            console.error("Failed to fetch allocated invoices", err);
-                        }
+                if (res.data?.status === "success" && res.data?.data) {
+                    const data = res.data.data;
 
-                        setClaimDetailData({
-                            IsReceipt: true,
-                            FormNo: receiptId || data.receipt_no || voucherNo,
-                            Date: data.receipt_date,
-                            CustomerName: data.customer_name || row.Party || "-",
-                            TotalAmount: (parseFloat(data.cash_amount) || 0) + (parseFloat(data.bank_amount) || 0) + (parseFloat(data.contra_amount) || 0),
-                            PaymentMethod: data.bank_payment_via === 1 ? "Cheque" : (data.bank_payment_via === 4 ? "Cash" : "Bank Transfer"),
-                            BankName: data.bank_name || "-",
-                            Currency: data.CurrencyCode || "IDR",
-                            ChequeNo: data.cheque_number || "-",
-                            InvoiceNo: data.reference_no || "-",
-                            TransactionType: data.transaction_type || row.transactionType || "Receipt",
-                            AllocatedInvoices: allocatedInvoices,
-                            verified: row.pending_verification === 0
+                    // 🟢 Fetch Allocated Invoices
+                    let allocatedInvoices = [];
+                    try {
+                        const invRes = await axios.get(`${PYTHON_API_URL}/AR/get-outstanding-invoices/${data.customer_id}`, {
+                            params: {
+                                receipt_id: receiptId,
+                                only_allocated: true
+                            }
                         });
-                    } else {
-                        setClaimDetailData({ error: "No receipt details found.", VoucherNo: voucherNo, verified: row.pending_verification === 0 });
+                        if (invRes.data?.status === "success") {
+                            allocatedInvoices = invRes.data.data;
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch allocated invoices", err);
                     }
+
+                    setClaimDetailData({
+                        IsReceipt: true,
+                        FormNo: receiptId || data.receipt_no || voucherNo,
+                        Date: data.receipt_date,
+                        CustomerName: data.customer_name || row.Party || "-",
+                        TotalAmount: (parseFloat(data.cash_amount) || 0) + (parseFloat(data.bank_amount) || 0) + (parseFloat(data.contra_amount) || 0),
+                        PaymentMethod: data.bank_payment_via === 1 ? "Cheque" : (data.bank_payment_via === 4 ? "Cash" : "Bank Transfer"),
+                        BankName: data.bank_name || "-",
+                        Currency: data.CurrencyCode || "IDR",
+                        ChequeNo: data.cheque_number || "-",
+                        InvoiceNo: data.reference_no || "-",
+                        TransactionType: data.transaction_type || row.transactionType || "Receipt",
+                        AllocatedInvoices: allocatedInvoices,
+                        verified: row.pending_verification === 0
+                    });
+                } else {
+                    setClaimDetailData({ error: "No receipt details found.", VoucherNo: voucherNo, verified: row.pending_verification === 0 });
+                }
             }
         } catch (error) {
             console.error("Error fetching record details:", error);
@@ -357,13 +357,13 @@ const BankBook = () => {
                 overdraftLimit: odLimit
             };
         }).filter(item => {
-            if (item.transactionType === "OPENING BALANCE") return true; 
-            
+            if (item.transactionType === "OPENING BALANCE") return true;
+
             // Filter other transactions by date range
             const rowDate = item.date ? formatDate(item.date) : null;
             if (fromDate && rowDate && rowDate < fromDate) return false;
             if (toDate && rowDate && rowDate > toDate) return false;
-            
+
             return true;
         });
     }, [bankBook, currency, rates, fromDate]);
@@ -483,13 +483,30 @@ const BankBook = () => {
         return formatPrintDate(rowData.date);
     };
 
+    const renderHeader = () => {
+        return (
+            <div className="d-flex justify-content-end align-items-center">
+                <input
+                    type="text"
+                    placeholder="Keyword Search"
+                    className="form-control"
+                    style={{ width: '250px' }}
+                    value={globalFilter}
+                    onChange={(e) => setGlobalFilter(e.target.value)}
+                />
+            </div>
+        );
+    };
+
+    const header = renderHeader();
+
     return (
         <div className="page-content">
             <Container fluid>
                 <Breadcrumbs title="Finance" breadcrumbItem="Bank Book" />
-
-                <Row className="pt-2 pb-3 align-items-end">
-                    <Col md="3">
+                <Row className="pt-2 pb-3 align-items-center g-3">
+                    <Col lg="3" md="6" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap" style={{ minWidth: '85px' }}>Bank Name</label>
                         <Select
                             name="depositBankId"
                             id="depositBankId"
@@ -499,13 +516,16 @@ const BankBook = () => {
                             onChange={(option) => {
                                 setBankid(option?.value || null);
                             }}
-                            placeholder="Select BTG Bank"
+                            placeholder="Select Bank..."
+                            styles={{
+                                control: (base) => ({ ...base, minHeight: '38px', width: '100%' }),
+                                container: (base) => ({ ...base, width: '100%' })
+                            }}
                         />
                     </Col>
 
-
-
-                    <Col md="3">
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">From</label>
                         <Flatpickr
                             className="form-control"
                             value={fromDate}
@@ -515,11 +535,11 @@ const BankBook = () => {
                                 altFormat: "d-M-Y",
                                 dateFormat: "Y-m-d"
                             }}
-                            placeholder="From Date"
                         />
                     </Col>
 
-                    <Col md="3">
+                    <Col lg="2" md="4" className="d-flex align-items-center">
+                        <label className="mb-0 me-2 fw-bold text-nowrap">To</label>
                         <Flatpickr
                             className="form-control"
                             value={toDate}
@@ -529,44 +549,39 @@ const BankBook = () => {
                                 altFormat: "d-M-Y",
                                 dateFormat: "Y-m-d"
                             }}
-                            placeholder="To Date"
                         />
                     </Col>
 
-                    <Col md="12" className="text-end mt-2">
-                        <button type="button" className="btn btn-primary me-2" onClick={fetchBankBook}>
-                            Search
-                        </button>
-                        <button type="button" className="btn btn-danger me-2" onClick={handleCancelFilters}>
-                            Cancel
-                        </button>
-                        <button type="button" className="btn btn-info me-2" onClick={handlePrint}>
-                            <i className="bx bx-printer me-2"></i> Print
-                        </button>
-                        <button type="button" className="btn btn-secondary" onClick={exportToExcel}>
-                            <i className="bx bx-export me-2"></i> Export
-                        </button>
+                    <Col lg="5" className="text-end">
+                        <div className="d-flex justify-content-end gap-2">
+                            <button type="button" className="btn btn-info" onClick={fetchBankBook}>
+                                <i className="bx bx-search-alt font-size-16 align-middle me-2"></i> Search
+                            </button>
+                            <button type="button" className="btn btn-danger" onClick={handleCancelFilters}>
+                                <i className="bx bx-window-close font-size-14 align-middle me-2"></i> Cancel
+                            </button>
+                            <button type="button" className="btn btn-primary" onClick={handlePrint}>
+                                <i className="bx bx-printer font-size-16 align-middle me-2"></i> Print
+                            </button>
+                            <button type="button" className="btn btn-secondary" onClick={exportToExcel}>
+                                <i className="bx bx-export font-size-16 align-middle me-2"></i> Export
+                            </button>
+                        </div>
                     </Col>
                 </Row>
 
                 <Row>
                     <Col lg="12">
-                        <Card>
+                        <Card className="border-0 shadow-sm">
                             <CardBody>
-                                <div className="d-flex justify-content-end mb-2">
-                                    <input
-                                        type="text"
-                                        placeholder="Global Search"
-                                        className="form-control w-auto"
-                                        value={globalFilter}
-                                        onChange={(e) => setGlobalFilter(e.target.value)}
-                                    />
-                                </div>
                                 <DataTable
                                     value={filtered}
+                                    header={header}
+                                    style={{ fontSize: "13px" }}
+                                    className="blue-bg"
                                     loading={loading}
                                     paginator
-                                    rows={20}
+                                    rows={25}
                                     filters={filters}
                                     onFilter={(e) => setFilters(e.filters)}
                                     globalFilterFields={["glcode", "currency", "actamount", "date", "creditIn", "debitOut", "balance", "voucherNo", "party", "transactionType"]}
@@ -574,19 +589,20 @@ const BankBook = () => {
                                     emptyMessage="No records found."
                                     showGridlines
                                     filterDisplay="menu"
+                                    responsiveLayout="scroll"
                                     filter
                                 >
-                                    <Column field="date" header="Date" body={dateBodyTemplate} style={{ width: '120px' }} />
+                                    <Column field="date" header="Date" body={dateBodyTemplate} style={{ width: '120px' }} sortable />
                                     {/* Reference No column removed from Grid per request */}
 
-                                    <Column 
-                                        field="transactionType" 
-                                        header="Transaction Type" 
-                                        filter 
-                                        filterPlaceholder="Search Type" 
+                                    <Column
+                                        field="transactionType"
+                                        header="Transaction Type"
+                                        filter
+                                        filterPlaceholder="Search Type"
                                         body={(rowData) => (
                                             <span>
-                                                {rowData.transactionType} 
+                                                {rowData.transactionType}
                                                 {rowData.currency && (
                                                     <span style={{ marginLeft: '4px', color: 'black' }}>
                                                         (<span style={{ color: 'firebrick', fontWeight: 'bold' }}>{rowData.currency}</span>)
@@ -596,6 +612,7 @@ const BankBook = () => {
                                             </span>
                                         )}
                                         style={{ minWidth: '150px' }}
+                                        sortable
                                     />
 
                                     <Column
@@ -605,7 +622,7 @@ const BankBook = () => {
                                         filterPlaceholder="Search Party"
                                         body={(rowData) => {
                                             const isSpecialType = ["bank transfer", "bank interest", "bank charges", "cash deposit"].includes(rowData.transactionType?.toLowerCase());
-                                            
+
                                             if (!isSpecialType && rowData.groupedClaims && rowData.groupedClaims.length > 0) {
                                                 return (
                                                     <span
@@ -629,7 +646,7 @@ const BankBook = () => {
                                             if (isSpecialType && rowData.partyDetail) {
                                                 const tooltipId = `tooltip-${rowData.rowKey || Math.random().toString(36).substr(2, 9)}`;
                                                 return (
-                                                    <span 
+                                                    <span
                                                         className="custom-tooltip-target"
                                                         data-pr-tooltip={rowData.partyDetail}
                                                         style={{ cursor: 'help' }}
@@ -641,17 +658,18 @@ const BankBook = () => {
 
                                             return rowData.party;
                                         }}
+                                        sortable
                                     />
 
 
-                                    <Column header="Exchange Rate" body={(rowData) => {
+                                    <Column field="exchangeRate" header="Rate" body={(rowData) => {
                                         const isIDR = rowData.currency === "IDR";
 
                                         return (
                                             <input
                                                 type="number"
                                                 className={`form-control form-control-sm text-end ${isIDR ? 'bg-light text-muted' : ''}`}
-                                                style={{ width: '80px', display: 'inline-block' }}
+                                                style={{ width: '100%', maxWidth: '85px', fontSize: '12px' }}
                                                 value={isIDR ? 1 : (rates[rowData.rowKey] !== undefined ? rates[rowData.rowKey] : 1)}
                                                 step="0.01"
                                                 min="0.01"
@@ -659,7 +677,7 @@ const BankBook = () => {
                                                 onChange={(e) => handleRateChange(rowData.rowKey, e.target.value)}
                                             />
                                         );
-                                    }} style={{ width: '100px' }} />
+                                    }} style={{ width: '100px' }} className="text-center" sortable />
 
                                     {/* Total (Converted) - foreign currency amount */}
                                     <Column field="totalConverted" header="Total (Converted)" body={(d) => {
@@ -668,7 +686,7 @@ const BankBook = () => {
                                             style: 'decimal',
                                             minimumFractionDigits: 2
                                         });
-                                    }} className="text-end" />
+                                    }} className="text-end" sortable />
 
                                     {/* Debit Out (IDR converted) */}
                                     <Column field="convertedDebit" header="Debit Out" body={(d) => {
@@ -677,7 +695,7 @@ const BankBook = () => {
                                             style: 'decimal',
                                             minimumFractionDigits: 2
                                         });
-                                    }} className="text-end" />
+                                    }} className="text-end" sortable />
 
                                     {/* Credit In (IDR converted) */}
                                     <Column field="convertedCredit" header="Credit In" body={(d) => {
@@ -686,13 +704,13 @@ const BankBook = () => {
                                             style: 'decimal',
                                             minimumFractionDigits: 2
                                         });
-                                    }} className="text-end" />
+                                    }} className="text-end" sortable />
 
                                     {/* Balance */}
                                     <Column field="balance" header="Balance" body={(d) => d.balance.toLocaleString('en-US', {
                                         style: 'decimal',
                                         minimumFractionDigits: 2
-                                    })} className="text-end" />
+                                    })} className="text-end" sortable />
 
                                     {/* OVER DRAFT - shows remaining limit or "-" when over limit */}
                                     {filtered.some(ex => ex.overdraftLimit > 0) && (
@@ -807,17 +825,18 @@ const BankBook = () => {
                                                 />
                                             </div>
 
-                                             <DataTable
-                                                 value={selectedClaims.claims}
-                                                 className="p-datatable-sm p-datatable-gridlines"
-                                                 responsiveLayout="scroll"
-                                                 globalFilter={claimsFilter}
-                                                 globalFilterFields={['VoucherNo']}
-                                                 emptyMessage="No matching records found."
-                                             >
-                                                 {selectedClaims.claims[0]?.transactionType?.toLowerCase() === "payment" && (
-                                                     <Column 
-                                                        header="Claim Number" 
+                                            <DataTable
+                                                value={selectedClaims.claims}
+                                                className="blue-bg"
+                                                showGridlines
+                                                responsiveLayout="scroll"
+                                                globalFilter={claimsFilter}
+                                                globalFilterFields={['VoucherNo']}
+                                                emptyMessage="No matching records found."
+                                            >
+                                                {selectedClaims.claims[0]?.transactionType?.toLowerCase() === "payment" && (
+                                                    <Column
+                                                        header="Claim Number"
                                                         body={(r) => {
                                                             let val = r.pending_verification === 0 ? (r.VoucherNo || "") : "-";
                                                             // VoucherNo format: "ReceiptID - ClaimNo - PartyName"
@@ -842,79 +861,79 @@ const BankBook = () => {
                                                                 </span>
                                                             );
                                                         }}
-                                                     />
-                                                 )}
-                                                 
-                                                 {selectedClaims.claims[0]?.transactionType?.toLowerCase() !== "payment" && (
-                                                     <Column 
-                                                         header="Voucher Number" 
-                                                         body={(r) => {
-                                                             const isClaim = r.VoucherNo?.startsWith("CLM");
-                                                             const isCashDeposit = r.transactionType?.toLowerCase() === "cash deposit";
-                                                             let val = r.pending_verification === 0 ? (r.VoucherNo || "") : "-";
-                                                             if (isClaim && r.pending_verification === 0) {
-                                                                 // Strip invoice suffix and party name suffix
-                                                                 val = val.split(" (Inv:")[0].split(" - ")[0];
-                                                             } else if (r.pending_verification === 0) {
-                                                                 val = r.receipt_id || "-";
-                                                             }
+                                                    />
+                                                )}
 
-                                                             if (isCashDeposit) {
-                                                                 return <span>{val}</span>;
-                                                             }
+                                                {selectedClaims.claims[0]?.transactionType?.toLowerCase() !== "payment" && (
+                                                    <Column
+                                                        header="Voucher Number"
+                                                        body={(r) => {
+                                                            const isClaim = r.VoucherNo?.startsWith("CLM");
+                                                            const isCashDeposit = r.transactionType?.toLowerCase() === "cash deposit";
+                                                            let val = r.pending_verification === 0 ? (r.VoucherNo || "") : "-";
+                                                            if (isClaim && r.pending_verification === 0) {
+                                                                // Strip invoice suffix and party name suffix
+                                                                val = val.split(" (Inv:")[0].split(" - ")[0];
+                                                            } else if (r.pending_verification === 0) {
+                                                                val = r.receipt_id || "-";
+                                                            }
 
-                                                             return (
-                                                                 <span
-                                                                     className="text-primary fw-bold"
-                                                                     style={{ cursor: "pointer", textDecoration: "underline" }}
-                                                                     onClick={() => fetchRecordDetail(r)}
-                                                                     title={r.pending_verification === 0 ? (r.VoucherNo || "") : ""}
-                                                                 >
-                                                                     {val}
-                                                                 </span>
-                                                             );
-                                                         }}
-                                                     />
-                                                 )}
-                                                                                                 {selectedClaims.claims[0]?.transactionType?.toLowerCase() !== "payment" && (
-                                                     <Column 
-                                                         header="Relevant Invoice" 
-                                                         body={(r) => {
-                                                             const match = r.VoucherNo?.match(/\(Inv:\s*(.*?)\)/);
-                                                             let invoiceNoStr = match ? match[1] : (r.InvoiceNo || "-");
-                                                             
-                                                             // Fallback: if it's still "-", try to split VoucherNo
-                                                             if ((!invoiceNoStr || invoiceNoStr === "-") && r.VoucherNo?.includes(" - ")) {
-                                                                 invoiceNoStr = r.VoucherNo.split(" - ").slice(1).join(" - ");
-                                                                 // Strip party name if any
-                                                                 invoiceNoStr = invoiceNoStr.split(" - ")[0];
-                                                             }
+                                                            if (isCashDeposit) {
+                                                                return <span>{val}</span>;
+                                                            }
 
-                                                             if (!invoiceNoStr || invoiceNoStr === "-") return "-";
-                                                             
-                                                             const invoices = invoiceNoStr.split(',').map(i => i.trim()).filter(i => i);
-                                                             
-                                                             return (
-                                                                 <div>
-                                                                     {invoices.map((inv, idx) => (
-                                                                         <span key={idx}>
-                                                                             <span>{inv}</span>
-                                                                             {idx < invoices.length - 1 && <span style={{ marginRight: "3px" }}>,</span>}
-                                                                         </span>
-                                                                     ))}
-                                                                 </div>
-                                                             );
-                                                         }}
-                                                     />
-                                                 )}
-                                                 
-                                                 <Column
-                                                     field="Amount"
-                                                     header="Amount"
-                                                     body={(r) => Math.abs(r.Amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                     className="text-end"
-                                                 />
-                                             </DataTable>
+                                                            return (
+                                                                <span
+                                                                    className="text-primary fw-bold"
+                                                                    style={{ cursor: "pointer", textDecoration: "underline" }}
+                                                                    onClick={() => fetchRecordDetail(r)}
+                                                                    title={r.pending_verification === 0 ? (r.VoucherNo || "") : ""}
+                                                                >
+                                                                    {val}
+                                                                </span>
+                                                            );
+                                                        }}
+                                                    />
+                                                )}
+                                                {selectedClaims.claims[0]?.transactionType?.toLowerCase() !== "payment" && (
+                                                    <Column
+                                                        header="Relevant Invoice"
+                                                        body={(r) => {
+                                                            const match = r.VoucherNo?.match(/\(Inv:\s*(.*?)\)/);
+                                                            let invoiceNoStr = match ? match[1] : (r.InvoiceNo || "-");
+
+                                                            // Fallback: if it's still "-", try to split VoucherNo
+                                                            if ((!invoiceNoStr || invoiceNoStr === "-") && r.VoucherNo?.includes(" - ")) {
+                                                                invoiceNoStr = r.VoucherNo.split(" - ").slice(1).join(" - ");
+                                                                // Strip party name if any
+                                                                invoiceNoStr = invoiceNoStr.split(" - ")[0];
+                                                            }
+
+                                                            if (!invoiceNoStr || invoiceNoStr === "-") return "-";
+
+                                                            const invoices = invoiceNoStr.split(',').map(i => i.trim()).filter(i => i);
+
+                                                            return (
+                                                                <div>
+                                                                    {invoices.map((inv, idx) => (
+                                                                        <span key={idx}>
+                                                                            <span>{inv}</span>
+                                                                            {idx < invoices.length - 1 && <span style={{ marginRight: "3px" }}>,</span>}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            );
+                                                        }}
+                                                    />
+                                                )}
+
+                                                <Column
+                                                    field="Amount"
+                                                    header="Amount"
+                                                    body={(r) => Math.abs(r.Amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                    className="text-end"
+                                                />
+                                            </DataTable>
 
                                             <div className="text-end mt-3">
                                                 <button className="btn btn-secondary btn-sm" onClick={() => setShowClaimsDialog(false)}>Close</button>
@@ -959,15 +978,15 @@ const BankBook = () => {
                                                         <div className="metadata-item"><span className="metadata-label">Category Type</span><span className="metadata-value">: {claimDetailData.CategoryType}</span></div>
                                                         <div className="metadata-item"><span className="metadata-label">Application Date</span><span className="metadata-value">: {claimDetailData.Date ? formatPrintDate(claimDetailData.Date) : "-"}</span></div>
                                                         <div className="metadata-item"><span className="metadata-label">Claim Number</span><span className="metadata-value">: {claimDetailData.ApplicationNo}</span></div>
-                                                        
+
                                                         <div className="metadata-item"><span className="metadata-label">Department</span><span className="metadata-value">: {claimDetailData.Department}</span></div>
                                                         <div className="metadata-item"><span className="metadata-label">Applicant</span><span className="metadata-value">: {claimDetailData.Applicant}</span></div>
                                                         <div className="metadata-item"></div>
-                                                        
+
                                                         <div className="metadata-item"><span className="metadata-label">Trans Currency</span><span className="metadata-value">: {claimDetailData.TransCurrency}</span></div>
                                                         <div className="metadata-item"><span className="metadata-label">HOD</span><span className="metadata-value">: {claimDetailData.HOD}</span></div>
                                                         <div className="metadata-item"><span className="metadata-label">Supplier</span><span className="metadata-value">: {claimDetailData.Supplier}</span></div>
-                                                        
+
                                                         <div className="metadata-item"><span className="metadata-label">Cost Center</span><span className="metadata-value">: {claimDetailData.CostCenter}</span></div>
                                                         <div className="metadata-item"><span className="metadata-label">Claim Amount in TC</span><span className="metadata-value">: {claimDetailData.ClaimAmtInTC?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></div>
                                                         <div className="metadata-item"></div>
@@ -975,7 +994,8 @@ const BankBook = () => {
 
                                                     <DataTable
                                                         value={claimDetailData.Details || []}
-                                                        className="claims-datatable p-datatable-sm p-datatable-gridlines mb-3"
+                                                        className="blue-bg mb-3"
+                                                        showGridlines
                                                         responsiveLayout="scroll"
                                                     >
                                                         <Column header="#" body={(rowData, options) => options.rowIndex + 1} style={{ width: '50px' }} />
@@ -1034,13 +1054,14 @@ const BankBook = () => {
                                                             <h6 className="fw-bold mb-3" style={{ color: "#3b71ca" }}>Allocated Invoices</h6>
                                                             <DataTable
                                                                 value={claimDetailData.AllocatedInvoices}
-                                                                className="claims-datatable p-datatable-sm p-datatable-gridlines"
+                                                                className="blue-bg"
+                                                                showGridlines
                                                                 responsiveLayout="scroll"
                                                             >
                                                                 <Column header="#" body={(rowData, options) => options.rowIndex + 1} style={{ width: '50px' }} />
                                                                 <Column field="invoice_no" header="Invoice Number" body={(r) => (
-                                                                    <span 
-                                                                        className="text-primary fw-bold" 
+                                                                    <span
+                                                                        className="text-primary fw-bold"
                                                                         style={{ cursor: 'pointer', textDecoration: 'underline' }}
                                                                         onClick={() => handleInvoiceClick(r.invoice_no)}
                                                                     >
@@ -1048,15 +1069,15 @@ const BankBook = () => {
                                                                     </span>
                                                                 )} />
                                                                 <Column field="invoice_date" header="Date" />
-                                                                <Column 
-                                                                    header="Invoice Amount" 
-                                                                    className="text-end" 
-                                                                    body={(r) => parseFloat(r.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} 
+                                                                <Column
+                                                                    header="Invoice Amount"
+                                                                    className="text-end"
+                                                                    body={(r) => parseFloat(r.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                                                 />
-                                                                <Column 
-                                                                    header="Allocated" 
-                                                                    className="text-end fw-bold text-success" 
-                                                                    body={(r) => parseFloat(r.allocated_here || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} 
+                                                                <Column
+                                                                    header="Allocated"
+                                                                    className="text-end fw-bold text-success"
+                                                                    body={(r) => parseFloat(r.allocated_here || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                                                 />
                                                             </DataTable>
                                                         </div>
@@ -1117,7 +1138,8 @@ const BankBook = () => {
                             </div>
                             <DataTable
                                 value={invoiceDetails.Items || []}
-                                className="p-datatable-sm p-datatable-gridlines"
+                                className="blue-bg"
+                                showGridlines
                                 responsiveLayout="scroll"
                             >
 
@@ -1136,13 +1158,13 @@ const BankBook = () => {
                     )}
                 </Dialog>
 
-                <Tooltip 
-                    target=".custom-tooltip-target" 
-                    mouseTrack 
-                    mouseTrackLeft={10} 
-                    style={{ 
-                        fontSize: '15px', 
-                        maxWidth: '300px' 
+                <Tooltip
+                    target=".custom-tooltip-target"
+                    mouseTrack
+                    mouseTrackLeft={10}
+                    style={{
+                        fontSize: '15px',
+                        maxWidth: '300px'
                     }}
                     contentStyle={{
                         backgroundColor: '#ffffff',

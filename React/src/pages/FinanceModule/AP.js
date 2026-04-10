@@ -88,51 +88,7 @@ const AP = () => {
     const [prLoading, setPrLoading] = useState(false);
 
     // --- Styles ---
-    const gridHeaderStyle = {
-        backgroundColor: "#2c5096",
-        color: "#ffffff",
-        fontWeight: "600",
-        verticalAlign: "middle",
-        borderBottom: "none",
-        whiteSpace: "nowrap" // Single line column names
-    };
 
-    const filterIconStyle = {
-        float: "right",
-        cursor: "pointer",
-        opacity: 0.8,
-        fontSize: "14px",
-        marginTop: "2px",
-        marginLeft: "5px"
-    };
-
-    const blueLinkStyle = {
-        color: "#2c5096",
-        fontWeight: "bold",
-        textDecoration: "underline",
-        cursor: "pointer"
-    };
-
-    // Style for Modal Headers - Labels bold, Values normal
-    const modalLabelStyle = {
-        fontWeight: "bold",
-        display: "inline-block",
-        color: "#333"
-    };
-
-    const modalValueStyle = {
-        fontWeight: "normal",
-        display: "inline-block",
-        color: "#333"
-    };
-
-    // PR No specific style - bold + brick red
-    const prNoStyle = {
-        fontWeight: "bold",
-        color: "#b22222",
-        display: "inline-block",
-        cursor: "pointer"
-    };
 
     // --- 1. Load Dropdowns & PO List ---
     useEffect(() => {
@@ -171,6 +127,24 @@ const AP = () => {
         };
         loadInitialData();
     }, [orgId, branchId, userId]);
+
+    const statusBodyTemplate = (rowData) => {
+        const isSubmitted = rowData.IsSubmitted || rowData.issubmitted;
+        return (
+            <div className="d-flex justify-content-center align-items-center">
+                <span 
+                    className={classnames("badge rounded-circle d-flex align-items-center justify-content-center", {
+                        "bg-success": isSubmitted,
+                        "bg-danger": !isSubmitted
+                    })}
+                    style={{ width: "22px", height: "22px", fontSize: "12px", fontWeight: "bold", color: "#fff" }}
+                    title={isSubmitted ? "Posted" : "Saved"}
+                >
+                    {isSubmitted ? "P" : "S"}
+                </span>
+            </div>
+        );
+    };
 
     const formatDate = (date) => {
         if (!date) return "-";
@@ -250,7 +224,11 @@ const AP = () => {
                                 PONumber: directPoNo || (currentPoLookup[poId] ? currentPoLookup[poId].pono : ""),
                                 Amount: Number(item.grnvalue || item.amount || item.Amount || item.total_amount || 0),
                                 currencyid: Number(curId),
-                                currencycode: curCode
+                                currencycode: curCode,
+                                SupplierName: item.suppliername || item.SupplierName || "",
+                                CreatedDate: item.CreatedDate || item.createddate || item.logdate || item.grndate || "",
+                                CreatedBy: item.createdbyName || item.UserName || item.username || item.createdbyname || item.CreatedBy || "System",
+                                IsSubmitted: item.issubmitted || item.IsSubmitted || false
                             };
                         });
 
@@ -343,7 +321,8 @@ const AP = () => {
         if (poNo && poNo !== "-") {
             return (
                 <span 
-                    style={{ ...blueLinkStyle, cursor: 'pointer', fontWeight: '500', textDecoration: 'underline' }} 
+                    className="fw-bold cursor-pointer text-primary"
+                    style={{ textDecoration: 'underline' }} 
                     onClick={() => handlePOClick(item.POId)}
                     title="View PO Details"
                 >
@@ -352,6 +331,36 @@ const AP = () => {
             );
         }
         return "-";
+    };
+
+    const renderHeader = (isAccrued = true) => {
+        const filterValue = isAccrued ? globalFilterAccrued : globalFilterPayable;
+        const setFilterValue = isAccrued ? setGlobalFilterAccrued : setGlobalFilterPayable;
+
+        return (
+            <div className="row align-items-center g-3">
+                <div className="col-12 col-lg-6">
+                    <Button 
+                        className="btn btn-danger btn-label" 
+                        onClick={handleClearFilter}
+                    >
+                        <i className="mdi mdi-filter-off label-icon" /> Clear
+                    </Button>
+                </div>
+                <div className="col-12 col-lg-3 text-end">
+                    {/* Placeholder for future tags/legends to keep alignment consistent with other pages */}
+                </div>
+                <div className="col-12 col-lg-3">
+                    <InputText 
+                        type="search" 
+                        placeholder="Keyword Search" 
+                        className="form-control" 
+                        value={filterValue} 
+                        onChange={(e) => setFilterValue(e.target.value)} 
+                    />
+                </div>
+            </div>
+        );
     };
 
     useEffect(() => {
@@ -589,12 +598,12 @@ const AP = () => {
                         <Row>
                             <Col md={3}>
                                 <div className="mb-3">
-                                    <Label>Supplier</Label>
+                                    <Label className="fw-bold">Supplier</Label>
                                     <Select options={supplierList} value={filter.supplier} onChange={(opt) => handleFilterChange("supplier", opt)} isClearable placeholder="Select Supplier" />
                                     {activeTab === "2" && (
                                         <div className="mt-3 text-start" style={{ fontSize: "16px" }}>
                                             <span className="fw-bold me-2">Total AP:</span>
-                                            <span style={{ color: "firebrick", fontWeight: "bold" }}>
+                                            <span className="text-primary fw-bold">
                                                 {totalPayableValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                             </span>
                                         </div>
@@ -603,29 +612,29 @@ const AP = () => {
                             </Col>
                             <Col md={3}>
                                 <div className="mb-3">
-                                    <Label>Currency</Label>
+                                    <Label className="fw-bold">Currency</Label>
                                     <Select options={currencyList} value={filter.currency} onChange={(opt) => handleFilterChange("currency", opt)} isClearable placeholder="Select Currency" />
                                 </div>
                             </Col>
                             <Col md={3}>
                                 <div className="mb-3">
-                                    <Label>From Date</Label>
+                                    <Label className="fw-bold">From Date</Label>
                                     <Flatpickr className="form-control" value={filter.fromDate} onChange={(date) => handleFilterChange("fromDate", date[0])} options={{ dateFormat: "d-m-Y" }} />
                                 </div>
                             </Col>
                             <Col md={3}>
                                 <div className="mb-3">
-                                    <Label>To Date</Label>
+                                    <Label className="fw-bold">To Date</Label>
                                     <Flatpickr className="form-control" value={filter.toDate} onChange={(date) => handleFilterChange("toDate", date[0])} options={{ dateFormat: "d-m-Y" }} />
                                 </div>
                             </Col>
                             <Col md={12} className="d-flex justify-content-end align-items-center gap-2">
-                                <Button color="primary" onClick={fetchData} disabled={loading}>
-                                    {loading ? <i className="bx bx-loader bx-spin me-1"></i> : <i className="bx bx-search-alt-2 me-1"></i>} Search
-                                </Button>
-                                <Button color="danger" onClick={handleClearFilter} disabled={loading}>
-                                    <i className="bx bx-x me-1"></i> Cancel
-                                </Button>
+                                <button type="button" className="btn btn-info btn-label" onClick={fetchData} disabled={loading}>
+                                    <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search
+                                </button>
+                                <button type="button" className="btn btn-danger btn-label" onClick={handleClearFilter} disabled={loading}>
+                                    <i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i> Cancel
+                                </button>
                             </Col>
                         </Row>
                     </CardBody>
@@ -666,27 +675,23 @@ const AP = () => {
                                     rows={20}
                                     loading={loading}
                                     globalFilter={globalFilterAccrued}
-                                    globalFilterFields={["Reference", "currencycode", "Amount", "PONumber"]}
-                                    style={{ fontSize: '13px' }}
-                                    header={
-                                        <div className="d-flex justify-content-end">
-                                            <InputText type="search" placeholder="Global Search" className="form-control" style={{ width: "250px" }} value={globalFilterAccrued} onChange={(e) => setGlobalFilterAccrued(e.target.value)} />
-                                        </div>
-                                    }
+                                    globalFilterFields={["Reference", "SupplierName", "CreatedBy"]}
+                                    header={renderHeader(true)}
                                     responsiveLayout="scroll"
                                     emptyMessage="No Data Found"
-                                    className="p-datatable-sm p-datatable-gridlines"
+                                    className="blue-bg"
+                                    showGridlines
+                                    size="small"
                                 >
                                     <Column field="Reference" header="GRN No" body={(item) => (
-                                        <span style={blueLinkStyle} onClick={() => handleGRNClick(item.Id)}>
+                                        <span className="fw-bold cursor-pointer text-primary" style={{ textDecoration: 'underline' }} onClick={() => handleGRNClick(item.Id)}>
                                             {item.Reference}
                                         </span>
                                     )} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
-                                    <Column field="DateObj" header="GRN Date" body={(item) => formatDate(item.Date)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
-                                    <Column field="POId" header="PO Number" body={displayPONumber} sortable />
-                                    <Column field="currencycode" header="Currency" sortable />
-                                    <Column field="Amount" header="Amount" body={(item) => new Intl.NumberFormat().format(item.Amount)} className="text-end" sortable />
-                                    <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => new Intl.NumberFormat().format(item.CumulativeAmount)} className="text-end" sortable />
+                                    <Column field="Date" header="GRN Date" body={(item) => formatDate(item.Date)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
+                                    <Column field="SupplierName" header="Supplier" sortable />
+                                    <Column field="CreatedDate" header="Created Date" body={(item) => formatDate(item.CreatedDate)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
+                                    <Column field="CreatedBy" header="Created By" sortable />
                                 </DataTable>
                             </TabPane>
 
@@ -699,15 +704,12 @@ const AP = () => {
                                     loading={loading}
                                     globalFilter={globalFilterPayable}
                                     globalFilterFields={["Reference", "SupplierName", "currencycode", "OriginalAmount", "PONumber"]}
-                                    style={{ fontSize: '13px' }}
-                                    header={
-                                        <div className="d-flex justify-content-end">
-                                            <InputText type="search" placeholder="Global Search" className="form-control" style={{ width: "250px" }} value={globalFilterPayable} onChange={(e) => setGlobalFilterPayable(e.target.value)} />
-                                        </div>
-                                    }
+                                    header={renderHeader(false)}
                                     responsiveLayout="scroll"
                                     emptyMessage="No Data Found"
-                                    className="p-datatable-sm p-datatable-gridlines"
+                                    className="blue-bg"
+                                    showGridlines
+                                    size="small"
                                 >
                                     <Column
                                         header={<Input type="checkbox" onChange={handleSelectAll} checked={payableData.length > 0 && selectedPayables.length === payableData.length} />}
@@ -718,7 +720,7 @@ const AP = () => {
                                         bodyStyle={{ textAlign: "center" }}
                                     />
                                     <Column field="Reference" header="Reference (IRN)" body={(item) => (
-                                        <span style={blueLinkStyle} onClick={() => handleIRNClick(item.POId)}>
+                                        <span className="fw-bold cursor-pointer text-primary" style={{ textDecoration: 'underline' }} onClick={() => handleIRNClick(item.POId)}>
                                             {item.Reference}
                                         </span>
                                     )} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
@@ -727,8 +729,8 @@ const AP = () => {
                                     <Column field="currencycode" header="Currency" sortable />
                                     <Column field="DueDateObj" header="Due Date" body={(item) => formatDate(item.DueDate)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
 
-                                    <Column field="OriginalAmount" header="Amount" body={(item) => new Intl.NumberFormat().format(item.OriginalAmount)} className="text-end" sortable />
-                                    <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => new Intl.NumberFormat().format(item.CumulativeAmount)} className="text-end" sortable />
+                                    <Column field="OriginalAmount" header="Amount" body={(item) => (item.OriginalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-end" sortable />
+                                    <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => (item.CumulativeAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-end" sortable />
                                 </DataTable>
                             </TabPane>
                         </TabContent>
@@ -747,18 +749,18 @@ const AP = () => {
                                 <div className="mb-4">
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>
                                                 {modalType === "PO" ? "PO No." : "Number"}
                                             </span>
-                                            <span style={modalValueStyle}>
+                                            <span style={{ color: "#333" }}>
                                                 : {modalType === "GRN" ? modalData.Header?.grnno : modalData.Header?.pono}
                                             </span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>
                                                 {modalType === "PO" ? "PO Date" : "Date"}
                                             </span>
-                                            <span style={modalValueStyle}>
+                                            <span style={{ color: "#333" }}>
                                                 : {formatDate(modalType === "GRN" ? modalData.Header?.grndate : modalData.Header?.podate)}
                                             </span>
                                         </Col>
@@ -766,21 +768,21 @@ const AP = () => {
 
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Supplier</span>
-                                            <span style={modalValueStyle}>: {modalData.Header?.suppliername}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>Supplier</span>
+                                            <span style={{ color: "#333" }}>: {modalData.Header?.suppliername}</span>
                                         </Col>
 
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>
                                                 {modalType === "PO" ? "PR No." : "Total Amount"}
                                             </span>
                                             {modalType === "PO" ? (
-                                                <span style={prNoStyle}>
+                                                <span className="fw-bold text-danger cursor-pointer">
                                                     : {modalData.Requisition?.[0]?.prnumber || "-"}
                                                 </span>
                                             ) : (
-                                                <span style={modalValueStyle}>
-                                                    : {new Intl.NumberFormat().format(modalData.Header?.nettotal || 0)}
+                                                <span style={{ color: "#333" }}>
+                                                    : {Number(modalData.Header?.nettotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </span>
                                             )}
                                         </Col>
@@ -788,17 +790,17 @@ const AP = () => {
 
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Currency</span>
-                                            <span style={modalValueStyle}>: {modalData.Header?.currencycode || "SGD"}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>Currency</span>
+                                            <span style={{ color: "#333" }}>: {modalData.Header?.currencycode || "SGD"}</span>
                                         </Col>
                                     </Row>
                                 </div>
 
                                 {/* DETAILS TABLE */}
                                 <div className="table-responsive border">
-                                    <Table className="table mb-0">
-                                        <thead>
-                                            <tr style={gridHeaderStyle}>
+                                    <Table className="table table-bordered mb-0">
+                                        <thead className="table-light">
+                                            <tr>
                                                 <th>#</th>
                                                 {(modalType === "PO" || modalType === "IRN") && <th>PR No.</th>}
                                                 {(modalType === "PO" || modalType === "IRN") && <th>Item Group</th>}
@@ -820,26 +822,26 @@ const AP = () => {
                                             {((modalType === "GRN") ? modalData.Details : modalData.Requisition)?.map((row, i) => (
                                                 <tr key={i} className="align-middle">
                                                     <td>{i + 1}</td>
-                                                    {(modalType === "PO" || modalType === "IRN") && <td><span style={{ ...prNoStyle, cursor: 'pointer' }} onClick={() => handlePRClick(row.prid)}>{row.prnumber || row.pr_number || "-"}</span></td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td><span className="fw-bold text-danger cursor-pointer" onClick={() => handlePRClick(row.prid)}>{row.prnumber || row.pr_number || "-"}</span></td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td>{row.groupname || "-"}</td>}
                                                     <td>{row.itemname || row.itemDescription || "-"}</td>
                                                     <td>{row.qty || row.poqty || 0}</td>
                                                     <td>{row.uom || row.UOM || "-"}</td>
                                                     {modalType === "GRN" && <td>{row.alreadyrecqty || 0}</td>}
                                                     {modalType === "GRN" && <td>{row.balanceqty || 0}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.unitprice || 0)}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.discountvalue || 0)}</td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{Number(row.unitprice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{Number(row.discountvalue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{row.taxperc || 0}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.taxvalue || 0)}</td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{Number(row.taxvalue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{row.vatperc || 0}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{new Intl.NumberFormat().format(row.vatvalue || 0)}</td>}
-                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end"><strong>{new Intl.NumberFormat().format(row.totalvalue || row.nettotal || 0)}</strong></td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end">{Number(row.vatvalue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td className="text-end"><strong>{Number(row.totalvalue || row.nettotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>}
                                                 </tr>
                                             ))}
                                             {(modalType === "PO" || modalType === "IRN") && (
                                                 <tr className="fw-bold bg-light">
                                                     <td colSpan={12} className="text-end">Total:</td>
-                                                    <td className="text-end">{new Intl.NumberFormat().format(modalData.Header?.nettotal || 0)}</td>
+                                                    <td className="text-end">{Number(modalData.Header?.nettotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 </tr>
                                             )}
                                         </tbody>
@@ -849,7 +851,7 @@ const AP = () => {
                         ) : <p className="text-center">No details available.</p>}
                     </ModalBody>
                     <ModalFooter>
-                        <Button color="danger" style={{ backgroundColor: "#d9534f", borderColor: "#d43f3a" }} onClick={toggleModal}>Close</Button>
+                        <Button color="danger" onClick={toggleModal}>Close</Button>
                     </ModalFooter>
                 </Modal>
 
@@ -862,29 +864,29 @@ const AP = () => {
                                 <div className="mb-4">
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PO No.</span>
-                                            <span style={modalValueStyle}>: {nestedPOData.Header?.pono}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>PO No.</span>
+                                            <span style={{ color: "#333" }}>: {nestedPOData.Header?.pono}</span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PO Date</span>
-                                            <span style={modalValueStyle}>: {formatDate(nestedPOData.Header?.podate)}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>PO Date</span>
+                                            <span style={{ color: "#333" }}>: {formatDate(nestedPOData.Header?.podate)}</span>
                                         </Col>
                                     </Row>
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Supplier</span>
-                                            <span style={modalValueStyle}>: {nestedPOData.Header?.suppliername}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>Supplier</span>
+                                            <span style={{ color: "#333" }}>: {nestedPOData.Header?.suppliername}</span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Status</span>
-                                            <span style={modalValueStyle}>: {nestedPOData.Header?.isactive ? "Active" : "Inactive"}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>Status</span>
+                                            <span style={{ color: "#333" }}>: {nestedPOData.Header?.isactive ? "Active" : "Inactive"}</span>
                                         </Col>
                                     </Row>
                                 </div>
                                 <div className="table-responsive border">
-                                    <Table className="table mb-0">
-                                        <thead>
-                                            <tr style={gridHeaderStyle}>
+                                    <Table className="table table-bordered mb-0">
+                                        <thead className="table-light">
+                                            <tr>
                                                 <th>#</th>
                                                 <th>Item Name</th>
                                                 <th>Qty</th>
@@ -900,8 +902,8 @@ const AP = () => {
                                                     <td>{row.itemname}</td>
                                                     <td>{row.qty}</td>
                                                     <td>{row.uom}</td>
-                                                    <td className="text-end">{new Intl.NumberFormat().format(row.unitprice || 0)}</td>
-                                                    <td className="text-end">{new Intl.NumberFormat().format(row.totalvalue || 0)}</td>
+                                                    <td className="text-end">{Number(row.unitprice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td className="text-end">{Number(row.totalvalue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -924,39 +926,39 @@ const AP = () => {
                                 <div className="mb-4">
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PR No.</span>
-                                            <span style={prNoStyle}>: {prData.Header?.PR_Number}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>PR No.</span>
+                                            <span className="fw-bold text-danger cursor-pointer">: {prData.Header?.PR_Number}</span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PR Date</span>
-                                            <span style={modalValueStyle}>: {prData.Header?.PRDate}</span>
-                                        </Col>
-                                    </Row>
-                                    <Row className="mb-2">
-                                        <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Supplier</span>
-                                            <span style={modalValueStyle}>: {prData.Header?.SupplierName}</span>
-                                        </Col>
-                                        <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Currency</span>
-                                            <span style={modalValueStyle}>: {prData.Header?.currencycode || "SGD"}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>PR Date</span>
+                                            <span style={{ color: "#333" }}>: {prData.Header?.PRDate}</span>
                                         </Col>
                                     </Row>
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PR Type</span>
-                                            <span style={modalValueStyle}>: {prData.Header?.prTypeName}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>Supplier</span>
+                                            <span style={{ color: "#333" }}>: {prData.Header?.SupplierName}</span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Payment Term</span>
-                                            <span style={modalValueStyle}>: {prData.Header?.PaymentTermName}</span>
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>Currency</span>
+                                            <span style={{ color: "#333" }}>: {prData.Header?.currencycode || "SGD"}</span>
+                                        </Col>
+                                    </Row>
+                                    <Row className="mb-2">
+                                        <Col md={6} className="d-flex">
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>PR Type</span>
+                                            <span style={{ color: "#333" }}>: {prData.Header?.prTypeName}</span>
+                                        </Col>
+                                        <Col md={6} className="d-flex">
+                                            <span className="fw-bold" style={{ minWidth: "120px", color: "#333" }}>Payment Term</span>
+                                            <span style={{ color: "#333" }}>: {prData.Header?.PaymentTermName}</span>
                                         </Col>
                                     </Row>
                                 </div>
                                 <div className="table-responsive border">
-                                    <Table className="table mb-0">
-                                        <thead>
-                                            <tr style={gridHeaderStyle}>
+                                    <Table className="table table-bordered mb-0">
+                                        <thead className="table-light">
+                                            <tr>
                                                 <th>#</th>
                                                 <th>Item Group</th>
                                                 <th>Item Name</th>
@@ -979,18 +981,18 @@ const AP = () => {
                                                     <td>{row.ItemName || "-"}</td>
                                                     <td>{row.Qty}</td>
                                                     <td>{row.UOMName}</td>
-                                                    <td className="text-end">{new Intl.NumberFormat().format(row.UnitPrice || 0)}</td>
-                                                    <td className="text-end">{new Intl.NumberFormat().format(row.DiscountValue || 0)}</td>
+                                                    <td className="text-end">{Number(row.UnitPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td className="text-end">{Number(row.DiscountValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                     <td className="text-end">{row.TaxPerc}</td>
-                                                    <td className="text-end">{new Intl.NumberFormat().format(row.TaxValue || 0)}</td>
+                                                    <td className="text-end">{Number(row.TaxValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                     <td className="text-end">{row.vatPerc}</td>
-                                                    <td className="text-end">{new Intl.NumberFormat().format(row.vatValue || 0)}</td>
-                                                    <td className="text-end"><strong>{new Intl.NumberFormat().format(row.NetTotal || 0)}</strong></td>
+                                                    <td className="text-end">{Number(row.vatValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                    <td className="text-end"><strong>{Number(row.NetTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                                                 </tr>
                                             ))}
                                             <tr className="fw-bold bg-light">
                                                 <td colSpan={11} className="text-end">Total:</td>
-                                                <td className="text-end">{new Intl.NumberFormat().format(prData.Header?.HeaderNetValue || 0)}</td>
+                                                <td className="text-end">{Number(prData.Header?.HeaderNetValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             </tr>
                                         </tbody>
                                     </Table>
@@ -999,7 +1001,7 @@ const AP = () => {
                         ) : <p className="text-center">No data found.</p>}
                     </ModalBody>
                     <ModalFooter>
-                        <Button color="danger" style={{ backgroundColor: "#d9534f", borderColor: "#d43f3a" }} onClick={togglePrModal}>Close</Button>
+                        <Button color="danger" onClick={togglePrModal}>Close</Button>
                     </ModalFooter>
                 </Modal>
             </Container>

@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..database import get_db, DB_NAME_MASTER, DB_NAME_USER
+from ..database import get_db, DB_NAME_MASTER, DB_NAME_USER, DB_NAME_FINANCE
 from ..models.petty_cash import TblPettyCash as PettyCash
 from datetime import date, datetime
 import os
@@ -157,6 +157,7 @@ async def create_pettycash(
             cmd = parsed.command or cmd
             header_raw = data.get("header", {})
         except Exception as e:
+            print(f"DEBUG create_pettycash JSON parse error: {str(e)}")
             if not VoucherNo and not Amount:
                 raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {str(e)}")
 
@@ -172,57 +173,91 @@ async def create_pettycash(
             if fetched_rate:
                 rate = float(fetched_rate)
 
-        # 2. Calculate AmountIDR
-        amt_idr = 0.0
-        if header.Amount:
-            amt_idr = float(header.Amount) * rate
-
-        # 3. Generate PCNumber
+        # 2. Generate ONE PCNumber for the entire batch
         q_max = await db.execute(select(func.max(PettyCash.PettyCashId)))
         max_id = q_max.scalar() or 0
         pc_no = f"PC{str(max_id + 1).zfill(6)}"
 
-        # 4. Handle file upload
+        # 3. Process items from payload if present, otherwise use header (legacy fallback)
+        items_to_save = []
+        payload_items = data.get("payload", []) if 'data' in locals() else []
+        
+        if payload_items and isinstance(payload_items, list):
+            for idx, item in enumerate(payload_items):
+                # Handle file for each item? Usually one PC has one attachment or each row has one.
+                # The user requested 'attachment' in grid, but legacy code handled one file.
+                # For now, we'll associate the main file with the first item or all items if needed.
+                # Standard claim & payment usually has one attachment in header.
+                
+                # Calculate AmountIDR for this item
+                item_amt = float(item.get("amount") or 0)
+                item_amt_idr = item_amt * rate
+                
+                new_item = PettyCash(
+                    pc_number=pc_no,
+                    VoucherNo=header.VoucherNo,
+                    ExpDate=header.ExpDate,
+                    expense_type_id=item.get("expenseType"),
+                    category_id=item.get("category"),
+                    ExpenseDescription=item.get("expenseDescription"),
+                    AmountIDR=item_amt_idr,
+                    Amount=item_amt,
+                    ExpenseFileName=file.filename if file and idx == 0 else None,
+                    ExpenseFilePath=None, # Will update below if file exists
+                    IsSubmitted=is_submitted,
+                    OrgId=header.OrgId,
+                    BranchId=header.BranchId,
+                    Who=header.Who,
+                    Whom=item.get("whom"),
+                    currencyid=header.currencyid,
+                    exchangeRate=rate
+                )
+                items_to_save.append(new_item)
+        else:
+            # Fallback to single header record (original behavior)
+            amt_idr = float(header.Amount or 0) * rate
+            new_item = PettyCash(
+                pc_number=pc_no,
+                VoucherNo=header.VoucherNo,
+                ExpDate=header.ExpDate,
+                expense_type_id=header.Expense_type_id,
+                category_id=header.category_id,
+                ExpenseDescription=header.ExpenseDescription,
+                AmountIDR=amt_idr,
+                Amount=header.Amount,
+                ExpenseFileName=file.filename if file else None,
+                IsSubmitted=is_submitted,
+                OrgId=header.OrgId,
+                BranchId=header.BranchId,
+                Who=header.Who,
+                Whom=header.Whom,
+                currencyid=header.currencyid,
+                exchangeRate=rate
+            )
+            items_to_save.append(new_item)
+
+        # 4. Handle file upload (main file)
         file_path = None
-        file_name = None
         if file:
             try:
-                file_name = file.filename
-                file_path = UPLOAD_DIR / file_name
+                file_path = UPLOAD_DIR / file.filename
                 with open(file_path, "wb") as buffer:
                     shutil.copyfileobj(file.file, buffer)
                 file_path = str(file_path)
+                # Assign path to items that have the filename
+                for item in items_to_save:
+                    if item.ExpenseFileName == file.filename:
+                        item.ExpenseFilePath = file_path
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"File upload failed: {str(e)}")
         
-        # 5. Populate model
-        new = PettyCash(
-            pc_number=pc_no,
-            VoucherNo=header.VoucherNo,
-            ExpDate=header.ExpDate,
-            expense_type_id=header.Expense_type_id,
-            category_id=header.category_id,
-            ExpenseDescription=header.ExpenseDescription,
-            # ExpenseDescriptionId not in DB table - skipped
-            # BillNumber=header_raw.get("BillNumber"), # Removed from DB
-            AmountIDR=amt_idr,
-            Amount=header.Amount,
-            ExpenseFileName=file_name, # or header_raw.get("ExpenseFileName"), # header_raw is unreliable now
-            ExpenseFilePath=file_path, # or header_raw.get("ExpenseFilePath"),
-            IsSubmitted=is_submitted,
-            OrgId=header.OrgId,
-            BranchId=header.BranchId,
-            Who=header.Who,
-            Whom=header.Whom,
-            currencyid=header.currencyid,
-            exchangeRate=rate,
-            # UserId=header.UserId # Removed from DB
-        )
-        db.add(new)
-        await db.flush()
+        # 5. Add all items
+        for item in items_to_save:
+            db.add(item)
+            
         await db.commit()
-        await db.refresh(new)
-        return {"status": True, "data": row_to_dict(new)}
+        # Return the first item's data or summary
+        return {"status": True, "data": row_to_dict(items_to_save[0])}
     except HTTPException:
         raise
     except Exception as e:
@@ -282,24 +317,25 @@ async def update_pettycash(
             parsed = CreatePettyCashCommand.model_validate(data) if hasattr(CreatePettyCashCommand, "model_validate") else CreatePettyCashCommand.parse_obj(data)
             jh = parsed.header
             
-            header.PettyCashId = jh.PettyCashId or header.PettyCashId
-            header.VoucherNo = jh.VoucherNo or header.VoucherNo
-            header.ExpDate = jh.ExpDate or header.ExpDate
-            header.category_id = jh.category_id or header.category_id
-            header.Expense_type_id = jh.Expense_type_id or header.Expense_type_id
-            header.ExpenseDescriptionId = jh.ExpenseDescriptionId or header.ExpenseDescriptionId
-            header.ExpenseDescription = jh.ExpenseDescription or header.ExpenseDescription
-            header.Amount = jh.Amount or header.Amount
-            header.OrgId = jh.OrgId or header.OrgId
-            header.BranchId = jh.BranchId or header.BranchId
-            header.Who = jh.Who or header.Who
-            header.Whom = jh.Whom or header.Whom
-            header.currencyid = jh.currencyid or header.currencyid
+            header.PettyCashId = jh.PettyCashId if jh.PettyCashId is not None else header.PettyCashId
+            header.VoucherNo = jh.VoucherNo if jh.VoucherNo is not None else header.VoucherNo
+            header.ExpDate = jh.ExpDate if jh.ExpDate is not None else header.ExpDate
+            header.category_id = jh.category_id if jh.category_id is not None else header.category_id
+            header.Expense_type_id = jh.Expense_type_id if jh.Expense_type_id is not None else header.Expense_type_id
+            header.ExpenseDescriptionId = jh.ExpenseDescriptionId if jh.ExpenseDescriptionId is not None else header.ExpenseDescriptionId
+            header.ExpenseDescription = jh.ExpenseDescription if jh.ExpenseDescription is not None else header.ExpenseDescription
+            header.Amount = jh.Amount if jh.Amount is not None else header.Amount
+            header.OrgId = jh.OrgId if jh.OrgId is not None else header.OrgId
+            header.BranchId = jh.BranchId if jh.BranchId is not None else header.BranchId
+            header.Who = jh.Who if jh.Who is not None else header.Who
+            header.Whom = jh.Whom if jh.Whom is not None else header.Whom
+            header.currencyid = jh.currencyid if jh.currencyid is not None else header.currencyid
             header.IsSubmitted = jh.IsSubmitted if jh.IsSubmitted is not None else header.IsSubmitted
             
             cmd = parsed.command or cmd
             header_raw = data.get("header", {})
         except Exception as e:
+            print(f"DEBUG update_pettycash JSON parse error: {str(e)}")
             if not PettyCashId:
                 raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {str(e)}")
     
@@ -311,8 +347,12 @@ async def update_pettycash(
     if not obj:
         raise HTTPException(status_code=404, detail="PettyCash not found")
     
-    # 1. Fetch Exchange Rate from DB
-    rate = obj.exchangeRate or 1.0
+    # 1. Fetch existing group by PCNumber
+    q_pc = await db.execute(select(PettyCash.pc_number).where(PettyCash.PettyCashId == header.PettyCashId))
+    current_pc_no = q_pc.scalar()
+    
+    # 2. Fetch Exchange Rate from DB
+    rate = 1.0
     if header.currencyid:
         rate_query = text("CALL proc_PC_GetExchangeRate(:cid)")
         rate_res = await db.execute(rate_query, {"cid": header.currencyid})
@@ -320,68 +360,97 @@ async def update_pettycash(
         if fetched_rate:
             rate = float(fetched_rate)
 
-    # 2. Recalculate AmountIDR
-    amt_idr = obj.AmountIDR
-    if header.Amount:
-        amt_idr = float(header.Amount) * rate
-
-    # 3. Handle file upload
+    # 3. Handle file upload (if any)
+    file_name = None
+    file_path = None
     if file:
         try:
             file_name = file.filename
             file_path = UPLOAD_DIR / file_name
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
-            obj.ExpenseFileName = file_name
-            obj.ExpenseFilePath = str(file_path)
+            file_path = str(file_path)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"File upload failed: {str(e)}")
-    
-    # 4. Determine IsSubmitted
-    if cmd == "Post" or header.IsSubmitted == 1:
-        obj.IsSubmitted = True
 
-    # 5. Update fields
-    if header.VoucherNo:
-        obj.VoucherNo = header.VoucherNo
-    if header.ExpDate:
-        obj.ExpDate = header.ExpDate
-    
-    # Only update IDs if they are provided and non-zero
-    if header.Expense_type_id and header.Expense_type_id != 0:
-        obj.expense_type_id = header.Expense_type_id
-    if header.category_id and header.category_id != 0:
-        obj.category_id = header.category_id
-    
-    if header.ExpenseDescription:
-        obj.ExpenseDescription = header.ExpenseDescription
+    # 4. Batch sync items
+    payload_items = data.get("payload", []) if 'data' in locals() else []
+    is_submitted = (cmd == "Post" or header.IsSubmitted == 1)
+
+    if payload_items and isinstance(payload_items, list):
+        # Determine items to keep, update, or delete
+        # For simplicity in batch "standardization", we'll delete existing ones for this PC number and re-insert
+        # but only if we have a PC number.
+        if current_pc_no:
+            await db.execute(text("DELETE FROM tbl_petty_cash WHERE pc_number = :pc"), {"pc": current_pc_no})
+        else:
+            # Fallback for legacy records without pc_number
+            await db.execute(text("DELETE FROM tbl_petty_cash WHERE PettyCashId = :pid"), {"pid": header.PettyCashId})
+            # Generate a new pc_number to consolidate future updates
+            q_max = await db.execute(select(func.max(PettyCash.PettyCashId)))
+            max_id = q_max.scalar() or 0
+            current_pc_no = f"PC{str(max_id + 1).zfill(6)}"
         
-    # Only update Amount if provided and non-zero (to prevent overwriting with 0 default)
-    if header.Amount and header.Amount != 0:
-        obj.Amount = header.Amount
-        obj.AmountIDR = amt_idr
+        items_to_save = []
+        for idx, item in enumerate(payload_items):
+            item_amt = float(item.get("amount") or 0)
+            item_amt_idr = item_amt * rate
+            
+            new_item = PettyCash(
+                pc_number=current_pc_no,
+                VoucherNo=header.VoucherNo,
+                ExpDate=header.ExpDate,
+                expense_type_id=item.get("expenseType"),
+                category_id=item.get("category"),
+                ExpenseDescription=item.get("expenseDescription"),
+                AmountIDR=item_amt_idr,
+                Amount=item_amt,
+                ExpenseFileName=file_name if file and idx == 0 else (item.get("ExpenseFileName") if 'ExpenseFileName' in item else None),
+                ExpenseFilePath=file_path if file and idx == 0 else (item.get("ExpenseFilePath") if 'ExpenseFilePath' in item else None),
+                IsSubmitted=is_submitted,
+                OrgId=header.OrgId or 1,
+                BranchId=header.BranchId or 1,
+                Who=header.Who,
+                Whom=item.get("whom"),
+                currencyid=header.currencyid,
+                exchangeRate=rate
+            )
+            items_to_save.append(new_item)
         
-    if header.OrgId and header.OrgId != 0:
-        obj.OrgId = header.OrgId
-    if header.BranchId and header.BranchId != 0:
-        obj.BranchId = header.BranchId
-    
-    if header.Who:
-        obj.Who = header.Who
-    if header.Whom:
-        obj.Whom = header.Whom
+        for item in items_to_save:
+            db.add(item)
+            
+        await db.commit()
+        return {"status": True, "message": "Batch update success"}
+    else:
+        # Single record update (fallback)
+        q = await db.execute(select(PettyCash).where(PettyCash.PettyCashId == header.PettyCashId))
+        obj = q.scalars().first()
+        if not obj:
+            raise HTTPException(status_code=404, detail="PettyCash not found")
         
-    if header.currencyid and header.currencyid != 0:
-        obj.currencyid = header.currencyid
-    
-    obj.exchangeRate = rate
-    
-    # ExpenseDescriptionId not in DB table - skipped
-    # obj.UserId = header.UserId if header.UserId is not None else obj.UserId # Removed
-    
-    await db.commit()
-    await db.refresh(obj)
-    return {"status": True, "data": row_to_dict(obj)}
+        if file_name:
+            obj.ExpenseFileName = file_name
+            obj.ExpenseFilePath = file_path
+        
+        if cmd == "Post" or header.IsSubmitted == 1:
+            obj.IsSubmitted = True
+
+        if header.VoucherNo: obj.VoucherNo = header.VoucherNo
+        if header.ExpDate: obj.ExpDate = header.ExpDate
+        if header.category_id: obj.category_id = header.category_id
+        if header.Expense_type_id: obj.expense_type_id = header.Expense_type_id
+        if header.ExpenseDescription: obj.ExpenseDescription = header.ExpenseDescription
+        if header.Amount:
+            obj.Amount = header.Amount
+            obj.AmountIDR = float(header.Amount) * rate
+        if header.Who: obj.Who = header.Who
+        if header.Whom: obj.Whom = header.Whom
+        if header.currencyid: obj.currencyid = header.currencyid
+        obj.exchangeRate = rate
+        
+        await db.commit()
+        return {"status": True, "data": row_to_dict(obj)}
 
 
 @router.get("/get-by-id")
@@ -393,6 +462,32 @@ async def get_by_id(pettycashid: int, branchid: int, orgid: int, db: AsyncSessio
     return {"status": True, "data": row_to_dict(obj)}
 
 
+@router.get("/get-group-by-id")
+async def get_pettycash_group_by_id(pettycashid: int, branchid: int, orgid: int, db: AsyncSession = Depends(get_db)):
+    # 1. Find the pc_number for this ID
+    q_pc = await db.execute(select(PettyCash.pc_number).where(PettyCash.PettyCashId == pettycashid))
+    pc_no = q_pc.scalar()
+    
+    if not pc_no:
+        # Fallback: if no pc_number (legacy), return it as a single-item list
+        q = await db.execute(select(PettyCash).where(PettyCash.PettyCashId == pettycashid))
+        obj = q.scalars().first()
+        if not obj:
+            return {"status": False, "message": "Not found"}
+        return {"status": True, "data": [row_to_dict(obj, lowercase_keys=True)]}
+    
+    # 2. Fetch all items with this pc_number
+    q_group = await db.execute(select(PettyCash).where(
+        PettyCash.pc_number == pc_no,
+        PettyCash.OrgId == orgid,
+        PettyCash.BranchId == branchid
+    ))
+    items = q_group.scalars().all()
+    # Sort by PettyCashId to maintain order
+    sorted_items = sorted(items, key=lambda x: x.PettyCashId)
+    return {"status": True, "data": [row_to_dict(i, lowercase_keys=True) for i in sorted_items]}
+
+
 @router.get("/list")
 async def get_list(
     branchid: Optional[int] = None, 
@@ -401,12 +496,12 @@ async def get_list(
     exptype: Optional[int] = None, 
     voucherno: Optional[str] = None, 
     category_id: Optional[int] = None,
+    currencyid: Optional[int] = None,
     FromDate: Optional[date] = None,
     ToDate: Optional[date] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    # Construct query with join to get CurrencyCode
-    # Note: We use text() for the join because master_currency model might not be available or configured with relationships
+    # Fetch Expenses
     q = await db.execute(
         text("CALL proc_PC_GetList(:pettycashid, :exptype, :voucherno, :category_id, :from_date, :to_date)"),
         {
@@ -419,23 +514,105 @@ async def get_list(
         }
     )
     items = q.fetchall()
+    results = [row_to_dict(it, lowercase_keys=True) for it in items]
     
-    # helper row_to_dict handles the mapping
-    return {"status": True, "data": [row_to_dict(it) for it in items]}
+    # Fetch Top-ups (Incoming Petty Cash)
+    if FromDate and ToDate:
+        # We use a raw SQL for now as we don't have a specific proc for this merge
+        # Fetch ALL Top-ups for this currency/org/branch to ensure full history is available
+        topup_query = text(f"""
+            SELECT d.TotalAmount as Amount, h.ApplicationDate as ExpDate, h.ApplicationNo as pc_number, 
+                   h.Remarks as ExpenseDescription, h.TransactionCurrencyId as currencyid,
+                   1 as category_id, 'Top-up' as expense_type,
+                   mc.CurrencyCode as currencycode
+            FROM {DB_NAME_FINANCE}.tbl_claimAndpayment_Details d
+            JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON d.Claim_ID = h.Claim_ID
+            INNER JOIN {DB_NAME_FINANCE}.tbl_PaymentSummary_header s ON h.SummaryId = s.SummaryId
+            LEFT JOIN {DB_NAME_USER}.master_currency mc ON h.TransactionCurrencyId = mc.CurrencyId
+            WHERE d.ClaimTypeId = 8
+              AND h.IsActive = 1
+              AND h.PPP_PV_Commissioner_approveone = 1
+              AND h.OrgId = :orgid
+              AND h.BranchId = :branchid
+              AND s.PaymentNo >= 'PPP0000041'
+              AND (h.TransactionCurrencyId = :curid OR :curid IS NULL OR :curid = 0)
+        """)
+        topup_res = await db.execute(topup_query, {
+            "orgid": orgid or 1, 
+            "branchid": branchid or 1, 
+            "curid": currencyid
+        })
+        topups = topup_res.fetchall()
+        for t in topups:
+            results.append({
+                "amount": float(t.Amount),
+                "expdate": t.ExpDate,
+                "pc_number": t.pc_number,
+                "expensedescription": t.ExpenseDescription or "Top-up from Claim & Payment",
+                "currencyid": t.currencyid,
+                "currencycode": t.currencycode,
+                "category_id": 1,
+                "expense_type": "Top-up",
+                "is_topup": True
+            })
+
+    # Implementation-level filtering for currencyid if provided
+    if currencyid:
+        results = [r for r in results if r.get("currencyid") == currencyid]
+
+    return {"status": True, "data": results}
 
 
-@router.get("/test-connection")
-async def test_connection(db: AsyncSession = Depends(get_db)):
-    """Test database connection."""
+@router.get("/opening-balance")
+async def get_opening_balance(
+    from_date: date,
+    branchid: int,
+    orgid: int,
+    currencyid: Optional[int] = None,
+    db: AsyncSession = Depends(get_db)
+):
     try:
-        result = await db.execute(text("SHOW COLUMNS FROM tbl_petty_cash"))
-        rows = result.fetchall()
-        columns = [dict(row._mapping) for row in rows]
-        return {"status": True, "table": "tbl_petty_cash", "columns": columns}
+        # Expenses sum before from_date
+        expense_query = text("""
+            SELECT COALESCE(SUM(Amount), 0)
+            FROM tbl_petty_cash
+            WHERE OrgId = :orgid
+              AND BranchId = :branchid
+              AND ExpDate < :from_date
+              AND (currencyid = :curid OR :curid IS NULL OR :curid = 0)
+        """)
+        
+        expense_res = await db.execute(expense_query, {"orgid": orgid, "branchid": branchid, "from_date": from_date, "curid": currencyid})
+        total_expenses = expense_res.scalar() or 0
+        
+        # NOTE: Since we are now showing ALL top-ups in the grid (regardless of date), 
+        # the Opening Balance (BF) row should only represent the "Prior Expenses" as a negative value.
+        # This way, when the grid sums up all Top-ups (from the beginning) and subtracts these Prior Expenses,
+        # the running total remains accurate.
+        
+        opening_balance = -float(total_expenses)
+        
+        return {"status": True, "opening_balance": opening_balance}
     except Exception as e:
         import traceback
-        tb = traceback.format_exc()
-        return {"status": False, "error": str(e), "traceback": tb}
+        return {"status": False, "message": str(e), "traceback": traceback.format_exc()}
+
+
+@router.get("/inspect-table")
+async def inspect_table(tablename: str, db: AsyncSession = Depends(get_db)):
+    """Debug endpoint to see columns of any table."""
+    try:
+        # Prevent basic SQL injection by allowing only alphanumeric and underscores
+        import re
+        if not re.match(r'^[a-zA-Z0-9_]+$', tablename):
+             return {"status": False, "message": "Invalid table name"}
+             
+        result = await db.execute(text(f"SHOW COLUMNS FROM {tablename}"))
+        rows = result.fetchall()
+        columns = [dict(row._mapping) for row in rows]
+        return {"status": True, "table": tablename, "columns": columns}
+    except Exception as e:
+        return {"status": False, "error": str(e)}
 
 
 @router.get("/master-expense-categories")

@@ -28,6 +28,7 @@ class ArReceiptInput(BaseModel):
     # --- NEW FIELDS ---
     reference_no: Optional[str] = None
     sales_person_id: Optional[int] = None
+    currencyid: Optional[int] = None
     send_notification: bool = False
     is_posted: bool = False
     

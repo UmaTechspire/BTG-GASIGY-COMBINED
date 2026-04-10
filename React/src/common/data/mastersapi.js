@@ -2397,11 +2397,21 @@ export const GetAllClaimAndPayment = async (filterType, filterValue, branchId, o
         const departmentId = filterType === 2 ? filterValue : 0;
         const currencyId = filterType === 3 ? filterValue : 0;
         const claimtypeid = filterType === 4 ? filterValue : 0;
-        const response = await get(
-            `/ClaimAndPayment/get-all?departmentid=${departmentId}&currencyid=${currencyId}&categoryid=${categoryId}&branchId=${branchId}&orgid=${orgId}&user_id=${userid}&claimtypeid=${claimtypeid}`
-        );
 
-        return response;
+        // 🟢 MIGRATED: Calling Python API instead of .NET
+        const response = await axios.get(`${PYTHON_API_URL}/api/claim/get_all`, {
+            params: {
+                departmentid: departmentId,
+                currencyid: currencyId,
+                categoryid: categoryId,
+                branchId: branchId,
+                orgid: orgId,
+                user_id: userid,
+                claimtypeid: claimtypeid
+            }
+        });
+
+        return response.data;
     } catch (error) {
         console.error("Failed to fetch Claim and Payment list", error);
         return { status: false, message: error };
@@ -2410,8 +2420,11 @@ export const GetAllClaimAndPayment = async (filterType, filterValue, branchId, o
 
 export const GetClaimAndPaymentSeqNum = async (branchId, orgId, userid) => {
     try {
-        const response = await get(`/ClaimAndPayment/get-seq-num?branchId=${branchId}&orgid=${orgId}&userid=${userid}`);
-        return response;
+        // 🟢 MIGRATED: Calling Python API
+        const response = await axios.get(`${PYTHON_API_URL}/api/claim/get_seq_num`, {
+            params: { branchId, orgid: orgId, userid }
+        });
+        return response.data;
     } catch (error) {
         console.error('Failed to fetch Seq Num', error);
         return { status: false, message: error.message || 'Server error' };
@@ -2581,13 +2594,13 @@ export const SaveClaimAndPayment = async (isEditMode, payload) => {
 
 export const DeleteClaimAndPayment = async (payload) => {
     try {
+        // 🟢 MIGRATED: Calling Python API
+        const response = await axios.post(`${PYTHON_API_URL}/api/claim/delete`, payload);
 
-
-        const response = await post("/ClaimAndPayment/Delete", payload);
-        if (response?.status === true) {
-            return response;
+        if (response.data && response.data.status === true) {
+            return response.data;
         } else {
-            throw new Error(response?.message || "Failed to save claim and payment data");
+            throw new Error(response.data?.message || "Failed to delete claim and payment data");
         }
     } catch (error) {
         console.error("DeleteClaimAndPayment Error:", error);
@@ -3416,6 +3429,19 @@ export const SaveClaimApprove = async (payload) => {
 
 };
 
+export const UpdatePaymentSummaryPython = async (payload) => {
+    try {
+        console.log("Syncing Payment Summary via Python:", payload);
+        const response = await post("/api/claim/update_payment_summary_sync", payload, {
+            usePython: true
+        });
+        return response;
+    } catch (error) {
+        console.error('Python Sync Error:', error);
+        // throw error;
+    }
+};
+
 export const AutoApprove = async (payload) => {
 
     try {
@@ -3907,15 +3933,18 @@ export const ClaimReject = async (payload) => {
 
 export const GetPaymentSummaryseqno = async (UserId, orgid, branchId) => {
     try {
-        const response = await get(`/ClaimApproval/GetSeqNo?UserId=${UserId}&BranchId=${branchId}&orgid=${orgid}`);
+        // 🟢 SWAPPED TO PYTHON API (dotnet cannot be touched)
+        const url = `/api/claim/get_payment_summary_seq_no?orgid=${orgid}&branchid=${branchId}&userid=${UserId}`;
+        const response = await get(url, { usePython: true });
+
         if (response?.status) {
             return response;
         } else {
-            throw new Error(response?.message || "Failed to fetch gas codes");
+            throw new Error(response?.message || "Failed to fetch sequence number");
         }
     } catch (error) {
-        console.error("Error :", error);
-        return [];
+        console.error("Error fetching PPP SeqNo:", error);
+        return { status: false, message: error.message };
     }
 };
 //#endregion
@@ -4853,6 +4882,21 @@ export const getPettyCashById = async (pettyCashId, branchId = 1, orgId = 1) => 
     } catch (error) {
         console.error("Failed to fetch petty cash data by ID", error);
         throw error;
+    }
+};
+
+export const getPettyCashGroupById = async (pettyCashId, branchId = 1, orgId = 1) => {
+    try {
+        const url = `${PYTHON_API_URL}/pettycash/get-group-by-id?pettycashid=${pettyCashId}&branchid=${branchId}&orgid=${orgId}`;
+        const response = await axios.get(url);
+        if (response.data.status) {
+            return response.data.data;
+        } else {
+            return [];
+        }
+    } catch (error) {
+        console.error("Failed to fetch petty cash group:", error);
+        return [];
     }
 };
 

@@ -260,9 +260,15 @@ const ARBookDOReport = () => {
                       <i className="bx bx-refresh me-1"></i> Convert to Invoice
                     </Button>
 
-                    <button type="button" className="btn btn-primary me-2" onClick={fetchARBook}>Search</button>
-                    <button type="button" className="btn btn-success me-2" onClick={exportExcel}>Export</button>
-                    <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
+                    <button type="button" className="btn btn-info me-2" onClick={fetchARBook}>
+                      <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search
+                    </button>
+                    <button type="button" className="btn btn-secondary me-2" onClick={exportExcel}>
+                      <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i> Export
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={() => window.print()}>
+                      <i className="bx bx-printer label-icon font-size-16 align-middle me-2"></i> Print
+                    </button>
                   </Col>
                 </Row>
 
@@ -271,6 +277,8 @@ const ARBookDOReport = () => {
                     ref={dtRef}
                     value={finalProcessedData}
                     paginator rows={20}
+                    showGridlines
+                    className="blue-bg"
                     globalFilter={globalFilter}
                     header={
                       <div className="d-flex justify-content-end">

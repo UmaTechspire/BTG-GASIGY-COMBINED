@@ -24,6 +24,9 @@ class CashReceiptItem(BaseModel):
     reference_no: Optional[str] = None
     sales_person_id: Optional[int] = None
     send_notification: bool = False
+    transaction_type: str = "Receipt"
+    linked_claim_id: Optional[int] = None
+    currencyid: Optional[int] = None
     status: str 
     is_posted: bool = False
 
@@ -34,6 +37,9 @@ class CreateCashReceiptRequest(BaseModel):
     userIp: str = "127.0.0.1"
     header: List[CashReceiptItem]
 
+class CancelClaimPayload(BaseModel):
+    remark: str
+
 # ==========================================
 # 1. LISTING & REPORTING (CASH SPECIFIC)
 # ==========================================
@@ -42,15 +48,124 @@ class CreateCashReceiptRequest(BaseModel):
 async def get_daily_cash_entries(db: AsyncSession = Depends(get_db)):
     """
     Fetches entries for the Cash Book Entry screen.
-    Filters by cash_amount != 0 to show only cash transactions.
+    Includes both saved and posted (submitted) entries to ensure they stay in the grid.
     """
     try:
-        query = text("CALL proc_Cash_GetDailyEntries()")
-        result = await db.execute(query)
+        # Replacement for proc_Cash_GetDailyEntries to remove the is_submitted=0 filter
+        sql = text(f"""
+            SELECT 
+                r.receipt_id,
+                r.transaction_type,
+                r.currencyid,
+                COALESCE(r.receipt_date, r.created_date) as date,
+                r.customer_id,
+                CASE 
+                    WHEN LOWER(r.transaction_type) = 'cash deposit' THEN 'Cash Deposit'
+                    WHEN r.cash_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+                    WHEN r.reference_no LIKE 'CLM%' AND r.reference_no LIKE '% - %' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
+                    ELSE COALESCE(c.CustomerName, 'Unknown Customer')
+                END as customerName,
+                r.cash_amount,
+                r.deposit_bank_id,
+                r.reference_no,
+                r.sales_person_id,
+                r.send_notification,
+                r.is_posted, 
+                r.pending_verification, 
+                r.is_submitted,
+                CASE WHEN r.is_posted = 1 THEN 'P' ELSE 'S' END as status_code,
+                CASE 
+                    WHEN r.is_posted = 1 AND r.pending_verification = 1 THEN 'Pending'
+                    WHEN r.is_posted = 1 AND r.pending_verification = 0 THEN 'Completed'
+                    ELSE NULL 
+                END as verification_status
+            FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
+            LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
+            LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
+            WHERE r.cash_amount != 0
+              AND r.is_active = 1
+            ORDER BY r.receipt_id DESC
+            LIMIT 1000
+        """)
+        result = await db.execute(sql)
         data = result.mappings().all()
         return {"status": "success", "data": data}
         
     except Exception as e:
+        print(f"Error in get_daily_cash_entries: {e}")
+        return {"status": "error", "detail": str(e)}
+
+
+@router.get("/get-cash-claims")
+async def get_cash_claims(claim_category: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """
+    Returns CEO-approved claims with Cash mode of payment for linking in manual Cash Book entries.
+    Claim categories: 'Cash', 'Cash Advance', 'Supplier Payment'
+    Display format: '{ApplicationNo} - {ApplicantName}'
+    """
+    try:
+        from ..database import DB_NAME_FINANCE
+        
+        category_filter = ""
+        params = {}
+        
+        if claim_category:
+            category_filter = "AND mc.claimcategory = :category"
+            params["category"] = claim_category
+
+        sql = text(f"""
+            SELECT 
+                h.Claim_ID        as claim_id,
+                h.ApplicationNo   as claim_no,
+                COALESCE(h.SupplierId, 0) as supplier_id,
+                COALESCE(h.ApplicantId, 0) as applicant_id,
+                COALESCE(
+                    TRIM(CONCAT(COALESCE(u.FirstName,''), ' ', COALESCE(u.LastName,''))),
+                    CAST(h.CreatedBy AS CHAR),
+                    h.Remarks,
+                    h.ApplicationNo
+                )                 as applicant_name,
+                h.TotalAmountInIDR as amount,
+                h.ApplicationDate as payment_date,
+                mc.claimcategory  as claim_category,
+                COALESCE(mc2.CurrencyCode, 'IDR') as currency_code
+            FROM {DB_NAME_FINANCE}.tbl_claimAndpayment_header h
+            LEFT JOIN {DB_NAME_FINANCE}.master_claimcategory mc ON h.ClaimCategoryId = mc.Id
+            LEFT JOIN btggasify_live.master_currency mc2 ON h.TransactionCurrencyId = mc2.CurrencyId
+            LEFT JOIN btggasify_live.users u ON h.CreatedBy = u.Id
+            INNER JOIN {DB_NAME_FINANCE}.tbl_PaymentSummary_header s ON h.SummaryId = s.SummaryId
+            WHERE h.PPP_PV_Commissioner_approveone = 1
+              AND h.ModeOfPaymentId = 1
+              AND h.IsActive = 1
+              AND h.SummaryId > 0
+              AND s.PaymentNo >= 'PPP0000041'
+              {category_filter}
+            ORDER BY h.Claim_ID DESC
+            LIMIT 500
+        """)
+
+        result = await db.execute(sql, params)
+        rows = result.mappings().all()
+
+        data = [
+            {
+                "value": row["claim_id"],
+                "label": f"{row['claim_no']} - {row['applicant_name']}",
+                "claim_no": row["claim_no"],
+                "applicant_name": row["applicant_name"],
+                "amount": float(row["amount"] or 0),
+                "payment_date": str(row["payment_date"]) if row["payment_date"] else None,
+                "claim_category": row["claim_category"],
+                "currency_code": row["currency_code"],
+                "supplier_id": row["supplier_id"],
+                "applicant_id": row["applicant_id"]
+            }
+            for row in rows
+        ]
+        return {"status": "success", "data": data}
+
+    except Exception as e:
+        print(f"get-cash-claims error: {e}")
         return {"status": "error", "detail": str(e)}
 
 @router.get("/get-report")
@@ -58,25 +173,90 @@ async def get_cash_book_report(
     from_date: str,
     to_date: str,
     bank_id: int = 0,
+    currency_id: int = 0,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Cash Book Report. Uses cash_amount for CashIn/CashOut.
     """
     try:
-        sql = "CALL proc_Cash_GetReport(:from_date, :to_date, :bank_id)"
-        params = {"from_date": from_date, "to_date": to_date, "bank_id": bank_id if bank_id and bank_id > 0 else 0}
+        from datetime import datetime
+        
+        # Parse UI dates (typically '%d-%b-%Y') to standard MySQL '%Y-%m-%d' for safe string comparison
+        try:
+            f_date_parsed = datetime.strptime(from_date, '%d-%b-%Y').strftime('%Y-%m-%d')
+            t_date_parsed = datetime.strptime(to_date, '%d-%b-%Y').strftime('%Y-%m-%d')
+        except ValueError:
+            f_date_parsed = from_date
+            t_date_parsed = to_date
+
+        sql = "CALL proc_Cash_GetReport(:from_date, :to_date, :bank_id, :currency_id)"
+        params = {
+            "from_date": from_date, # SP might expect original string format
+            "to_date": to_date, 
+            "bank_id": bank_id if bank_id and bank_id > 0 else 0,
+            "currency_id": currency_id if currency_id and currency_id > 0 else 0,
+            "f_date_parsed": f_date_parsed,
+            "t_date_parsed": t_date_parsed
+        }
 
         result = await db.execute(text(sql), params)
         rows = result.mappings().all()
         
+        # --- 2. FETCH PPP CASH WITHDRAWS DIRECTLY ---
+        # NetCashWithdraw is always in IDR. Skip PPP rows entirely if a non-IDR currency filter is active.
+        IDR_CURRENCY_ID = 3
+        include_ppp = (currency_id == 0 or currency_id == IDR_CURRENCY_ID)
+        
+        ppp_rows = []
+        if include_ppp:
+            ppp_sql = text(f"""
+                SELECT 
+                    s.PaymentNo as VoucherNo,
+                    DATE_FORMAT(s.CreatedDate, '%d-%b-%Y') as Date,
+                    s.NetCashWithdraw
+                FROM {DB_NAME_FINANCE}.tbl_PaymentSummary_header s
+                WHERE DATE(s.CreatedDate) >= :f_date_parsed AND DATE(s.CreatedDate) <= :t_date_parsed
+                  AND s.NetCashWithdraw > 0
+            """)
+            ppp_result = await db.execute(ppp_sql, params)
+            ppp_rows = ppp_result.mappings().all()
+
+        combined_data = [dict(r) for r in rows]
+
+        for row in ppp_rows:
+            net_withdraw = float(row['NetCashWithdraw'] or 0)
+            
+            if net_withdraw > 0:
+                combined_data.append({
+                    "Date": str(row["Date"]),
+                    "VoucherNo": row["VoucherNo"],
+                    "TransactionType": "Cash withdraw",
+                    "Party": "Multiple",
+                    "BankName": "-",
+                    "Description": f"{row['VoucherNo']} - Net Cash Withdraw",
+                    "CashIn": net_withdraw, # Changed to Debit (CashIn)
+                    "CashOut": 0.0,
+                    "NetAmount": net_withdraw
+                })
+
+
+        # --- 3. SORT BY DATE AND RECALCULATE RUNNING BALANCE ---
+        def get_sort_key(item):
+            date_str = str(item.get('Date', ''))
+            try:
+                return datetime.strptime(date_str, '%d-%b-%Y').strftime('%Y-%m-%d')
+            except ValueError:
+                return date_str
+                
+        combined_data.sort(key=get_sort_key)
+
         data = []
         running_balance = 0.0 
         
-        for row in rows:
-            item = dict(row)
-            cash_in = float(item["CashIn"] or 0)
-            cash_out = float(item["CashOut"] or 0)
+        for item in combined_data:
+            cash_in = float(item.get("CashIn", 0))
+            cash_out = float(item.get("CashOut", 0))
             running_balance += (cash_in - cash_out)
             
             item["CashIn"] = cash_in
@@ -105,7 +285,7 @@ async def create_cash_receipt(payload: CreateCashReceiptRequest, db: AsyncSessio
         
         for item in payload.header:
             is_posted = item.is_posted
-            pending_verification = True if is_posted else False
+            pending_verification = True if is_posted and item.transaction_type == 'Receipt' else False
 
             db_receipt = ARReceipt(
                 orgid=payload.orgId,
@@ -124,13 +304,16 @@ async def create_cash_receipt(payload: CreateCashReceiptRequest, db: AsyncSessio
                 
                 # Standard fields
                 reference_no=item.reference_no,
+                transaction_type=item.transaction_type,
+                ar_id=item.linked_claim_id,
+                currencyid=item.currencyid,
                 sales_person_id=item.sales_person_id,
                 send_notification=item.send_notification,
                 
                 # Status flags
                 is_posted=is_posted,
-                pending_verification=pending_verification,
-                is_submitted=False,
+                pending_verification=pending_verification if item.transaction_type == 'Receipt' else False,
+                is_submitted=True if is_posted and item.transaction_type != 'Receipt' else False,
                 
                 flag=False,
                 is_cleared=False,
@@ -179,15 +362,23 @@ async def update_cash_receipt(receipt_id: int, payload: CreateCashReceiptRequest
         entry.bank_charges = 0
         
         entry.reference_no = data.reference_no
+        entry.transaction_type = data.transaction_type
+        if data.linked_claim_id is not None:
+            entry.ar_id = data.linked_claim_id
+        if data.currencyid is not None:
+            entry.currencyid = data.currencyid
         entry.sales_person_id = data.sales_person_id
         entry.send_notification = data.send_notification
         entry.status = data.status
         
         if data.status == "Posted":
             entry.is_posted = True
-            entry.pending_verification = True
+            is_receipt = (data.transaction_type == 'Receipt')
+            entry.pending_verification = is_receipt
+            entry.is_submitted = not is_receipt
         else:
             entry.is_posted = False
+            entry.is_submitted = False
             
         entry.updated_by = str(payload.userId)
         await db.commit()
@@ -201,10 +392,24 @@ async def submit_cash_receipt(receipt_id: int, db: AsyncSession = Depends(get_db
     """
     Called when generating Marketing Verification. Sets is_posted=1 and pending_verification=1.
     """
+    # 1. Get the current entry to check type
+    stmt_sel = select(ARReceipt).where(ARReceipt.receipt_id == receipt_id)
+    res_sel = await db.execute(stmt_sel)
+    entry = res_sel.scalars().first()
+    
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    is_receipt = (entry.transaction_type == 'Receipt')
+    
     stmt = (
         update(ARReceipt)
         .where(ARReceipt.receipt_id == receipt_id)
-        .values(is_posted=True, pending_verification=True)
+        .values(
+            is_posted=True, 
+            pending_verification=is_receipt,
+            is_submitted=not is_receipt
+        )
     )
     await db.execute(stmt)
     await db.commit()
@@ -223,3 +428,21 @@ async def finalize_cash_receipt(receipt_id: int, db: AsyncSession = Depends(get_
     await db.execute(stmt)
     await db.commit()
     return {"status": "success"}
+
+@router.put("/cancel-claim/{claim_id}")
+async def cancel_claim(claim_id: int, payload: CancelClaimPayload, db: AsyncSession = Depends(get_db)):
+    """
+    Called by Finance to cancel a Claim from the Cash Book Entry modal.
+    """
+    try:
+        sql = text(f"""
+            UPDATE {DB_NAME_FINANCE}.tbl_claimAndpayment_header
+            SET finance_cancel = 1, finance_cancel_remarks = :remark
+            WHERE Claim_ID = :claim_id
+        """)
+        await db.execute(sql, {"claim_id": claim_id, "remark": payload.remark})
+        await db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        await db.rollback()
+        return {"status": "error", "detail": str(e)}

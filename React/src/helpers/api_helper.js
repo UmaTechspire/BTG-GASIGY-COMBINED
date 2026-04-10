@@ -45,14 +45,39 @@ axiosApi.interceptors.request.use(
   }
 );
 
+import { PYTHON_API_URL } from "../common/pyapiconfig";
+
 // GET Request
 export async function get(url, config = {}) {
-  return axiosApi.get(url, { ...config }).then((response) => response.data);
+  const finalConfig = { ...config };
+  let finalUrl = url;
+
+  if (config.usePython) {
+    const pythonBase = (PYTHON_API_URL || "").replace(/\/$/, "");
+    const cleanUrl = url.replace(/^\//, "");
+    finalUrl = `${pythonBase}/${cleanUrl}`;
+    delete finalConfig.usePython;
+    // For Python calls, use a separate axios instance or just direct axios call to avoid baseURL override
+    return axios.get(finalUrl, finalConfig).then((response) => response.data);
+  }
+
+  return axiosApi.get(url, { ...finalConfig }).then((response) => response.data);
 }
 
 // POST Request
 export async function post(url, data, config = {}) {
-  return axiosApi.post(url, data, config).then((response) => response.data);
+  const finalConfig = { ...config };
+  let finalUrl = url;
+
+  if (config.usePython) {
+    const pythonBase = (PYTHON_API_URL || "").replace(/\/$/, "");
+    const cleanUrl = url.replace(/^\//, "");
+    finalUrl = `${pythonBase}/${cleanUrl}`;
+    delete finalConfig.usePython;
+    return axios.post(finalUrl, data, finalConfig).then((response) => response.data);
+  }
+
+  return axiosApi.post(url, data, finalConfig).then((response) => response.data);
 }
 
 // export async function post(url, data, config = {}) {

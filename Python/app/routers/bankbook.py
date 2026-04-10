@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy import text, select, update
+from sqlalchemy import text, select, func, and_, or_, update
 from datetime import date
 from typing import List, Optional
 from pydantic import BaseModel
@@ -48,51 +48,8 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
         result = await db.execute(query)
         raw_data = result.mappings().all()
         
-        # --- LOGICAL GROUPING ---
-        grouped_map = {}
-        final_list = []
-        
-        for row in raw_data:
-            rd = dict(row)
-            gid = rd.get('combine_group_id')
-            
-            if gid is not None and str(gid) != 'None' and gid != 0:
-                if gid not in grouped_map:
-                    # Initialize group with first record
-                    grouped_map[gid] = rd
-                    # IMPORTANT: Keep receipt_id as an INT (BigInt) for API compatibility
-                    # We use the FIRST receipt_id as the representative for the whole group
-                    grouped_map[gid]['receipt_id'] = rd['receipt_id']
-                    grouped_map[gid]['grouped_receipt_ids'] = [rd['receipt_id']]
-                    grouped_map[gid]['is_combined'] = True
-                    grouped_map[gid]['group_count'] = 1
-                    grouped_map[gid]['custom_voucher_no'] = rd.get('custom_voucher_no')
-                else:
-                    g = grouped_map[gid]
-                    g['group_count'] += 1
-                    g['grouped_receipt_ids'].append(rd['receipt_id'])
-                    # Sum amounts (using float to avoid Decimal issues)
-                    g['bank_amount'] = float(g.get('bank_amount') or 0) + float(rd.get('bank_amount') or 0)
-                    g['bank_charges'] = float(g.get('bank_charges') or 0) + float(rd.get('bank_charges') or 0)
-                    g['cash_amount'] = float(g.get('cash_amount') or 0) + float(rd.get('cash_amount') or 0)
-                    
-                    # Append reference_no for display
-                    if rd.get('reference_no') and rd['reference_no'] not in (g.get('reference_no') or ''):
-                        if g.get('reference_no'):
-                            g['reference_no'] = f"{g['reference_no']} | {rd['reference_no']}"
-                        else:
-                            g['reference_no'] = rd['reference_no']
-                            
-                    # Use the "better" customer name if one is Unknown
-                    if (not g.get('customerName') or g['customerName'] == 'Unknown Customer') and rd.get('customerName') != 'Unknown Customer':
-                        g['customerName'] = rd['customerName']
-            else:
-                rd['is_combined'] = False
-                final_list.append(rd)
-        
-        # Add all grouped records to final list
-        for g_record in grouped_map.values():
-            final_list.append(g_record)
+        # Convert to list of dicts for consistency
+        final_list = [dict(row) for row in raw_data]
             
         # Sort by date descending, then ID descending
         final_list.sort(key=lambda x: (str(x.get('date', '')), -int(x.get('receipt_id', 0))), reverse=True)
@@ -174,75 +131,100 @@ async def get_bank_book_report(
         result = await db.execute(sql, params)
         raw_rows = result.mappings().all()
         
-        # --- GROUP BY (Date, TransactionType, Party) ---
-        grouped_dict = {}
+        # --- IGNORE INDIVIDUAL CLAIMS ---
+        # Instead of grouping CLM rows manually, we completely drop them 
+        # out of the transaction list and replace them via a direct DB pull from tbl_PaymentSummary_header
+        ungrouped = []       
+        
         for row in raw_rows:
-            # Create a unique sorting key
-            dt_str = str(row["Date"]).split()[0] if row["Date"] else "" 
+            voucher = str(row["VoucherNo"]) if row["VoucherNo"] else ""
+            is_claim = "CLM" in voucher or (row["TransactionType"] == "Payment" and row.get("cash_amount", 0) == 0)
             
-            # Group by Date, Type, Party, and Currency to consolidate entries for the same party on the same day.
-            # This fulfills the request for a single link per party/day in the bank book.
-            group_key = (dt_str, row["TransactionType"], row["Party"], row["Currency"])
-            
-            if group_key not in grouped_dict:
-                grouped_dict[group_key] = {
-                    "Date": row["Date"],
-                    "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
-                    "TransactionType": row["TransactionType"],
-                    "Account": row["Account"],
-                    "Party": row["Party"],
-                    "PartyDetail": row.get("PartyDetail"),
-                    "Description": row["Description"],
-                    "Currency": row["Currency"],
-                    "CreditIn": float(row["CreditIn"] or 0),
-                    "DebitOut": float(row["DebitOut"] or 0),
-                    "NetAmount": float(row["NetAmount"] or 0),
-                    "bank_payment_via": row["bank_payment_via"],
-                    "cheque_number": row["cheque_number"],
-                    "cash_amount": float(row["cash_amount"] or 0),
-                    "GroupedClaims": [{
-                        "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
-                        "Amount": float(row["NetAmount"] or 0),
-                        "receipt_id": row["receipt_id"],
-                        "InvoiceNo": row["AllocatedInvoices"] or row["Description"], # Use clean invoice info
-                        "pending_verification": row.get("pending_verification", 1),
-                        "transactionType": row["TransactionType"] # Include for frontend pop-up logic
-                    }]
-                }
-            else:
-                existing = grouped_dict[group_key]
-                new_voucher = str(row["VoucherNo"]) if row["VoucherNo"] else ""
-                net_amount = float(row["NetAmount"] or 0)
-                
-                # Group exists, sum the amounts
-                existing["CreditIn"] += float(row["CreditIn"] or 0)
-                existing["DebitOut"] += float(row["DebitOut"] or 0)
-                existing["NetAmount"] += net_amount
-                
-                # Append Voucher No for the global search string
-                if new_voucher and new_voucher not in existing["VoucherNo"]:
-                    existing["VoucherNo"] += f", {new_voucher}"
-                    
-                # Append to GroupedClaims array
-                existing["GroupedClaims"].append({
-                    "VoucherNo": new_voucher,
-                    "Amount": net_amount,
+            if not is_claim:
+                new_item = dict(row)
+                new_item["GroupedClaims"] = [{
+                    "VoucherNo": voucher,
+                    "Amount": float(row["NetAmount"] or 0),
                     "receipt_id": row["receipt_id"],
                     "InvoiceNo": row["AllocatedInvoices"] or row["Description"],
                     "pending_verification": row.get("pending_verification", 1),
                     "transactionType": row["TransactionType"]
-                })
+                }]
+                new_item["_order"] = len(ungrouped)
+                ungrouped.append(new_item)
+
+        # --- FETCH COMBINED PPP BANK TOTALS FROM DB ---
+        BANK_COLUMN_MAP = {
+            5: "bank_ocbc_i_idr",
+            6: "bank_ocbc_ii_idr",
+            7: "bank_ocbc_payroll_idr",
+            8: "bank_ocbc_usd",
+            9: "bank_maybank_idr_i",
+            10: "bank_maybank_sgd_i",
+            11: "bank_maybank_idr_ii",
+            12: "bank_maybank_sgd_ii",
+            13: "bank_uob_usd",
+            14: "bank_uob_sgd",
+            15: "bank_uob_idr",
+            16: "bank_permata_idr",
+            17: "bank_bni_idr",
+            18: "bank_bca_idr",
+            19: "bank_mandiri_idr"
+        }
         
-        # Calculate moving balance on the grouped array
-        for item in grouped_dict.values():
-            credit_val = item["CreditIn"]
-            debit_val = item["DebitOut"]
+        target_bank = int(bank_id)
+        if target_bank in BANK_COLUMN_MAP:
+            col_name = BANK_COLUMN_MAP[target_bank]
             
+            # Note: We filter by CreatedDate to map the withdrawal strictly to when the PPP was processed
+            ppp_sql = text(f"""
+                SELECT 
+                    s.PaymentNo as VoucherNo,
+                    s.CreatedDate as Date,
+                    s.{col_name} as BankWithdraw
+                FROM {DB_NAME_FINANCE}.tbl_PaymentSummary_header s
+                WHERE DATE(s.CreatedDate) >= :from_date_clean AND DATE(s.CreatedDate) <= :to_date_clean
+                  AND s.{col_name} > 0
+            """)
+            ppp_result = await db.execute(ppp_sql, {
+                "from_date_clean": from_date_clean, 
+                "to_date_clean": to_date_clean
+            })
+            for p_row in ppp_result.mappings().all():
+                amount = float(p_row["BankWithdraw"])
+                ppp_no = p_row["VoucherNo"]
+                created_date = p_row["Date"]
+                
+                ungrouped.append({
+                    "Date": created_date,
+                    "VoucherNo": ppp_no,
+                    "TransactionType": "Cash withdraw", 
+                    "Account": "-",
+                    "Party": ppp_no,
+                    "PartyDetail": None,
+                    "Description": "Combined Withdraw",
+                    "Currency": "IDR", # Default mapped logic via procedure assumes IDR for most
+                    "CreditIn": amount,
+                    "DebitOut": 0.0,
+                    "NetAmount": amount,
+                    "bank_payment_via": 0,
+                    "cheque_number": None,
+                    "cash_amount": 0.0,
+                    "GroupedClaims": [],
+                    "_order": len(ungrouped)
+                })
+        all_items = ungrouped
+        all_items.sort(key=lambda x: (str(x.get("Date", "")), x.get("_order", 0)))
+        
+        # Calculate running balance on the final sorted list
+        for item in all_items:
+            credit_val = float(item.get("CreditIn", 0))
+            debit_val = float(item.get("DebitOut", 0))
             running_balance += (debit_val - credit_val)
-            
             item["Balance"] = running_balance
             item["OverdraftLimit"] = overdraft_limit
             item["OverDraft"] = overdraft_limit - running_balance
+            item.pop("_order", None)
             data.append(item)
             
         return {"status": "success", "data": data}
@@ -518,8 +500,19 @@ async def get_all_active_banks(db: AsyncSession = Depends(get_db)):
     return {"status": "success", "data": result.mappings().all()}
 
 @router.get("/get-messages/{receipt_id}")
-async def get_messages(receipt_id: int, db: AsyncSession = Depends(get_db)):
+async def get_messages(receipt_id: int, role: str = None, db: AsyncSession = Depends(get_db)):
     try:
+        if role:
+            # Mark messages from the OTHER role as read
+            opposite_role = 'Finance' if role == 'Marketing' else 'Marketing'
+            upd_stmt = update(ARReceiptMessage).where(
+                ARReceiptMessage.receipt_id == receipt_id,
+                ARReceiptMessage.sender_role == opposite_role,
+                ARReceiptMessage.is_read == False
+            ).values(is_read=True)
+            await db.execute(upd_stmt)
+            await db.commit()
+
         stmt = select(ARReceiptMessage).where(ARReceiptMessage.receipt_id == receipt_id).order_by(ARReceiptMessage.created_at.asc())
         result = await db.execute(stmt)
         messages = result.scalars().all()

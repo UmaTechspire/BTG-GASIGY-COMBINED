@@ -18,7 +18,7 @@ import "flatpickr/dist/themes/material_blue.css";
 // import axios from "axios"; // Removed
 import { toast } from "react-toastify";
 import { useParams, useLocation } from "react-router-dom";
-import { getCustomersDNCN, getOutstandingInvoices, updateDebitNote, updateCreditNote, getDebitNoteById, getCreditNoteById, getLedgerCurrencies } from "../../common/data/mastersapi";
+import { getCustomersDNCN, getOutstandingInvoices, updateDebitNote, updateCreditNote, getDebitNoteById, getCreditNoteById, getLedgerCurrencies, GetCurrency } from "../../common/data/mastersapi";
 
 const EditDnCn = () => {
     const history = useHistory();
@@ -62,10 +62,13 @@ const EditDnCn = () => {
         try {
             const response = await getLedgerCurrencies();
             if (response && response.status === "success") {
-                const options = response.data.map(c => ({
-                    value: c.CurrencyId, // Ensure backend returns CurrencyId
-                    label: c.CurrencyCode // Ensure backend returns CurrencyCode
-                }));
+                const allowedCodes = ["IDR", "USD", "MYR", "SGD", "CNY"];
+                const options = response.data
+                    .filter(c => allowedCodes.includes(c.CurrencyCode))
+                    .map(c => ({
+                        value: c.CurrencyId,
+                        label: c.CurrencyCode
+                    }));
                 setCurrencyOptions(options);
             }
         } catch (error) {
@@ -80,7 +83,7 @@ const EditDnCn = () => {
             if (response && response.status) {
                 return response.data.map(inv => ({
                     value: inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr,
-                    label: `${inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr} (Bal: ${inv.balance_due || inv.BalanceAmount || 0})`
+                    label: `${inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr} (${formatAmount(inv.balance_due || inv.BalanceAmount || 0)})`
                 }));
             }
             return [];
@@ -285,7 +288,8 @@ const EditDnCn = () => {
 
     const formatAmount = (val) => {
         if (val === null || val === undefined || val === "") return "";
-        const parts = val.toString().split(".");
+        const formattedVal = parseFloat(val).toFixed(2);
+        const parts = formattedVal.split(".");
         parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
         return parts.join(".");
     };

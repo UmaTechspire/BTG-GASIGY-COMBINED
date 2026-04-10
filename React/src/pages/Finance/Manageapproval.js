@@ -38,7 +38,8 @@ import useAccess from "../../common/access/useAccess";
 import {
   DownloadFileById, ClaimAndPaymentGetById, Getclaimapprovaldetails,
   Getclaimhistorydetails, SaveClaimApprove, GetApprovalSettings, ClaimReject, getClaimDetailsById
-  , GetPRNoBySupplierAndCurrency, GetByIdPurchaseOrder, GetByIdPurchaseRequisition, AutoApprove, GetPVHistoryDetails
+  , GetPRNoBySupplierAndCurrency, GetByIdPurchaseOrder, GetByIdPurchaseRequisition, AutoApprove, GetPVHistoryDetails,
+  UpdatePaymentSummaryPython
 } from "common/data/mastersapi";
 
 import Swal from 'sweetalert2';
@@ -350,6 +351,45 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
   //   }
   // };
 
+  // --- Helper for Universal Payment Summary Sync ---
+  const executePaymentSummarySync = async (sId) => {
+    try {
+      // 1. Find the group data (checks both tabs)
+      const group = pvgroupedBySummary[sId] || groupedBySummary[sId];
+      if (!group) {
+        console.warn(`No group found for SummaryId ${sId} to sync. Check grouping logic.`);
+        return;
+      }
+
+      // 2. Aggregate IDR "Cash Needed"
+      const totalB_Req_IDR = group.rows
+        .filter(r => {
+          const method = (r.PaymentMethod || "").toLowerCase();
+          return (method === "cash" || method === "cash withdrawal") && (r.curr || "").toLowerCase() === "idr";
+        })
+        .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+
+      const totalA_InHand_IDR = parseFloat(group.InHand_IDR || 0) + parseFloat(group.Sales_IDR || 0);
+      const cashNeededIDR = totalB_Req_IDR - totalA_InHand_IDR;
+      const netCashWithdraw = Math.max(0, Math.round(cashNeededIDR / 100) * 100);
+
+      // 3. Call Python API
+      console.log(`Universal Sync Triggered for SummaryId ${sId}:`, {
+        Total_B: totalB_Req_IDR,
+        Total_A: totalA_InHand_IDR,
+        NetCash: netCashWithdraw
+      });
+
+      const res = await UpdatePaymentSummaryPython({
+        summary_id: parseInt(sId),
+        net_cash_withdraw: netCashWithdraw
+      });
+      console.log(`Python Sync Result for ${sId}:`, res);
+    } catch (err) {
+      console.error(`Error in Universal Sync for ${sId}:`, err);
+    }
+  };
+
   const handlePVSave = async (summaryid, type, operation) => {
     const payload = {
       approve: {
@@ -371,6 +411,8 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
       const res = await SaveClaimApprove(payload);
       if (res.status) {
         Swal.fire("Success", "PPP PV approvals saved successfully", "success");
+        // --- Universal Sync Call ---
+        executePaymentSummarySync(summaryid);
         // Reset actions and reload data
         load();
         setAction1({});
@@ -540,6 +582,21 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     try {
       const res = await SaveClaimApprove(payload);
       if (res.status) {
+        // --- NEW: Universal Sync for all approved SummaryIds ---
+        const approvedSummaryIds = [...new Set(
+          modifiedClaims
+            .filter(c => c.SummaryId > 0)
+            .map(c => c.SummaryId)
+        )];
+
+        if (approvedSummaryIds.length > 0) {
+          console.log("Triggering Universal Sync for Summaries:", approvedSummaryIds);
+          for (const sId of approvedSummaryIds) {
+            executePaymentSummarySync(sId);
+          }
+        }
+        // --- END NEW ---
+
         Swal.fire("Success", "Claim approvals saved successfully", "success");
         // Reset actions and reload data
         load();

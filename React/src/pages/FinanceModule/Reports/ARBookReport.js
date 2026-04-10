@@ -1010,33 +1010,22 @@ const ARBookReport = () => {
                       </h4>
                     </div>
 
-                    <div className="text-end">
-                      {customerSummary ? (
-                        <button
-                          type="button"
-                          className="btn btn-secondary d-inline-flex align-items-center"
-                          style={{
-                            backgroundColor: "#6c757d",
-                            border: "none",
-                            padding: "8px 20px",
-                            borderRadius: "8px",
-                            fontWeight: "600",
-                            fontSize: "14px"
-                          }}
-                          onClick={exportSummaryToExcel}
-                        >
-                          <i className="bx bx-export me-2" style={{ fontSize: "18px" }}></i>
-                          Export
-                        </button>
-                      ) : (
-                        <>
-                          <button type="button" className="btn btn-primary me-2" onClick={fetchARBook} disabled={loadingData}>
-                            {loadingData ? "Loading..." : "Search"}
-                          </button>
-                          <button type="button" className="btn btn-secondary" onClick={() => handleSOAPrint({ customerName: selectedCustomer?.label, customerId: selectedCustomer?.value }, true)}>Print</button>
-                        </>
-                      )}
-                    </div>
+                        <div className="text-end">
+                          {customerSummary ? (
+                            <button type="button" className="btn btn-secondary" onClick={exportSummaryToExcel}>
+                              <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i> Export
+                            </button>
+                          ) : (
+                            <>
+                              <button type="button" className="btn btn-info me-2" onClick={fetchARBook} disabled={loadingData}>
+                                <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search
+                              </button>
+                              <button type="button" className="btn btn-primary" onClick={() => handleSOAPrint({ customerName: selectedCustomer?.label, customerId: selectedCustomer?.value }, true)}>
+                                <i className="bx bx-printer label-icon font-size-16 align-middle me-2"></i> Print
+                              </button>
+                            </>
+                          )}
+                        </div>
                   </Col>
                 </Row>
 
@@ -1047,6 +1036,7 @@ const ARBookReport = () => {
                       ref={dtRef}
                       value={summaryData}
                       paginator
+                      showGridlines
                       rows={rows}
                       first={first}
                       onPage={(e) => {
@@ -1055,7 +1045,7 @@ const ARBookReport = () => {
                       }}
                       loading={loadingData}
                       globalFilter={globalFilter}
-                      style={{ fontSize: '13px' }}
+                      className="blue-bg"
                       header={
                         <div className="d-flex justify-content-end">
                           <InputText type="search" placeholder="Global Search" className="form-control" style={{ width: "250px" }} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
@@ -1112,10 +1102,11 @@ const ARBookReport = () => {
                       ref={dtRef}
                       value={finalProcessedData}
                       paginator
+                      showGridlines
                       rows={20}
                       loading={loadingData}
                       globalFilter={globalFilter}
-                      style={{ fontSize: '13px' }}
+                      className="blue-bg"
                       header={
                         <div className="d-flex justify-content-end">
                           <InputText type="search" placeholder="Global Search" className="form-control" style={{ width: "250px" }} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
@@ -1123,8 +1114,8 @@ const ARBookReport = () => {
                       }
                       responsiveLayout="scroll"
                     >
-                      <Column field="ledger_date" header="Date" body={(row) => format(new Date(row.ledger_date), "dd-MMM-yyyy")} headerStyle={{ whiteSpace: 'nowrap' }} />
-                      <Column field="invoice_no" header="Reference No." body={referenceBodyTemplate} headerStyle={{ whiteSpace: 'nowrap' }} />
+                      <Column field="ledger_date" header="Date" sortable body={(row) => format(new Date(row.ledger_date), "dd-MMM-yyyy")} headerStyle={{ whiteSpace: 'nowrap' }} className="text-nowrap" />
+                      <Column field="invoice_no" header="Reference No." sortable body={referenceBodyTemplate} headerStyle={{ whiteSpace: 'nowrap' }} />
                       {hasForeignCurrency && (!selectedCurrency || selectedCurrency.value === 'IDR') && (
                         <Column
                           header="Other Currency"
@@ -1132,8 +1123,8 @@ const ARBookReport = () => {
                           className="text-end"
                         />
                       )}
-                      <Column field="invoiceAmount" header="Invoice Amount (A)" body={(r) => r.invoiceAmount > 0 ? <span className="text-primary fw-bold" style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => handleInvoiceClick(r)} title="View Invoice Details">{r.invoiceAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
-                      <Column field="receiptAmount" header="Receipt (C)" body={(r) => {
+                      <Column field="invoiceAmount" header="Invoice Amount (A)" sortable body={(r) => r.invoiceAmount > 0 ? <span className="text-primary fw-bold" style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => handleInvoiceClick(r)} title="View Invoice Details">{r.invoiceAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
+                      <Column field="receiptAmount" header="Receipt (C)" sortable body={(r) => {
                         const renderLink = (rec, idx) => (
                           <div key={idx}>
                             <span
@@ -1154,10 +1145,10 @@ const ARBookReport = () => {
                         }
                         return "";
                       }} className="text-end" />
-                      <Column field="invoiceBalance" header="Balance(Invoice)" body={(r) => r.invoiceBalance !== 0 ? r.invoiceBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }) : ""} className="text-end" />
-                      <Column field="debitNote" header="Debit Note (B)" body={(r) => r.debitNote > 0 ? <span className="text-danger fw-bold">{r.debitNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
-                      <Column field="creditNote" header="Credit Note (D)" body={(r) => r.creditNote > 0 ? <span className="text-warning fw-bold">{r.creditNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
-                      <Column field="cumulativeBalance" header="Balance((A+B)-(C+D))" body={(r) => <span className="fw-bold" style={{ color: 'firebrick' }}>{r.cumulativeBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
+                      <Column field="invoiceBalance" header="Balance(Invoice)" sortable body={(r) => r.invoiceBalance !== 0 ? r.invoiceBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }) : ""} className="text-end" />
+                      <Column field="debitNote" header="Debit Note (B)" sortable body={(r) => r.debitNote > 0 ? <span className="text-danger fw-bold">{r.debitNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
+                      <Column field="creditNote" header="Credit Note (D)" sortable body={(r) => r.creditNote > 0 ? <span className="text-warning fw-bold">{r.creditNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
+                      <Column field="cumulativeBalance" header="Balance((A+B)-(C+D))" sortable body={(r) => <span className="fw-bold" style={{ color: 'firebrick' }}>{r.cumulativeBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
                     </DataTable>
                   )}
                 </div>

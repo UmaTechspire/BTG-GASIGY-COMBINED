@@ -27,11 +27,14 @@ BEGIN
     SELECT 
         COALESCE(v_official_opening_val, 0)
         +
-        (SELECT COALESCE(SUM(COALESCE(NULLIF(bank_amount, 0), cash_amount)), 0)
+        (SELECT COALESCE(SUM(bank_amount), 0)
          FROM btggasify_finance_live.tbl_ar_receipt
          WHERE CAST(NULLIF(deposit_bank_id, '') AS UNSIGNED) = p_bank_id
            AND is_active = 1
            AND is_posted = 1
+           AND IFNULL(bank_amount, 0) != 0
+           AND deposit_bank_id != '0'
+           AND deposit_bank_id != ''
            AND DATE(COALESCE(receipt_date, created_date)) < p_from_date
            AND (v_official_opening_date IS NULL OR DATE(COALESCE(receipt_date, created_date)) >= v_official_opening_date))
     INTO v_opening_val;
@@ -77,7 +80,7 @@ BEGIN
             WHEN r.transaction_type != 'Receipt' THEN r.transaction_type
             WHEN MAX(r.bank_payment_via) = 1 THEN 'Cheque'
             WHEN MAX(r.bank_payment_via) = 4 THEN 'Cash'
-            WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 THEN 'Payment' 
+            WHEN MAX(r.bank_amount) < 0 THEN 'Payment' 
             ELSE 'Receipt' 
         END as TransactionType,
         MAX(b.BankName) as Account,
@@ -86,11 +89,11 @@ BEGIN
             WHEN LOWER(r.transaction_type) = 'bank transfer' THEN 'Bank Transfer'
             WHEN LOWER(r.transaction_type) = 'cash deposit' THEN 'Cash Deposit'
             WHEN MAX(r.cash_amount) < 0 AND MAX(r.bank_amount) = 0 THEN 'Petty Cash / Cash Holding'
-            WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 AND MAX(r.customer_id) != 0 
+            WHEN MAX(r.bank_amount) < 0 AND MAX(r.customer_id) != 0 
                 THEN COALESCE(MAX(s.SupplierName), 'Unknown Supplier')
             WHEN MAX(r.customer_id) = 0 AND r.reference_no LIKE 'CLM%' 
                 THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
-            WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 AND MAX(r.customer_id) = 0 
+            WHEN MAX(r.bank_amount) < 0 AND MAX(r.customer_id) = 0 
                 THEN 'Bank Charges'
             ELSE COALESCE(MAX(c.CustomerName), 'Unknown Customer') 
         END as Party,
@@ -101,7 +104,7 @@ BEGIN
                     ELSE 'Unknown Bank'
                 END
             WHEN LOWER(r.transaction_type) = 'bank charges' 
-                 OR (MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 AND MAX(r.customer_id) = 0)
+                 OR (MAX(r.bank_amount) < 0 AND MAX(r.customer_id) = 0)
                  OR (MAX(r.customer_id) = 0 AND r.reference_no LIKE 'CLM%')
                 THEN r.reference_no
             ELSE NULL
@@ -119,18 +122,18 @@ BEGIN
         COALESCE(MAX(mc.CurrencyCode), 'IDR') as Currency, 
         -- DEBIT OUT (INCREASE)
         CASE 
-            WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) >= 0 
-                THEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) 
+            WHEN MAX(r.bank_amount) >= 0 
+                THEN MAX(r.bank_amount) 
             ELSE 0 
         END as DebitOut,
         -- CREDIT IN (DECREASE)
         CASE 
-            WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 
-                THEN ABS(MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount))) 
+            WHEN MAX(r.bank_amount) < 0 
+                THEN ABS(MAX(r.bank_amount)) 
             ELSE 0 
         END as CreditIn,
         -- NET AMOUNT
-        MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) as NetAmount,
+        MAX(r.bank_amount) as NetAmount,
         MAX(r.bank_payment_via) as bank_payment_via,
         MAX(r.cheque_number) as cheque_number,
         MAX(r.cash_amount) as cash_amount,
@@ -153,6 +156,9 @@ BEGIN
         DATE(COALESCE(r.receipt_date, r.created_date)) BETWEEN p_from_date AND p_to_date
         AND r.is_active = 1
         AND IFNULL(r.is_posted, 0) = 1
+        AND IFNULL(r.bank_amount, 0) != 0
+        AND r.deposit_bank_id != '0'
+        AND r.deposit_bank_id != ''
         AND CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = p_bank_id 
     GROUP BY 
         r.receipt_id,

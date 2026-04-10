@@ -14,6 +14,7 @@ class ARReceipt(Base):
     # Core Data
     receipt_date = Column(Date, nullable=False)
     customer_id = Column(Integer, nullable=True)
+    currencyid = Column(Integer, nullable=True)
     
     # Financials
     cash_amount = Column(DECIMAL(18, 2), nullable=False, default=0.00)

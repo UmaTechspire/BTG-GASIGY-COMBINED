@@ -385,7 +385,7 @@ const AddPurchaseRequisition = () => {
                 amount: 0,
                 availableStock: "",
                 prdId: "",
-                taxSign: "+",
+                taxSign: "-",
             }
         ]
     });
@@ -842,22 +842,19 @@ const AddPurchaseRequisition = () => {
                 const lineAfterDiscount = qty * unitPrice - discountValue;
                 const discountPerc = (discountValue / (qty * unitPrice)) * 100;
 
-                // Apply tax with sign
-                const taxSign = item.taxSign === "-" ? 1 : 0; // 0 = add, 1 = subtract
-                const signedTaxAmount = taxSign === 0
-                    ? (lineAfterDiscount * (parseFloat(item.taxPercent) || 0)) / 100
-                    : -(lineAfterDiscount * (parseFloat(item.taxPercent) || 0)) / 100;
-
-                // VAT after tax
-                const vatBase = lineAfterDiscount + signedTaxAmount;
-                const vatValue = (vatBase * (parseFloat(item.vatPercent) || 0)) / 100;
+                // Apply tax with sign (standardizing as subtraction based on user request)
+                const taxSign = item.taxSign === "-" ? 1 : 0; // 0 for "+", 1 for "-"
+                const taxVal = (lineAfterDiscount * (parseFloat(item.taxPercent) || 0)) / 100;
+                const vatVal = (lineAfterDiscount * (parseFloat(item.vatPercent) || 0)) / 100;
 
                 // Apply rounding
-                const roundedTaxValue = Math.round(Math.abs(signedTaxAmount));
-                const roundedVatValue = Math.round(Math.abs(vatValue));
+                const roundedTaxValue = Math.round(taxVal);
+                const roundedVatValue = Math.round(vatVal);
                 const roundedSubTotal = Math.round(lineAfterDiscount);
                 const roundedDiscountValue = discountValue === undefined || discountValue === null ? "0.00" : discountValue;
-                const roundedNetTotal = Math.round(vatBase - roundedVatValue);
+
+                // Net Total = Base - Discount - Tax + VAT
+                const roundedNetTotal = Math.round(lineAfterDiscount - roundedTaxValue + roundedVatValue);
                 const roundedDiscountPerc = parseFloat(discountPerc.toFixed(2)); // percentage can keep 2 decimals
 
                 return {
@@ -1140,7 +1137,8 @@ const AddPurchaseRequisition = () => {
         const taxAmount = roundByCurrency((lineAfterDiscount * taxPercent) / 100, currencyCode);
         const vatAmount = roundByCurrency((lineAfterDiscount * vatPercent) / 100, currencyCode);
 
-        const totalAmount = roundByCurrency((lineAfterDiscount + vatAmount) - taxAmount, currencyCode);
+        // Row Total = Base - Discount - Tax + VAT
+        const totalAmount = roundByCurrency((lineAfterDiscount - taxAmount) + vatAmount, currencyCode);
 
         return {
             taxAmount,
@@ -1345,6 +1343,32 @@ const AddPurchaseRequisition = () => {
                                 <CardBody>
                                     <Formik enableReinitialize initialValues={initialValues} validationSchema={validationSchema} validateOnMount={false} validateOnChange={false} validateOnBlur={true} >
                                         {({ values, errors, touched, setFieldValue, setTouched, validateForm, setFieldTouched }) => {
+                                            const getCurrencyCode = (c) => (typeof c === 'string' ? c : (c?.label || c?.code || "")).trim().toUpperCase();
+                                            const currencyCode = getCurrencyCode(values.currency);
+                                            const isIDR = currencyCode === 'IDR';
+
+                                            // Live totals for "simultaneous" feedback in UI
+                                            let liveSubTotal = 0;
+                                            let liveTotalDiscount = 0;
+                                            let liveTotalTax = 0;
+                                            let liveTotalVAT = 0;
+
+                                            values.items.forEach(item => {
+                                                const { lineTotal, taxAmount, vatAmount } = calculateLineTotals(item, currencyCode);
+                                                liveSubTotal += lineTotal;
+                                                liveTotalDiscount += parseFloat(item.discount) || 0;
+                                                const sign = item.taxSign || "+";
+                                                liveTotalTax += taxAmount;
+                                                liveTotalVAT += vatAmount;
+                                            });
+                                            const liveNetTotal = roundByCurrency(liveSubTotal - liveTotalDiscount + liveTotalVAT - liveTotalTax, currencyCode);
+
+                                            const formatValue = (val) => parseFloat(val)?.toLocaleString('en-US', {
+                                                style: 'decimal',
+                                                minimumFractionDigits: isIDR ? 0 : 2,
+                                                maximumFractionDigits: isIDR ? 0 : 2
+                                            }) || (isIDR ? "0" : "0.00");
+
 
                                             // Move your useEffect HERE — inside Formik render props
                                             useEffect(() => {
@@ -1405,73 +1429,54 @@ const AddPurchaseRequisition = () => {
                                                     return;
                                                 }
 
-                                                // Get currency code from form values
-                                                const currencyCode = values.currency?.label || values.currency?.code || "";
+                                                // Use shared logic for currency identification
+                                                const currencyCode = getCurrencyCode(values.currency);
+                                                const isIDR = currencyCode === 'IDR';
 
                                                 let subtotal = 0;
                                                 let totalDiscount = 0;
-                                                let totalTax = 0;
                                                 let totalTaxFooter = 0;
                                                 let totalVAT = 0;
 
-                                                values.items.forEach((item, index) => {
-                                                    const { lineTotal, taxAmount, lineAfterDiscount } = calculateLineTotals(item, currencyCode);
+                                                const updatedItems = values.items.map((item, index) => {
+                                                    const { lineTotal, taxAmount, vatAmount, lineAfterDiscount } = calculateLineTotals(item, currencyCode);
 
                                                     subtotal += lineTotal;
                                                     totalDiscount += parseFloat(item.discount) || 0;
 
-                                                    // ✅ Apply tax sign
-                                                    const sign = item.taxSign || "+";
-                                                    const signedTaxAmount = sign === "+" ? taxAmount : -taxAmount;
+                                                    // Use helpers for consistency
+                                                    const roundedTaxAmount = taxAmount;
+                                                    const roundedVatAmount = vatAmount;
 
-                                                    // ✅ accumulate totals
-                                                    totalTax += signedTaxAmount;
-                                                    totalTaxFooter += Math.abs(signedTaxAmount);
+                                                    totalTaxFooter += roundedTaxAmount;
+                                                    totalVAT += roundedVatAmount;
 
-                                                    // ✅ VAT AFTER applying tax
-                                                    const vatBase = lineAfterDiscount - signedTaxAmount;
-                                                    let vatAmt = (lineAfterDiscount * (parseFloat(item.vatPercent) || 0)) / 100;
+                                                    // Row Total = Base - Discount - Tax + VAT
+                                                    const adjustedAmount = roundByCurrency(lineAfterDiscount - roundedTaxAmount + roundedVatAmount, currencyCode);
 
-                                                    // ✅ Apply currency-specific rounding
-                                                    const roundedTaxAmount = roundByCurrency(Math.abs(signedTaxAmount), currencyCode);
-                                                    const roundedVatAmount = roundByCurrency(Math.abs(vatAmt), currencyCode);
-
-                                                    totalVAT -= roundedVatAmount; // if VAT is deduction
-
-                                                    // ✅ Update row fields with proper formatting
-                                                    if (currencyCode.toUpperCase() === 'IDR') {
-                                                        setFieldValue(`items[${index}].taxAmount`, roundedTaxAmount.toFixed(0));
-                                                        setFieldValue(`items[${index}].vatAmount`, roundedVatAmount.toFixed(0));
-                                                    } else {
-                                                        setFieldValue(`items[${index}].taxAmount`, roundedTaxAmount.toFixed(2));
-                                                        setFieldValue(`items[${index}].vatAmount`, roundedVatAmount.toFixed(2));
-                                                    }
-
-                                                    // ✅ Row total: after tax sign, then minus VAT
-                                                    const adjustedAmount = roundByCurrency(vatBase + roundedVatAmount, currencyCode);
-                                                    if (currencyCode.toUpperCase() === 'IDR') {
-                                                        setFieldValue(`items[${index}].amount`, adjustedAmount.toFixed(0));
-                                                    } else {
-                                                        setFieldValue(`items[${index}].amount`, adjustedAmount.toFixed(2));
-                                                    }
+                                                    // Return updated item values
+                                                    return {
+                                                        ...item,
+                                                        taxAmount: roundedTaxAmount.toFixed(isIDR ? 0 : 2),
+                                                        vatAmount: roundedVatAmount.toFixed(isIDR ? 0 : 2),
+                                                        amount: adjustedAmount.toFixed(isIDR ? 0 : 2)
+                                                    };
                                                 });
 
-                                                const netTotal = roundByCurrency(subtotal - totalDiscount + Math.abs(totalVAT) - totalTaxFooter, currencyCode);
+                                                const netTotal = roundByCurrency(subtotal - totalDiscount - totalTaxFooter + totalVAT, currencyCode);
 
-                                                // Format footer totals based on currency
-                                                if (currencyCode.toUpperCase() === 'IDR') {
-                                                    setFieldValue("subTotal", roundByCurrency(subtotal, currencyCode).toFixed(0));
-                                                    setFieldValue("discountValue", roundByCurrency(totalDiscount, currencyCode).toFixed(0));
-                                                    setFieldValue("taxValue", roundByCurrency(totalTaxFooter, currencyCode).toFixed(0));
-                                                    setFieldValue("vatValue", roundByCurrency(Math.abs(totalVAT), currencyCode).toFixed(0));
-                                                    setFieldValue("netTotal", netTotal.toFixed(0));
-                                                } else {
-                                                    setFieldValue("subTotal", subtotal.toFixed(2));
-                                                    setFieldValue("discountValue", totalDiscount.toFixed(2));
-                                                    setFieldValue("taxValue", totalTaxFooter.toFixed(2));
-                                                    setFieldValue("vatValue", Math.abs(totalVAT).toFixed(2));
-                                                    setFieldValue("netTotal", netTotal.toFixed(2));
+                                                // Update items only if they changed to prevent extra renders
+                                                const itemsChanged = JSON.stringify(updatedItems) !== JSON.stringify(values.items);
+                                                if (itemsChanged) {
+                                                    setFieldValue("items", updatedItems);
                                                 }
+
+                                                // Update footer totals
+                                                setFieldValue("subTotal", roundByCurrency(subtotal, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("discountValue", roundByCurrency(totalDiscount, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("taxValue", roundByCurrency(totalTaxFooter, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("vatValue", roundByCurrency(totalVAT, currencyCode).toFixed(isIDR ? 0 : 2));
+                                                setFieldValue("netTotal", netTotal.toFixed(isIDR ? 0 : 2));
 
                                             }, [values.items, values.currency]);
 
@@ -2644,8 +2649,8 @@ const AddPurchaseRequisition = () => {
                                                                                         <div className="form-control-plaintext">
                                                                                             {parseFloat(values.items[i]?.taxAmount)?.toLocaleString('en-US', {
                                                                                                 style: 'decimal',
-                                                                                                minimumFractionDigits: 2
-                                                                                            }) || "0.00"}
+                                                                                                minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
+                                                                                            }) || "0"}
                                                                                         </div>
                                                                                         {errors.items?.[i]?.taxAmount && touched.items?.[i]?.taxAmount && (
                                                                                             <div className="text-danger small">{errors.items[i].taxAmount}</div>
@@ -2698,8 +2703,8 @@ const AddPurchaseRequisition = () => {
                                                                                         <div className="form-control-plaintext">
                                                                                             {parseFloat(values.items[i]?.vatAmount)?.toLocaleString('en-US', {
                                                                                                 style: 'decimal',
-                                                                                                minimumFractionDigits: 2
-                                                                                            }) || "0.00"}
+                                                                                                minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
+                                                                                            }) || "0"}
                                                                                         </div>
                                                                                         {errors.items?.[i]?.vatAmount && touched.items?.[i]?.vatAmount && (
                                                                                             <div className="text-danger small">{errors.items[i].vatAmount}</div>
@@ -2712,8 +2717,8 @@ const AddPurchaseRequisition = () => {
                                                                                         <div className="form-control-plaintext">
                                                                                             {parseFloat(values.items[i]?.amount)?.toLocaleString('en-US', {
                                                                                                 style: 'decimal',
-                                                                                                minimumFractionDigits: 2
-                                                                                            }) || "0.00"}
+                                                                                                minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
+                                                                                            }) || "0"}
                                                                                         </div>
                                                                                         {errors.items?.[i]?.amount && touched.items?.[i]?.amount && (
                                                                                             <div className="text-danger small">{errors.items[i].amount}</div>
@@ -2750,7 +2755,7 @@ const AddPurchaseRequisition = () => {
                                                                                                 vatPercent: 0,
                                                                                                 vatAmount: "",
                                                                                                 amount: "",
-                                                                                                taxSign: "+",
+                                                                                                taxSign: "-",
                                                                                             })
                                                                                         }
                                                                                     >
@@ -2763,7 +2768,7 @@ const AddPurchaseRequisition = () => {
                                                                                 <td className="align-middle text-end">{values.currency?.label ?? "-"}</td>
                                                                                 <td className="align-middle text-end">{parseFloat(values.subTotal)?.toLocaleString('en-US', {
                                                                                     style: 'decimal',
-                                                                                    minimumFractionDigits: 2
+                                                                                    minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
                                                                                 })}</td>
                                                                             </tr>
                                                                             <tr>
@@ -2773,7 +2778,7 @@ const AddPurchaseRequisition = () => {
                                                                                 <td className="align-middle text-end">{values.currency?.label ?? "-"}</td>
                                                                                 <td className="align-middle text-end">{parseFloat(values.discountValue)?.toLocaleString('en-US', {
                                                                                     style: 'decimal',
-                                                                                    minimumFractionDigits: 2
+                                                                                    minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
                                                                                 })}</td>
                                                                             </tr>
                                                                             <tr>
@@ -2784,7 +2789,7 @@ const AddPurchaseRequisition = () => {
                                                                                 <td className="align-middle text-end">{values.currency?.label ?? "-"}</td>
                                                                                 <td className="align-middle text-end">{parseFloat(values.taxValue)?.toLocaleString('en-US', {
                                                                                     style: 'decimal',
-                                                                                    minimumFractionDigits: 2
+                                                                                    minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
                                                                                 })}</td>
                                                                             </tr>
                                                                             <tr>
@@ -2794,7 +2799,7 @@ const AddPurchaseRequisition = () => {
                                                                                 <td className="align-middle text-end">{values.currency?.label ?? "-"}</td>
                                                                                 <td className="align-middle text-end">{parseFloat(values.vatValue)?.toLocaleString('en-US', {
                                                                                     style: 'decimal',
-                                                                                    minimumFractionDigits: 2
+                                                                                    minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
                                                                                 })}</td>
                                                                             </tr>
                                                                             <tr>
@@ -2804,7 +2809,7 @@ const AddPurchaseRequisition = () => {
                                                                                 <td className="align-middle text-end">{values.currency?.label ?? "-"}</td>
                                                                                 <td className="align-middle text-end">{parseFloat(values.netTotal)?.toLocaleString('en-US', {
                                                                                     style: 'decimal',
-                                                                                    minimumFractionDigits: 2
+                                                                                    minimumFractionDigits: isIDR ? 0 : 2, maximumFractionDigits: isIDR ? 0 : 2
                                                                                 })}</td>
                                                                             </tr>
                                                                         </tfoot>

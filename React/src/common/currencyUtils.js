@@ -8,21 +8,13 @@
  * @returns {number} - The rounded value with no decimals
  */
 export const roundIDR = (value) => {
-    if (value === null || value === undefined || isNaN(value)) {
+    if (value === null || value === undefined || String(value).trim() === '' || isNaN(value)) {
         return 0;
     }
 
     const numValue = parseFloat(value);
-    const integerPart = Math.floor(numValue);
-    const decimalPart = numValue - integerPart;
-
-    // If decimal part < 0.5, round down (return integer part)
-    // If decimal part >= 0.5, round up (return integer part + 1)
-    if (decimalPart < 0.5) {
-        return integerPart;
-    } else {
-        return integerPart + 1;
-    }
+    // Standard rounding: 0.5 and above rounds up, below rounds down
+    return Math.round(numValue);
 };
 
 /**
@@ -39,7 +31,7 @@ export const formatCurrency = (value, currencyCode) => {
         return '0.00';
     }
 
-    const upperCurrency = (currencyCode || '').toUpperCase();
+    const upperCurrency = (currencyCode || '').trim().toUpperCase();
 
     if (upperCurrency === 'IDR') {
         // For IDR, use custom rounding with no decimals
@@ -64,7 +56,7 @@ export const roundByCurrency = (value, currencyCode) => {
         return 0;
     }
 
-    const upperCurrency = (currencyCode || '').toUpperCase();
+    const upperCurrency = (currencyCode || '').trim().toUpperCase();
 
     if (upperCurrency === 'IDR') {
         // For IDR, use custom rounding with no decimals
