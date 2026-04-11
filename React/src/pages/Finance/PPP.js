@@ -2938,18 +2938,27 @@ const ApprovalTable = ({
 
     setData(prevData =>
       prevData.map(row => {
-        // 🏦 Bank updates → always single-row update for now (to avoid accidental bulk changes unless row is selected) (Type-safe coercion)
-        if (field === "bank" && Number(row.id) === Number(editedRowId)) {
+        // 🏦 Bank updates → bulk update all selected rows in the same group when edited row is selected
+        if (field === "bank") {
+          if (isRowSelected && selectedIdsInSameGroup.includes(Number(row.id))) {
+            // Skip rows whose Mode of Payment is "Cash" — they should keep "Cash in Hand"
+            const isCashRow = modeOfPaymentOptions.find(opt => opt.value === row.ModeOfPaymentId)?.label === "Cash";
+            if (isCashRow) return row;
+            return { ...row, [field]: newValue };
+          }
+          if (Number(row.id) === Number(editedRowId)) {
+            return { ...row, [field]: newValue };
+          }
+          return row;
+        }
+
+        // 📝 Collective updates (BULK): For Payment Date and ModeOfPaymentId
+        if ((field === "paymentDate" || field === "ModeOfPaymentId") && isRowSelected && selectedIdsInSameGroup.includes(Number(row.id))) {
+          // Row selected & field is date or MOP → update all selected rows in this group
           return { ...row, [field]: newValue };
         }
 
-        // 📝 Collective updates (BULK): ONLY for Payment Date (per requirement)
-        if (field === "paymentDate" && isRowSelected && selectedIdsInSameGroup.includes(Number(row.id))) {
-          // Row selected & field is date → update all selected rows in this group
-          return { ...row, [field]: newValue };
-        }
-
-        // 🏦 Individual updates (Bank, ModeOfPaymentId, and unselected Date)
+        // 🏦 Individual updates (unselected rows)
         if (Number(row.id) === Number(editedRowId)) {
           // Update the edited row regardless of selection status
           return { ...row, [field]: newValue };
@@ -2959,57 +2968,26 @@ const ApprovalTable = ({
       })
     );
 
-    // ✅ Update selectedRows state
-    // setSelectedRows(prevSelected =>
-    //   prevSelected.map(row => {
-    //     if (
-    //       field === "bank" &&
-    //       (row.paymentMethod === "Cash" )
-    //     ) {
-    //       return row;
-    //     }
-    //     if (field === "bank") {
-    //       return row.id === editedRowId ? { ...row, [field]: newValue } : row;
-    //     }
-    //     if (!isRowSelected && row.id === editedRowId) {
-    //       return { ...row, [field]: newValue };
-    //     }
-    //     if (isRowSelected && selectedIdsInSameGroup.includes(row.id)) {
-    //       return { ...row, [field]: newValue };
-    //     }
-    //     return row;
-    //   })
-    // );
-
-
-
     setSelectedRows(prevSelected =>
       prevSelected.map(row => {
 
-        // if (field === "bank" && row.paymentMethod === "Cash") {
-        //   return row;
-        // }
-
-
         if (field === "bank") {
-
-          if (Number(row.id) === Number(editedRowId)) {
-            return Number(row.id) === Number(editedRowId) ? { ...row, [field]: newValue } : row;
+          if (isRowSelected && selectedIdsInSameGroup.includes(Number(row.id))) {
+            // Skip rows whose Mode of Payment is "Cash" — they should keep "Cash in Hand"
+            const isCashRow = modeOfPaymentOptions.find(opt => opt.value === row.ModeOfPaymentId)?.label === "Cash";
+            if (isCashRow) return row;
+            return { ...row, [field]: newValue };
           }
-
-
+          if (Number(row.id) === Number(editedRowId)) {
+            return { ...row, [field]: newValue };
+          }
+          return row;
         }
-
 
         if (selectedIdsInSameGroup.includes(Number(editedRowId)) &&
           selectedIdsInSameGroup.includes(Number(row.id))) {
           return { ...row, [field]: newValue };
         }
-
-
-        // if (row.id === editedRowId) {
-        //   return { ...row, [field]: newValue };
-        // }
 
         return row;
       })

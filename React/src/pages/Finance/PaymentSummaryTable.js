@@ -1050,8 +1050,8 @@ word-break: break-word;
                 const cfsValue = parseFloat(cashFromSales[curr] || 0);
                 const cashNeededVal = modeOfCashTotal - cihValue - cfsValue;
 
-                // Round to nearest 100
-                const netCashWithdraw = Math.round(cashNeededVal / 100) * 100;
+                // Round to nearest 100 only for IDR
+                const netCashWithdraw = curr === "IDR" ? Math.round(cashNeededVal / 100) * 100 : cashNeededVal;
 
                 return (
                   <td style={{ textAlign: "right" }} key={`netcashneeded-${curr}`}>
@@ -1286,7 +1286,7 @@ word-break: break-word;
           aoa.push(["", "", "Cash Withdraw", ...cashWithdrawFooter]);
 
           // Net Cash Withdraw
-          const netCashWithdrawFooter = cashWithdrawFooter.map(val => Math.round(val / 100) * 100);
+          const netCashWithdrawFooter = cashWithdrawFooter.map((val, idx) => currencies[idx] === "IDR" ? Math.round(val / 100) * 100 : val);
           aoa.push(["", "", "Net Cash Withdraw", ...netCashWithdrawFooter]);
 
           aoa.push([]);

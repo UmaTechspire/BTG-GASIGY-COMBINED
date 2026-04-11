@@ -282,12 +282,49 @@ const ARBookReport = () => {
             } else {
               if (groupedMap.has(key)) {
                 const existing = groupedMap.get(key);
+                // Adjust Invoice Amount (Keep Max)
                 existing.invoiceAmount = Math.max(parseFloat(existing.invoiceAmount) || 0, parseFloat(row.invoiceAmount) || 0);
-                existing.debitNote += row.debitNote;
-                existing.creditNote += row.creditNote;
                 existing.invoice_amount = Math.max(parseFloat(existing.invoice_amount) || 0, parseFloat(row.invoice_amount) || 0);
+
+                // Handle Debit Notes List
+                if (row.debitNote > 0) {
+                  if (!existing.debitNotesList) {
+                    // Initialize with the current sums from the 'existing' record if it was the first note
+                    existing.debitNotesList = [];
+                    // If the existing record itself had a debitNote and wasn't yet in its own list
+                    if (existing._isNoteRow && existing.debitNote > 0) {
+                        existing.debitNotesList.push({ ...existing, _isNoteRow: undefined });
+                    }
+                  }
+                  
+                  if (!existing.debitNotesList.some(n => (n.transaction_id || n.id) === (row.transaction_id || row.id))) {
+                    existing.debitNotesList.push(row);
+                    existing.debitNote = existing.debitNotesList.reduce((sum, n) => sum + n.debitNote, 0);
+                  }
+                } else {
+                    existing.debitNote += row.debitNote;
+                }
+
+                // Handle Credit Notes List
+                if (row.creditNote > 0) {
+                    if (!existing.creditNotesList) {
+                      existing.creditNotesList = [];
+                      if (existing._isNoteRow && existing.creditNote > 0) {
+                          existing.creditNotesList.push({ ...existing, _isNoteRow: undefined });
+                      }
+                    }
+                    if (!existing.creditNotesList.some(n => (n.transaction_id || n.id) === (row.transaction_id || row.id))) {
+                      existing.creditNotesList.push(row);
+                      existing.creditNote = existing.creditNotesList.reduce((sum, n) => sum + n.creditNote, 0);
+                    }
+                } else {
+                    existing.creditNote += row.creditNote;
+                }
               } else {
-                groupedMap.set(key, { ...row });
+                groupedMap.set(key, { ...row, _isNoteRow: (row.debitNote > 0 || row.creditNote > 0) });
+                // Ensure CustomerName is accessible
+                const existing = groupedMap.get(key);
+                if (!existing.CustomerName) existing.CustomerName = row.CustomerName || row.customer_name || row.customerNAME || "";
               }
             }
           } else {
@@ -396,6 +433,32 @@ const ARBookReport = () => {
   };
 
   const handleNoteClick = async (rowData, type) => {
+    // Check if it's a grouped row with multiple entries
+    const list = type === 'DN' ? rowData.debitNotesList : rowData.creditNotesList;
+    const customerName = rowData.CustomerName || rowData.customer_name || rowData.customerNAME || selectedCustomer?.label || "N/A";
+
+    if (list && list.length > 0) {
+      setNoteDetails({
+        type: type,
+        CustomerName: customerName,
+        TransactionDate: rowData.ledger_date || rowData.Date || rowData.TransactionDate,
+        Amount: type === 'DN' ? rowData.debitNote : rowData.creditNote,
+        InvoiceNo: rowData.invoice_no,
+        CurrencyCode: rowData.currencyCode,
+        DebitNoteNumber: rowData.invoice_no, // Use ref as header number for grouped view
+        items: list.map(n => {
+          const rawDesc = n.Description || n.description || n.remarks || n.Remarks || `${type === 'DN' ? 'Debit' : 'Credit'} Adjustment`;
+          return {
+            Description: rawDesc.replace(/\s*\|\s*-\s*$/, ""),
+            Amount: type === 'DN' ? n.debitNote : n.creditNote,
+            Date: n.ledger_date || n.Date || n.TransactionDate
+          };
+        })
+      });
+      setShowNoteDialog(true);
+      return;
+    }
+
     const noteId = rowData.transaction_id || rowData.id || rowData.real_invoice_id;
     if (!noteId) {
       toast.warning("No ID available for this Note.");
@@ -414,16 +477,26 @@ const ARBookReport = () => {
         response = await getCreditNoteById(noteId);
       }
 
-      const data = response?.data;
-      if (data) {
-        setNoteDetails({ ...data, type });
+      const data = response?.data || response;
+
+      if (data && data.status !== "error") {
+        const rawDesc = data.Description || data.description || data.remarks || data.Remarks || `${type === 'DN' ? 'Debit' : 'Credit'} Note Adjustment`;
+        const noteWithItems = {
+          ...data,
+          type: type,
+          CustomerName: customerName, // Ensure name is used from row if missing in API response
+          items: [{
+            Description: rawDesc.replace(/\s*\|\s*-\s*$/, ""),
+            Amount: data.Amount || data.DebitAmount || data.CreditAmount || 0
+          }]
+        };
+        setNoteDetails(noteWithItems);
       } else {
-        toast.warning(`No details returned for this ${type === 'DN' ? 'Debit' : 'Credit'} Note.`);
-        setShowNoteDialog(false);
+        toast.warning(response?.message || "No details returned for this note.");
       }
     } catch (err) {
       console.error("API Fetch Error:", err);
-      toast.error(`Failed to fetch ${type} details.`);
+      toast.error("Failed to fetch note details.");
     } finally {
       setLoadingNote(false);
     }
@@ -1146,8 +1219,44 @@ const ARBookReport = () => {
                         return "";
                       }} className="text-end" />
                       <Column field="invoiceBalance" header="Balance(Invoice)" sortable body={(r) => r.invoiceBalance !== 0 ? r.invoiceBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }) : ""} className="text-end" />
-                      <Column field="debitNote" header="Debit Note (B)" sortable body={(r) => r.debitNote > 0 ? <span className="text-danger fw-bold">{r.debitNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
-                      <Column field="creditNote" header="Credit Note (D)" sortable body={(r) => r.creditNote > 0 ? <span className="text-warning fw-bold">{r.creditNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
+                      <Column field="debitNote" header="Debit Note (B)" sortable body={(r) => {
+                        if (r.debitNote > 0) {
+                          const isInvoiceLinked = r.payment_mode === 'Invoice';
+                          return (
+                            <span 
+                              className="text-danger fw-bold" 
+                              style={{ 
+                                cursor: isInvoiceLinked ? "default" : "pointer", 
+                                textDecoration: isInvoiceLinked ? "none" : "underline" 
+                              }}
+                              onClick={isInvoiceLinked ? null : () => handleNoteClick(r, 'DN')}
+                              title={isInvoiceLinked ? "Linked Note details unavailable" : "View Grouped Debit Note Details"}
+                            >
+                              {parseFloat(r.debitNote).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                          );
+                        }
+                        return "";
+                      }} className="text-end" />
+                      <Column field="creditNote" header="Credit Note (D)" sortable body={(r) => {
+                        if (r.creditNote > 0) {
+                          const isInvoiceLinked = r.payment_mode === 'Invoice';
+                          return (
+                            <span 
+                              className="text-warning fw-bold" 
+                              style={{ 
+                                cursor: isInvoiceLinked ? "default" : "pointer", 
+                                textDecoration: isInvoiceLinked ? "none" : "underline" 
+                              }}
+                              onClick={isInvoiceLinked ? null : () => handleNoteClick(r, 'CN')}
+                              title={isInvoiceLinked ? "Linked Note details unavailable" : "View Grouped Credit Note Details"}
+                            >
+                              {parseFloat(r.creditNote).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                          );
+                        }
+                        return "";
+                      }} className="text-end" />
                       <Column field="cumulativeBalance" header="Balance((A+B)-(C+D))" sortable body={(r) => <span className="fw-bold" style={{ color: 'firebrick' }}>{r.cumulativeBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
                     </DataTable>
                   )}
@@ -1337,7 +1446,7 @@ const ARBookReport = () => {
         <Dialog
           header={`${noteDetails?.type === 'DN' ? 'Debit Note' : 'Credit Note'} View: ${noteDetails?.DebitNoteNumber || noteDetails?.DebitNoteNo || noteDetails?.CreditNoteNumber || noteDetails?.CreditNoteNo || ''}`}
           visible={showNoteDialog}
-          style={{ width: '50vw' }}
+          style={{ width: '60vw' }}
           onHide={() => setShowNoteDialog(false)}
           draggable={false}
           resizable={false}
@@ -1352,41 +1461,55 @@ const ARBookReport = () => {
             <div>
               <div className="mb-4">
                 <Row className="mb-2">
-                  <Col md={12} className="d-flex">
+                  <Col md={6} className="d-flex">
                     <span style={popupLabelStyle}>Customer</span>
-                    <span>: {selectedCustomer?.label || noteDetails.CustomerId}</span>
+                    <span>: {selectedCustomer?.label || noteDetails.CustomerName || noteDetails.CustomerId}</span>
                   </Col>
-                </Row>
-                <Row className="mb-2">
-                  <Col md={12} className="d-flex">
-                    <span style={popupLabelStyle}>Date</span>
+                  <Col md={6} className="d-flex">
+                    <span style={popupLabelStyle}>Note Date</span>
                     <span>: {noteDetails.TransactionDate || noteDetails.Date ? format(new Date(noteDetails.TransactionDate || noteDetails.Date), "dd-MMM-yyyy") : ''}</span>
                   </Col>
                 </Row>
                 <Row className="mb-2">
-                  <Col md={12} className="d-flex">
-                    <span style={popupLabelStyle}>Amount</span>
-                    <span>: <span className="fw-bold fs-6">{(noteDetails.Amount || noteDetails.DebitAmount || noteDetails.CreditAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> {noteDetails.CurrencyCode || 'IDR'}</span>
+                  <Col md={6} className="d-flex">
+                    <span style={popupLabelStyle}>Total Amount</span>
+                    <span className="fw-bold">: {(noteDetails.Amount || noteDetails.DebitAmount || noteDetails.CreditAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} {noteDetails.CurrencyCode || 'IDR'}</span>
                   </Col>
-                </Row>
-                <Row className="mb-2">
-                  <Col md={12} className="d-flex">
-                    <span style={popupLabelStyle}>Linked Invoice ID</span>
-                    <span>: {noteDetails.InvoiceId || noteDetails.InvoiceNo || '-'}</span>
-                  </Col>
-                </Row>
-                <Row className="mb-2">
-                  <Col md={12} className="d-flex align-items-baseline">
-                    <span style={popupLabelStyle}>Description</span>
-                    <span className="me-1">:</span>
-                    <div className="flex-grow-1 text-muted">
-                      {noteDetails.Description || '-'}
-                    </div>
+                  <Col md={6} className="d-flex">
+                    <span style={popupLabelStyle}>Ref. Invoice</span>
+                    <span>: {noteDetails.InvoiceNo || noteDetails.InvoiceNumber || '-'}</span>
                   </Col>
                 </Row>
               </div>
-              <div className="text-end mt-3 border-top pt-3">
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowNoteDialog(false)}>Close</button>
+
+              {/* Grid Layout for consistency with Invoice popup */}
+              <h6 className="fw-bold mb-3 mt-4" style={{ color: '#5a5f9c' }}>Details</h6>
+              <DataTable
+                value={noteDetails.items || [{ 
+                    description: noteDetails.Description || `${noteDetails.type === 'DN' ? 'Debit' : 'Credit'} Note Adjustment`,
+                    amount: noteDetails.Amount || noteDetails.DebitAmount || noteDetails.CreditAmount || 0
+                }]}
+                className="p-datatable-sm p-datatable-gridlines shadow-sm"
+                responsiveLayout="scroll"
+              >
+                <Column 
+                  body={(data, options) => options.rowIndex + 1} 
+                  header="S.No" 
+                  style={{ width: '50px' }} 
+                  className="text-center"
+                />
+                <Column field="Description" header="Description" style={{ width: '70%' }} body={(r) => r.Description || r.description} />
+                <Column 
+                    field="Amount" 
+                    header="Amount" 
+                    className="text-end" 
+                    body={(r) => <span className="fw-bold">{(r.Amount || r.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>}
+                    style={{ width: '30%' }}
+                />
+              </DataTable>
+
+              <div className="text-end mt-4 pt-3 border-top">
+                <button className="btn btn-secondary btn-sm px-4" onClick={() => setShowNoteDialog(false)}>Close</button>
               </div>
             </div>
           ) : (

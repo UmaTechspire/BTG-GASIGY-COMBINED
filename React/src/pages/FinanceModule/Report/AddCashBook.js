@@ -1008,6 +1008,8 @@ const AddCashBook = () => {
                     <CardBody>
                         <DataTable
                             value={filteredEntries}
+                            sortField="date"
+                            sortOrder={1}
                             paginator
                             rows={20}
                             loading={loading}
