@@ -166,18 +166,29 @@ const PCBookReport = () => {
                 });
             }
 
-            // 3. Sort by date ascending
-            allItems.sort((a, b) => {
-                const dateA = new Date(a.expdate || a.ExpDate);
-                const dateB = new Date(b.expdate || b.ExpDate);
-                return dateA - dateB;
+            // 3. Custom Sorting: Opening Balance at top, then Others by Reference DESC
+            const openingBalanceRow = allItems.find(item => 
+                (item.pc_number && item.pc_number.toUpperCase().includes("OPENING")) ||
+                (item.description && item.description.toUpperCase().includes("OPENING BALANCE"))
+            );
+            const others = allItems.filter(item => item !== openingBalanceRow);
+
+            // Sort others by Reference No descending
+            others.sort((a, b) => {
+                const refA = a.pc_number || "";
+                const refB = b.pc_number || "";
+                // Using numeric sort for strings like PC000184
+                return refB.localeCompare(refA, undefined, { numeric: true, sensitivity: 'base' });
             });
 
-            // 4. Calculate running totals ONLY for filtered items
+            const finalSorted = openingBalanceRow ? [openingBalanceRow, ...others] : others;
+
+            // 4. Calculate running totals for the final sorted sequence
             let runningTotal = 0;
-            let processed = allItems.map((row) => {
+            let processed = finalSorted.map((row) => {
                 const amount = parseFloat(row.amount || row.Amount) || 0;
-                const isDebit = (row.category_id === 1 || (row.pc_number && row.pc_number.startsWith("CLM")));
+                // Opening Balance (category 1) or Claims are debits
+                const isDebit = (row.category_id === 1 || (row.description && row.description.toUpperCase().includes("OPENING")) || (row.pc_number && row.pc_number.startsWith("CLM")));
 
                 const debit = isDebit ? amount : 0;
                 const credit = isDebit ? 0 : amount;
@@ -185,7 +196,7 @@ const PCBookReport = () => {
 
                 let amountidr = parseFloat(row.amountidr || row.AmountIDR || 0);
                 // Fallback for claims or IDR currency if IDR amount is 0
-                if (amountidr === 0 && (selectedCurrency?.label === "IDR" || row.isClaim)) {
+                if (amountidr === 0 && (selectedCurrency?.label === "IDR" || (row.pc_number && row.pc_number.startsWith("CLM")))) {
                     amountidr = amount;
                 }
 
@@ -198,7 +209,7 @@ const PCBookReport = () => {
                     cumulativeAmount: runningTotal,
                     dailyVoucher: row.dailyvoucher || row.dailyVoucher || generateDailyVoucherID(row.expdate || row.ExpDate),
                     COA: row.coa || row.COA || row.account_name || "",
-                    description: row.isClaim ? "claim and payment" : (row.expensedescription || row.ExpenseDescription || row.description || row.Description || row.remarks || row.Remarks || "")
+                    description: (row.pc_number && row.pc_number.startsWith("CLM")) ? "claim and payment" : (row.expensedescription || row.ExpenseDescription || row.description || row.Description || row.remarks || row.Remarks || "")
                 };
             });
 

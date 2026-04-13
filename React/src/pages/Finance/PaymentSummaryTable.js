@@ -847,64 +847,69 @@ word-break: break-word;
                 return currencies.some(curr => rowTotals[curr] > 0);
               });
 
-              // Group by bank
-              const bankGroups = {};
-              groupedArray.forEach(group => {
-                const bankKey = group.bank || "-";
-                if (!bankGroups[bankKey]) {
-                  bankGroups[bankKey] = [];
-                }
-                bankGroups[bankKey].push(group);
+              // Sort by payment method priority: Bank Transfer first, then Cheque, then others
+              // Secondary sort by bank name to keep same-bank entries together
+              const methodPriority = (method) => {
+                const m = (method || "").toLowerCase();
+                if (m.includes("bank transfer")) return 1;
+                if (m.includes("cheque")) return 2;
+                if (m.includes("cash")) return 3;
+                return 4;
+              };
+              groupedArray.sort((a, b) => {
+                const mp = methodPriority(a.method) - methodPriority(b.method);
+                if (mp !== 0) return mp;
+                return (a.bank || "").localeCompare(b.bank || "");
               });
 
               const rows = [];
-              Object.entries(bankGroups).forEach(([bankName, suppliers]) => {
-                suppliers.forEach((group, supplierIndex) => {
-                  const rowTotals = currencies.reduce((acc, curr) => {
-                    acc[curr] = group.rows
-                      .filter(r => r.curr === curr)
-                      .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-                    return acc;
-                  }, {});
+              groupedArray.forEach((group, index) => {
+                const rowTotals = currencies.reduce((acc, curr) => {
+                  acc[curr] = group.rows
+                    .filter(r => r.curr === curr)
+                    .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+                  return acc;
+                }, {});
 
-                  rows.push(
-                    <tr key={`row-${bankName}-${supplierIndex}`}>
-                      <td style={{ textAlign: "left" }}>{group.method}</td>
-                      <td style={{ textAlign: "left" }}>
-                        <span
-                          className="linkcolor"
-                          style={{ cursor: "pointer" }}
-                          onClick={() => {
-                            const bankRows = data.filter(r => (r.BankName || "-") === bankName);
-                            handleBankClick(bankName, bankRows);
-                          }}
-                        >
-                          {simplifyBankName(bankName)}
-                        </span>
+                const bankName = group.bank || "-";
+
+                rows.push(
+                  <tr key={`row-${index}`}>
+                    <td style={{ textAlign: "left" }}>{group.method}</td>
+                    <td style={{ textAlign: "left" }}>
+                      <span
+                        className="linkcolor"
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const bankRows = data.filter(r => (r.BankName || "-") === bankName);
+                          handleBankClick(bankName, bankRows);
+                        }}
+                      >
+                        {simplifyBankName(bankName)}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "left" }}>
+                      <span
+                        className="linkcolor"
+                        style={{ cursor: "pointer" }}
+                        onClick={() =>
+                          openPopup(group.summaryId, group.id, "Party",
+                            group.supplierId, group.applicantId,
+                            group.modeOfPaymentId, group.bankId, group.rows)
+                        }
+                      >
+                        {group.groupName}
+                      </span>
+                    </td>
+                    {currencies.map(curr => (
+                      <td style={{ textAlign: "right" }} key={curr}>
+                        {rowTotals[curr]
+                          ? rowTotals[curr].toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : "0.00"}
                       </td>
-                      <td style={{ textAlign: "left" }}>
-                        <span
-                          className="linkcolor"
-                          style={{ cursor: "pointer" }}
-                          onClick={() =>
-                            openPopup(group.summaryId, group.id, "Party",
-                              group.supplierId, group.applicantId,
-                              group.modeOfPaymentId, group.bankId, group.rows)
-                          }
-                        >
-                          {group.groupName}
-                        </span>
-                      </td>
-                      {currencies.map(curr => (
-                        <td style={{ textAlign: "right" }} key={curr}>
-                          {rowTotals[curr]
-                            ? rowTotals[curr].toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                            : "0.00"}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                });
+                    ))}
+                  </tr>
+                );
               });
 
               return rows;

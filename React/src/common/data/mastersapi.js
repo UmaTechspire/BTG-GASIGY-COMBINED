@@ -2399,7 +2399,8 @@ export const GetAllClaimAndPayment = async (filterType, filterValue, branchId, o
         const claimtypeid = filterType === 4 ? filterValue : 0;
 
         // 🟢 MIGRATED: Calling Python API instead of .NET
-        const response = await axios.get(`${PYTHON_API_URL}/api/claim/get_all`, {
+        const response = await get(`/api/claim/get_all`, {
+            usePython: true,
             params: {
                 departmentid: departmentId,
                 currencyid: currencyId,

@@ -678,6 +678,8 @@ def get_all_claims(
                 ch.totalamountinidr, ch.voucherid, ch.voucherno,
                 IFNULL(psh.PaymentNo,'') AS PaymentNo,
                 CASE WHEN IFNULL(ch.isdiscussionaccepted,0)=1 THEN 1 ELSE IFNULL(ch.IsSubmitted,0) END AS isSubmitted,
+                ch.SupplierId,
+                IFNULL(ch.claim_director_isapproved, 0) AS claim_director_isapproved,
                 IFNULL(ch.is_delete_required,0) AS is_delete_required,
                 IFNULL(ch.finance_cancel, 0) AS finance_cancel,
                 IFNULL(ch.finance_cancel_remarks, '') AS finance_cancel_remarks,
@@ -846,6 +848,54 @@ def get_seq_num(branchId: int, orgid: int, userid: int):
         }
     except Exception as e:
         print(f"Error fetching sequence: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+
+# --- NEW: Get PPP PV Director Approval Status by SummaryId ---
+@router.get("/get_pv_director_approval_status")
+def get_pv_director_approval_status():
+    """
+    Returns PPP_PV_Director_approve status grouped by SummaryId.
+    Used by the PPP page to determine if the Update Voucher button should be disabled.
+    """
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor(dictionary=True)
+
+        query = """
+            SELECT 
+                SummaryId,
+                MIN(IFNULL(PPP_PV_Director_approve, 0)) AS PPP_PV_Director_approve,
+                MIN(IFNULL(PPP_PV_Commissioner_approveone, 0)) AS PPP_PV_Commissioner_approveone
+            FROM tbl_claimAndpayment_header
+            WHERE IsActive = 1 
+              AND IFNULL(SummaryId, 0) > 0
+            GROUP BY SummaryId
+            HAVING MIN(IFNULL(PPP_PV_Director_approve, 0)) = 1
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        # Build a map: SummaryId -> approval status
+        approval_map = {}
+        for row in rows:
+            approval_map[str(row["SummaryId"])] = {
+                "PPP_PV_Director_approve": row["PPP_PV_Director_approve"],
+                "PPP_PV_Commissioner_approveone": row["PPP_PV_Commissioner_approveone"]
+            }
+
+        return {
+            "status": True,
+            "message": "Success",
+            "data": approval_map
+        }
+    except Exception as e:
+        print(f"Error fetching PV Director approval status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if cursor: cursor.close()

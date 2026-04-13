@@ -512,13 +512,27 @@ const PPP = ({ selectedType, setSelectedType }) => {
     }
   };
 
+  // State: PPP PV Director approval status keyed by SummaryId
+  const [pvDirectorApprovalMap, setPvDirectorApprovalMap] = useState({});
+
+  const fetchPvDirectorApprovalStatus = async () => {
+    try {
+      const res = await axios.get(`${PYTHON_API_URL}/api/claim/get_pv_director_approval_status`);
+      if (res.data && res.data.status && res.data.data) {
+        console.log('🔒 PV Director Approval Map:', res.data.data);
+        setPvDirectorApprovalMap(res.data.data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch PV director approval status:", err);
+    }
+  };
+
   const load = async () => {
     const res = await GetPaymentPalnAccordianDetails(1, 1, 1, 1);
 
     if (res.status) {
-
       setclaims(res.data);
-
+      await fetchPvDirectorApprovalStatus();
     } else {
       Swal.fire({
         icon: 'error',
@@ -591,9 +605,8 @@ const PPP = ({ selectedType, setSelectedType }) => {
     const fetchClaimApprovedDetails = async () => {
       const res = await GetPaymentPalnAccordianDetails(1, 1, 1, 1);
       if (res.status) {
-
-
         setclaims(res.data);
+        await fetchPvDirectorApprovalStatus();
       } else {
         Swal.fire({
           icon: 'error',
@@ -675,6 +688,7 @@ const PPP = ({ selectedType, setSelectedType }) => {
       type: item.type, PaymentNo: item.PaymentNo, PaymentPlanDate: item.PaymentPlanDate, cashInHand: item.cashInHand, cashFromSalesAtFactory: item.cashFromSalesAtFactory,
       FromDate: item.FromDate, ToDate: item.ToDate, InHand_CNY: item.InHand_CNY, InHand_USD: item.InHand_USD, InHand_SGD: item.InHand_SGD, InHand_IDR: item.InHand_IDR,
       InHand_MYR: item.InHand_MYR, Sales_CNY: item.Sales_CNY, Sales_USD: item.Sales_USD, Sales_SGD: item.Sales_SGD, Sales_IDR: item.Sales_IDR, Sales_MYR: item.Sales_MYR,
+      PPP_PV_Director_approve: item.PPP_PV_Director_approve, PPP_PV_Commissioner_approveone: item.PPP_PV_Commissioner_approveone,
       rows: []
     };
     acc[key].rows.push(item);
@@ -1624,7 +1638,7 @@ let severity = 'secondary'; // default gray
                 <Accordion multiple>
                   {Object.entries(groupedBySummary)
                     .sort(([, a], [, b]) =>
-                      String(a.PaymentNo).localeCompare(String(b.PaymentNo), undefined, {
+                      String(b.PaymentNo).localeCompare(String(a.PaymentNo), undefined, {
                         numeric: true,
                       })
                     ).map(([summaryId, group]) => {
@@ -1634,10 +1648,10 @@ let severity = 'secondary'; // default gray
                       const hasVoucher = group.rows.some(row => row.voucherid);
                       const allHaveVoucher = group.rows.every(row => row.voucherid);
 
-                      // 🔒 Lockdown Logic: Disable if GM or Director approved (unless Super Admin 158)
-                      const isLockedByApproval = group.rows.some(
-                        row => (Number(row.approvedone) === 1) || (Number(row.approvedtwo) === 1)
-                      );
+                      // 🔒 Lockdown Logic: Disable when PPP PV Voucher is Director-approved
+                      // Check the Python API approval map by SummaryId
+                      const approvalEntry = pvDirectorApprovalMap[String(summaryId)];
+                      const isVoucherApprovedByDirector = !!(approvalEntry && Number(approvalEntry.PPP_PV_Director_approve) === 1);
 
                       const authUser = JSON.parse(localStorage.getItem("authUser"));
                       const currentUserId = authUser ? (parseInt(authUser.u_id) || 0) : 0;
@@ -1665,10 +1679,7 @@ let severity = 'secondary'; // default gray
                             )}
                             {showVoucherButton && (
                               <button className="btn btn-success" style={{ marginRight: "10px" }}
-                                disabled={
-                                  (allHaveVoucher && group.rows.some(row => row.VouCmrStatus === 1 || row.VouCmrStatus === 'Approved')) ||
-                                  (isLockedByApproval && !isSuperAdmin)
-                                }
+                                disabled={!isSuperAdmin && isVoucherApprovedByDirector}
                                 onClick={() => handleGenerateVoucher(group.rows)}>
                                 {hasVoucher ? "Update Voucher" : "Generate Voucher"}
                               </button>

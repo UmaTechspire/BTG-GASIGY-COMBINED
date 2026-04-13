@@ -131,6 +131,19 @@ const DnCn = () => {
         return <Tag value={statusShort} severity={getSeverity(rowData.status)} />;
     };
 
+    const formatDate = (date) => {
+        if (!date) return "-";
+        const d = new Date(date);
+        if (isNaN(d.getTime())) return "-";
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+            .replace(/ /g, '-')
+            .toLowerCase();
+    };
+
+    const dateBodyTemplate = (rowData) => {
+        return formatDate(rowData.date);
+    };
+
     // Shared Header for both tables or just one top control? 
     // User asked "look exactly like JournalCtx", which has the search bar INSIDE the card.
     // I will put the Search/Legend bar OUTSIDE the collapsible sections so it applies generally, 
@@ -294,7 +307,7 @@ const DnCn = () => {
                                 showGridlines
                             >
                                 <Column field="dnNo" header="Debit Note No" sortable style={{ minWidth: '120px' }} />
-                                <Column field="date" header="Date" sortable style={{ minWidth: '100px' }} />
+                                <Column field="date" header="Date" body={dateBodyTemplate} sortable style={{ minWidth: '100px' }} />
                                 <Column field="description" header="Description" sortable style={{ minWidth: '150px' }} />
                                 <Column field="customer" header="Customer" sortable style={{ minWidth: '200px' }} />
                                 <Column field="invoiceNo" header="Invoice No" sortable style={{ minWidth: '120px' }} />
@@ -335,7 +348,7 @@ const DnCn = () => {
                                 showGridlines
                             >
                                 <Column field="cnNo" header="Credit Note No" sortable style={{ minWidth: '120px' }} />
-                                <Column field="date" header="Date" sortable style={{ minWidth: '100px' }} />
+                                <Column field="date" header="Date" body={dateBodyTemplate} sortable style={{ minWidth: '100px' }} />
                                 <Column field="description" header="Description" sortable style={{ minWidth: '150px' }} />
                                 <Column field="customer" header="Customer" sortable style={{ minWidth: '200px' }} />
                                 <Column field="invoiceNo" header="Invoice No" sortable style={{ minWidth: '120px' }} />

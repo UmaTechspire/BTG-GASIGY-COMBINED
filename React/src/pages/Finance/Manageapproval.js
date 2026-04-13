@@ -34,6 +34,7 @@ import { Badge } from 'primereact/badge';
 import PaymentSummaryTable from './PaymentSummaryTable';
 import DiscussionHistoryModal from "./DiscussionHistoryModal"; // ✅ No curly braces
 import useAccess from "../../common/access/useAccess";
+import PaymentHistory from "../Procurement/Invoice-Receipt/procurements-irn-payment-history";
 
 import {
   DownloadFileById, ClaimAndPaymentGetById, Getclaimapprovaldetails,
@@ -155,6 +156,11 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
   const [PPPPVAction2, setPPPPVAction2] = useState({});
   const [UserData, setUserData] = useState(null);
   const [globalFilter, setGlobalFilter] = useState("");
+
+  const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
+  const [selectedpoids, setSelectedpoids] = useState([]);
+
+  const togglePaymentHistoryModal = () => setShowPaymentHistoryModal(!showPaymentHistoryModal);
 
   const exportToExcel = () => {
     // Flatten all claims grouped by type
@@ -1456,6 +1462,8 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
     if (res.status) {
       setSelectedDetail(res.data);
+      const uniquePOIds = [...new Set((res.data.details || []).map(d => d.poid).filter(id => id && id > 0))];
+      setSelectedpoids(uniquePOIds);
       setDetailVisible(true);
       setPreviewUrl(res.data?.header?.AttachmentPath || "");
       setFileName(res.data?.header?.AttachmentName || "");
@@ -3169,6 +3177,15 @@ word-break: break-word;
           )}
         </ModalBody>
         <ModalFooter>
+          {selectedDetail?.header?.ClaimCategoryId === 3 && (
+            <button
+              type="button"
+              className="btn btn-success"
+              onClick={() => setShowPaymentHistoryModal(true)}
+            >
+              <i className="mdi mdi-eye font-size-16 me-2"></i> Payment History
+            </button>
+          )}
 
           <button
             type="button"
@@ -3180,6 +3197,21 @@ word-break: break-word;
           </button>
           <button type="button" className="btn btn-danger" onClick={() => setDetailVisible(false)}> <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i> Close</button>
 
+        </ModalFooter>
+      </Modal>
+      <Modal isOpen={showPaymentHistoryModal} toggle={togglePaymentHistoryModal} size="xl">
+        <ModalHeader toggle={togglePaymentHistoryModal}>Payment History</ModalHeader>
+        <ModalBody>
+          {selectedpoids && selectedpoids.length > 0 ? (
+            <PaymentHistory
+              poId={selectedpoids}
+            />
+          ) : (
+            <div>No PO information available for payment history.</div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button color="danger" onClick={togglePaymentHistoryModal}>Close</Button>
         </ModalFooter>
       </Modal>
       <Modal isOpen={POdetailVisible} toggle={() => setPODetailVisible(false)} size="xl">

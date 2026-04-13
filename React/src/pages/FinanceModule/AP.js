@@ -40,7 +40,9 @@ import {
     GetGRNById,
     GetByIdPurchaseOrder,
     GetByIdPurchaseRequisition,
-    GetAllPurchaseOrderList
+    GetAllPurchaseOrderList,
+    GetPaymentHistory,
+    GetAllClaimAndPayment
 } from "../../common/data/mastersapi";
 
 const AP = () => {
@@ -71,6 +73,9 @@ const AP = () => {
     // --- Search States ---
     const [globalFilterAccrued, setGlobalFilterAccrued] = useState("");
     const [globalFilterPayable, setGlobalFilterPayable] = useState("");
+    const [globalFilterLedger, setGlobalFilterLedger] = useState("");
+
+    const [ledgerData, setLedgerData] = useState([]);
 
     // --- Modal States ---
     const [modal, setModal] = useState(false);
@@ -100,7 +105,11 @@ const AP = () => {
                 }
                 const curRes = await GetAllCurrencies({});
                 if (curRes?.data) {
-                    setCurrencyList(curRes.data.map(c => ({ value: c.CurrencyId, label: c.CurrencyCode })));
+                    const allowedCurrencies = ["IDR", "USD", "MYR", "SGD", "CNY"];
+                    const mappedCur = curRes.data
+                        .filter(c => allowedCurrencies.includes(c.CurrencyCode))
+                        .map(c => ({ value: c.CurrencyId, label: c.CurrencyCode }));
+                    setCurrencyList(mappedCur);
                 }
 
                 const poRes = await GetAllPurchaseOrderList(0, branchId, 0, orgId, userId);
@@ -158,16 +167,33 @@ const AP = () => {
         try {
             const formatForApi = (date) => {
                 if (!date) return "";
-                const d = new Date(date);
-                const year = d.getFullYear();
-                const month = String(d.getMonth() + 1).padStart(2, '0');
-                const day = String(d.getDate()).padStart(2, '0');
-                return `${year}-${month}-${day}`;
+                if (date instanceof Date) {
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                }
+                if (typeof date === "string") {
+                    // Handle DD-MM-YYYY or DD/MM/YYYY
+                    const parts = date.split(/[-/]/);
+                    if (parts.length === 3) {
+                        if (parts[0].length === 4) return date; // Already YYYY-MM-DD
+                        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    }
+                    const d = new Date(date);
+                    if (!isNaN(d.getTime())) {
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
+                    }
+                }
+                return "";
             };
             const fromDateStr = formatForApi(filter.fromDate);
             const toDateStr = formatForApi(filter.toDate);
             const supplierId = filter.supplier ? filter.supplier.value : 0;
-            const currencyId = filter.currency ? filter.currency.value : 0;
+            const currencyId = (activeTab === "1" || !filter.currency) ? 0 : filter.currency.value;
 
             // Refresh PO Lookup locally for this fetch to ensure accuracy
             const poRes = await GetAllPurchaseOrderList(0, branchId, supplierId, orgId, userId);
@@ -181,7 +207,8 @@ const AP = () => {
                             pono: po.pono || po.PONo || po.PO_Number || po.ponumber || po.po_no || po.PONumber,
                             podate: po.podate || po.PODate || po.po_date || po.docdate,
                             currencyid: po.currencyid || po.CurrencyId || po.currency_id || po.TransactionCurrencyId,
-                            currencycode: po.currencycode || po.CurrencyCode || po.currency_code || po.transactioncurrency || po.TransactionCurrency
+                            currencycode: po.currencycode || po.CurrencyCode || po.currency_code || po.transactioncurrency || po.TransactionCurrency,
+                            po_amount: po.totalamount || po.nettotal || po.po_amount || po.po_total || 0
                         };
                     }
                 });
@@ -198,8 +225,9 @@ const AP = () => {
                     const grnLookup = {};
                     if (irnResponse?.data && Array.isArray(irnResponse.data)) {
                         irnResponse.data.forEach(irn => {
-                            const grnId = irn.grn_id || irn.grnid;
+                            let grnId = irn.grn_id || irn.grnid || irn.GRN_ID || irn.GRNID;
                             if (grnId) {
+                                grnId = String(grnId).trim(); // Ensure string comparison
                                 if (!grnLookup[grnId]) {
                                     grnLookup[grnId] = { amount: 0, poid: irn.poid || 0 };
                                 }
@@ -228,7 +256,8 @@ const AP = () => {
                                 SupplierName: item.suppliername || item.SupplierName || "",
                                 CreatedDate: item.CreatedDate || item.createddate || item.logdate || item.grndate || "",
                                 CreatedBy: item.createdbyName || item.UserName || item.username || item.createdbyname || item.CreatedBy || "System",
-                                IsSubmitted: item.issubmitted || item.IsSubmitted || false
+                                IsSubmitted: item.issubmitted || item.IsSubmitted || false,
+                                grnid: String(item.grnid || item.grn_id || "").trim() // For matching
                             };
                         });
 
@@ -236,6 +265,12 @@ const AP = () => {
                     if (selectedCurrencyId > 0) {
                         mappedData = mappedData.filter(item => Number(item.currencyid) === selectedCurrencyId);
                     }
+
+                    // FINAL FILTER: Check grnLookup again with trimmed IDs
+                    mappedData = mappedData.filter(item => {
+                        const gid = String(item.Id || item.grnid || "").trim();
+                        return !grnLookup[gid];
+                    });
 
                     if (filter.fromDate && filter.toDate) {
                         const fromTime = new Date(filter.fromDate).setHours(0, 0, 0, 0);
@@ -256,7 +291,7 @@ const AP = () => {
                 } else {
                     setAccruedData([]);
                 }
-            } else {
+            } else if (activeTab === "2") {
                 const response = await GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId, currencyId);
                 if (response?.data && Array.isArray(response.data)) {
                     let cumulativeTotal = 0;
@@ -306,6 +341,159 @@ const AP = () => {
                 } else {
                     setPayableData([]);
                 }
+            } else if (activeTab === "3") {
+                let irnResponse = { data: [] };
+                try {
+                    irnResponse = await GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId, currencyId);
+                } catch (e) { console.error("IRN fetch failed", e); }
+
+                let paymentHistoryResponse = { status: false, data: [] };
+                if (Number(supplierId) > 0) {
+                    try {
+                        paymentHistoryResponse = await GetPaymentHistory(branchId, orgId, supplierId, fromDateStr, toDateStr);
+                    } catch (e) { console.error("History fetch failed", e); }
+                }
+
+                let allClaimsResponse = { status: false, data: [] };
+                try {
+                    allClaimsResponse = await GetAllClaimAndPayment(0, 0, branchId, orgId, userId);
+                } catch (e) { console.error("Claims fetch failed", e); }
+
+                let mergedList = [];
+                const historyPayments = Array.isArray(paymentHistoryResponse) ? paymentHistoryResponse : (paymentHistoryResponse?.data || paymentHistoryResponse?.Data || []);
+                const allClaims = Array.isArray(allClaimsResponse) ? allClaimsResponse : (allClaimsResponse?.data || allClaimsResponse?.Data || []);
+
+                const fDate = filter.fromDate ? new Date(filter.fromDate).setHours(0, 0, 0, 0) : null;
+                const tDate = filter.toDate ? new Date(filter.toDate).setHours(23, 59, 59, 999) : null;
+                const selectedCurrencyId = Number(currencyId);
+
+                if (irnResponse?.data && Array.isArray(irnResponse.data)) {
+                    irnResponse.data.forEach(item => {
+                        if (item.irnstatus === "Generated" || item.IsSubmitted) {
+                            const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
+                            const poNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
+                            
+                            const itemCurId = Number(item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (currentPoLookup[poId] ? (currentPoLookup[poId].currencyid || currentPoLookup[poId].CurrencyId) : 0));
+                            
+                            // Check currency
+                            if (selectedCurrencyId > 0 && itemCurId !== selectedCurrencyId) return;
+
+                            mergedList.push({
+                                Date: item.receipt_date || item.receipt_Date || item.docdate,
+                                Reference: item.receipt_no || item.Reference || item.receiptno || item.docno,
+                                ReferenceDate: item.receipt_date || item.receipt_Date || item.docdate,
+                                IRNAmount: Number(item.totalamount || item.amount || item.total_amount || 0),
+                                ClaimAmount: 0,
+                                grn_no: item.grnno || item.grn_no || "",
+                                grn_date: item.grndate || item.grn_date || "",
+                                po_no: poNo,
+                                po_date: item.podate || item.po_date || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
+                                po_amount: Number(item.po_amount || (currentPoLookup[poId] ? currentPoLookup[poId].po_amount : 0)),
+                                currencyid: itemCurId
+                            });
+                        }
+                    });
+                }
+
+                // Process payments from History API
+                if (historyPayments.length > 0) {
+                    historyPayments.forEach(item => {
+                        const isPosted = item.isSubmitted || item.IsSubmitted || item.status === "Approved" || item.status === "Posted" || item.Status === "Posted" || item.Status === "Approved" || true;
+                        if (isPosted) {
+                            const itemDate = item.payment_Date || item.Date || item.payment_date || item.claimdate || item.docdate || item.CreatedDate;
+                            const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
+                            
+                            // Check date range
+                            if (fDate && timeStamp < fDate) return;
+                            if (tDate && timeStamp > tDate) return;
+
+                            const itemCurId = Number(item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || currencyId);
+                            // Check currency
+                            if (selectedCurrencyId > 0 && itemCurId !== selectedCurrencyId) return;
+
+                            const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
+                            const poNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
+
+                            mergedList.push({
+                                Date: itemDate,
+                                Reference: item.claimno || item.claim_no || item.payment_no || item.PaymentNo || item.Reference || item.receipt_no || item.docno || "Payment",
+                                ReferenceDate: itemDate,
+                                IRNAmount: 0,
+                                ClaimAmount: Number(item.claimamountintc || item.payment || item.amount || item.totalamount || item.total_amount || item.ClaimAmount || item.totalamountinidr || 0),
+                                grn_no: "",
+                                grn_date: "",
+                                po_no: poNo,
+                                po_date: item.podate || item.po_date || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
+                                po_amount: Number(item.po_amount || (currentPoLookup[poId] ? currentPoLookup[poId].po_amount : 0)),
+                                currencyid: itemCurId,
+                                supplierid: item.supplierid || item.supplier_id || 0
+                            });
+                        }
+                    });
+                }
+
+                // Process additional claims from AllClaims API
+                if (allClaims.length > 0) {
+                    allClaims.forEach(item => {
+                        const itemSupplierId = item.supplierid || item.supplier_id || item.SupplierId || 0;
+                        const isMatchingSupplier = Number(supplierId) === 0 || Number(itemSupplierId) === Number(supplierId);
+                        const isPosted = (item.isSubmitted || item.IsSubmitted || item.Status === "Posted" || item.Status === "Approved") && (Number(item.claim_director_isapproved) === 1);
+
+                        if (isMatchingSupplier && isPosted) {
+                            const itemDate = item.claimdate || item.ApplicationDate || item.Date;
+                            const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
+
+                            // Check date range
+                            if (fDate && timeStamp < fDate) return;
+                            if (tDate && timeStamp > tDate) return;
+
+                            const itemCurId = Number(item.currencyid || item.TransactionCurrencyId || item.currency_id || 0);
+                            let finalCurId = itemCurId;
+                            
+                            // Fallback: If ID is missing, match by currency code from currencyList
+                            if (finalCurId === 0 && item.transactioncurrency) {
+                                const matched = currencyList.find(c => c.label === item.transactioncurrency);
+                                if (matched) finalCurId = matched.value;
+                            }
+
+                            // Check currency
+                            if (selectedCurrencyId > 0 && finalCurId !== selectedCurrencyId) return;
+
+                            const claimNo = item.claimno || item.ApplicationNo || item.Reference;
+                            if (claimNo && !mergedList.some(m => m.Reference === claimNo)) {
+                                const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
+                                const poNo = item.pono || item.POId || item.po_no || item.po_number || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
+
+                                mergedList.push({
+                                    Date: itemDate,
+                                    Reference: claimNo,
+                                    ReferenceDate: itemDate,
+                                    IRNAmount: 0,
+                                    ClaimAmount: Number(item.claimamountintc || item.amount || item.TotalAmount || item.claimAmountTC || 0),
+                                    grn_no: "",
+                                    grn_date: "",
+                                    po_no: poNo,
+                                    po_date: item.podate || item.PODate || item.po_date || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
+                                    po_amount: item.po_amount || 0,
+                                    currencyid: itemCurId,
+                                    supplierid: itemSupplierId
+                                });
+                            }
+                        }
+                    });
+                }
+
+                mergedList.sort((a, b) => new Date(a.Date) - new Date(b.Date));
+
+                let cumulative = 0;
+                mergedList = mergedList.map(item => {
+                    cumulative += (item.IRNAmount - item.ClaimAmount);
+                    // Sanitize near-zero values to fix -0.00 issues
+                    if (Math.abs(cumulative) < 0.001) cumulative = 0;
+                    return { ...item, CumulativeAmount: cumulative };
+                });
+
+                setLedgerData(mergedList);
             }
         } catch (error) {
             console.error("Error fetching data:", error);
@@ -313,7 +501,7 @@ const AP = () => {
         } finally {
             setLoading(false);
         }
-    }, [activeTab, filter.fromDate, filter.toDate, filter.supplier, filter.currency, orgId, branchId, userId, poLookup]);
+    }, [activeTab, filter.fromDate, filter.toDate, filter.supplier, filter.currency, orgId, branchId, userId, poLookup, currencyList]);
 
     const displayPONumber = (item) => {
         // Priority: 1. Direct PONumber field, 2. Lookup by POId
@@ -333,9 +521,20 @@ const AP = () => {
         return "-";
     };
 
-    const renderHeader = (isAccrued = true) => {
-        const filterValue = isAccrued ? globalFilterAccrued : globalFilterPayable;
-        const setFilterValue = isAccrued ? setGlobalFilterAccrued : setGlobalFilterPayable;
+    const renderHeader = (tabType) => {
+        let filterValue = "";
+        let setFilterValue = () => {};
+
+        if (tabType === "GRN") {
+            filterValue = globalFilterAccrued;
+            setFilterValue = setGlobalFilterAccrued;
+        } else if (tabType === "IRN") {
+            filterValue = globalFilterPayable;
+            setFilterValue = setGlobalFilterPayable;
+        } else if (tabType === "Ledger") {
+            filterValue = globalFilterLedger;
+            setFilterValue = setGlobalFilterLedger;
+        }
 
         return (
             <div className="row align-items-center g-3">
@@ -348,7 +547,6 @@ const AP = () => {
                     </Button>
                 </div>
                 <div className="col-12 col-lg-3 text-end">
-                    {/* Placeholder for future tags/legends to keep alignment consistent with other pages */}
                 </div>
                 <div className="col-12 col-lg-3">
                     <InputText 
@@ -385,6 +583,7 @@ const AP = () => {
         });
         setGlobalFilterAccrued("");
         setGlobalFilterPayable("");
+        setGlobalFilterLedger("");
     };
 
     const handleCheckboxChange = (id) => {
@@ -392,9 +591,13 @@ const AP = () => {
     };
 
     const totalPayableValue = useMemo(() => {
+        if (activeTab === "3") {
+            if (ledgerData.length === 0) return 0;
+            return ledgerData[ledgerData.length - 1].CumulativeAmount || 0;
+        }
         if (payableData.length === 0) return 0;
         return payableData[payableData.length - 1].CumulativeAmount || 0;
-    }, [payableData]);
+    }, [payableData, ledgerData, activeTab]);
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
@@ -600,10 +803,10 @@ const AP = () => {
                                 <div className="mb-3">
                                     <Label className="fw-bold">Supplier</Label>
                                     <Select options={supplierList} value={filter.supplier} onChange={(opt) => handleFilterChange("supplier", opt)} isClearable placeholder="Select Supplier" />
-                                    {activeTab === "2" && (
-                                        <div className="mt-3 text-start" style={{ fontSize: "16px" }}>
+                                    {activeTab === "3" && (
+                                        <div className="mt-3 text-start" style={{ fontSize: "20px" }}>
                                             <span className="fw-bold me-2">Total AP:</span>
-                                            <span className="text-primary fw-bold">
+                                            <span className="fw-bold" style={{ color: "#B22222" }}>
                                                 {totalPayableValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                             </span>
                                         </div>
@@ -613,7 +816,14 @@ const AP = () => {
                             <Col md={3}>
                                 <div className="mb-3">
                                     <Label className="fw-bold">Currency</Label>
-                                    <Select options={currencyList} value={filter.currency} onChange={(opt) => handleFilterChange("currency", opt)} isClearable placeholder="Select Currency" />
+                                    <Select 
+                                        options={currencyList} 
+                                        value={activeTab === "1" ? null : filter.currency} 
+                                        onChange={(opt) => handleFilterChange("currency", opt)} 
+                                        isClearable 
+                                        placeholder="Select Currency" 
+                                        isDisabled={activeTab === "1"} 
+                                    />
                                 </div>
                             </Col>
                             <Col md={3}>
@@ -646,13 +856,18 @@ const AP = () => {
                         <div className="d-flex justify-content-between align-items-center mb-3">
                             <Nav tabs className="nav-tabs-custom mb-0 flex-grow-1 border-0">
                                 <NavItem>
-                                    <NavLink className={classnames({ active: activeTab === "1" })} onClick={() => toggleTab("1")} style={{ cursor: "pointer" }}>
-                                        <span className="d-none d-sm-block">Accrued Purchases (GRN)</span>
+                                    <NavLink className={classnames({ active: activeTab === "1" })} onClick={() => toggleTab("1")} style={{ cursor: "pointer", fontSize: "16px" }}>
+                                        <span className="d-none d-sm-block">GRN</span>
                                     </NavLink>
                                 </NavItem>
                                 <NavItem>
-                                    <NavLink className={classnames({ active: activeTab === "2" })} onClick={() => toggleTab("2")} style={{ cursor: "pointer" }}>
-                                        <span className="d-none d-sm-block">Accounts Payable (IRN)</span>
+                                    <NavLink className={classnames({ active: activeTab === "2" })} onClick={() => toggleTab("2")} style={{ cursor: "pointer", fontSize: "16px" }}>
+                                        <span className="d-none d-sm-block">IRN</span>
+                                    </NavLink>
+                                </NavItem>
+                                <NavItem>
+                                    <NavLink className={classnames({ active: activeTab === "3" })} onClick={() => toggleTab("3")} style={{ cursor: "pointer", fontSize: "16px" }}>
+                                        <span className="d-none d-sm-block">Accounts payable</span>
                                     </NavLink>
                                 </NavItem>
                             </Nav>
@@ -676,7 +891,7 @@ const AP = () => {
                                     loading={loading}
                                     globalFilter={globalFilterAccrued}
                                     globalFilterFields={["Reference", "SupplierName", "CreatedBy"]}
-                                    header={renderHeader(true)}
+                                    header={renderHeader("GRN")}
                                     responsiveLayout="scroll"
                                     emptyMessage="No Data Found"
                                     className="blue-bg"
@@ -704,7 +919,7 @@ const AP = () => {
                                     loading={loading}
                                     globalFilter={globalFilterPayable}
                                     globalFilterFields={["Reference", "SupplierName", "currencycode", "OriginalAmount", "PONumber"]}
-                                    header={renderHeader(false)}
+                                    header={renderHeader("IRN")}
                                     responsiveLayout="scroll"
                                     emptyMessage="No Data Found"
                                     className="blue-bg"
@@ -729,8 +944,59 @@ const AP = () => {
                                     <Column field="currencycode" header="Currency" sortable />
                                     <Column field="DueDateObj" header="Due Date" body={(item) => formatDate(item.DueDate)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
 
-                                    <Column field="OriginalAmount" header="Amount" body={(item) => (item.OriginalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-end" sortable />
-                                    <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => (item.CumulativeAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-end" sortable />
+                                    <Column field="OriginalAmount" header="Amount" body={(item) => {
+                                        let val = item.OriginalAmount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    }} className="text-end" sortable />
+                                    <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => {
+                                        let val = item.CumulativeAmount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    }} className="text-end" sortable />
+                                </DataTable>
+                            </TabPane>
+
+                            {/* Accounts payable Tab (Ledger) */}
+                            <TabPane tabId="3">
+                                <DataTable
+                                    value={ledgerData}
+                                    paginator
+                                    rows={20}
+                                    loading={loading}
+                                    globalFilter={globalFilterLedger}
+                                    globalFilterFields={["Reference", "po_no", "grn_no"]}
+                                    header={renderHeader("Ledger")}
+                                    responsiveLayout="scroll"
+                                    emptyMessage="No Data Found"
+                                    className="blue-bg"
+                                    showGridlines
+                                    size="small"
+                                >
+                                    <Column field="Reference" header="Reference No." sortable />
+                                    <Column field="ReferenceDate" header="Reference Date" body={(item) => formatDate(item.ReferenceDate)} sortable />
+                                    <Column field="IRNAmount" header="IRN Amount" body={(item) => {
+                                        let val = item.IRNAmount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+                                    }} className="text-end" sortable />
+                                    <Column field="grn_no" header="GRN No / Date" body={(item) => (item.grn_no && item.grn_no !== "") ? `${item.grn_no} / ${formatDate(item.grn_date)}` : "-"} sortable />
+                                    <Column field="po_no" header="PO No / Date" body={(item) => (item.po_no && item.po_no !== "") ? `${item.po_no} / ${formatDate(item.po_date)}` : "-"} sortable />
+                                    <Column field="po_amount" header="PO Amount" body={(item) => {
+                                        let val = item.po_amount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+                                    }} className="text-end" sortable />
+                                    <Column field="ClaimAmount" header="Claim Amount" body={(item) => {
+                                        let val = item.ClaimAmount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+                                    }} className="text-end" sortable />
+                                    <Column field="CumulativeAmount" header="Cumulative Value" body={(item) => {
+                                        let val = item.CumulativeAmount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                    }} className="text-end" sortable />
                                 </DataTable>
                             </TabPane>
                         </TabContent>
