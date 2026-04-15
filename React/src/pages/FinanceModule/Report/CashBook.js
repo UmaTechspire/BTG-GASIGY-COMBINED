@@ -36,7 +36,7 @@ const formatDate = (date) => {
 const formatPrintDate = (date) => {
     if (!date) return "-";
     const d = new Date(date);
-    const day = d.getDate();
+    const day = d.getDate().toString().padStart(2, "0");
     const month = d.toLocaleString("en-US", { month: "short" });
     const year = d.getFullYear();
     return `${day}-${month}-${year}`;
