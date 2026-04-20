@@ -43,7 +43,8 @@ import {
     GetAllPurchaseOrderList,
     GetPaymentHistory,
     GetAllClaimAndPayment,
-    ClaimAndPaymentGetById
+    ClaimAndPaymentGetById,
+    FetchAPLedger
 } from "../../common/data/mastersapi";
 
 const AP = () => {
@@ -380,218 +381,41 @@ const AP = () => {
                     setPayableData([]);
                 }
             } else if (activeTab === "3") {
-                let irnResponse = { data: [] };
-                try {
-                    irnResponse = await GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId, currencyId);
-                } catch (e) { console.error("IRN fetch failed", e); }
-
-                let paymentHistoryResponse = { status: false, data: [] };
-                if (Number(supplierId) > 0) {
-                    try {
-                        paymentHistoryResponse = await GetPaymentHistory(branchId, orgId, supplierId, fromDateStr, toDateStr);
-                    } catch (e) { console.error("History fetch failed", e); }
-                }
-
-                let allClaimsResponse = { status: false, data: [] };
-                try {
-                    allClaimsResponse = await GetAllClaimAndPayment(1, 3, branchId, orgId, userId);
-                } catch (e) { console.error("Claims fetch failed", e); }
-
-                let grnResponse = { data: [] };
-                try {
-                    grnResponse = await GetAllGRNList(supplierId, 0, orgId, branchId, userId, currencyId);
-                } catch (e) { console.error("GRN fetch failed", e); }
-
+                // 🟢 NEW: Use the high-performance Stored Procedure for the Ledger tab
+                // This ensures PO No and PO Amt are correctly linked even for standalone GRNs.
+                const apLedgerResponse = await FetchAPLedger(supplierId, currencyId, fromDateStr, toDateStr);
+                
                 let mergedList = [];
-                const historyPayments = Array.isArray(paymentHistoryResponse) ? paymentHistoryResponse : (paymentHistoryResponse?.data || paymentHistoryResponse?.Data || []);
-                const allClaims = Array.isArray(allClaimsResponse) ? allClaimsResponse : (allClaimsResponse?.data || allClaimsResponse?.Data || []);
-
-                const fDate = filter.fromDate ? new Date(filter.fromDate).setHours(0, 0, 0, 0) : null;
-                const tDate = filter.toDate ? new Date(filter.toDate).setHours(23, 59, 59, 999) : null;
-                const selectedCurrencyId = Number(currencyId);
-
-                const irnedGrnIds = new Set();
-                if (irnResponse?.data && Array.isArray(irnResponse.data)) {
-                    irnResponse.data.forEach(item => {
-                        const gid = String(item.grn_id || item.grnid || "").trim();
-                        if (gid && gid !== "0") irnedGrnIds.add(gid);
+                if (apLedgerResponse?.status && Array.isArray(apLedgerResponse.data)) {
+                    apLedgerResponse.data.forEach(item => {
+                        mergedList.push({
+                            Date: item.grn_date || item.po_date || item.ref_date,
+                            Reference: item.ref_no,
+                            ReferenceDate: item.ref_date,
+                            IRNAmount: Number(item.irn_amount || 0),
+                            ClaimAmount: Number(item.claim_amount || 0),
+                            grn_no: item.grn_no,
+                            grn_date: item.grn_date,
+                            grn_id: item.grnid,
+                            po_no: item.po_no,
+                            po_date: item.po_date,
+                            po_amount: Number(item.po_amount || 0),
+                            currencyid: Number(currencyId),
+                            PONumber: item.po_no,
+                            POId: item.poid,
+                            IRNId: item.irn_id
+                        });
                     });
                 }
 
-                if (irnResponse?.data && Array.isArray(irnResponse.data)) {
-                    irnResponse.data.forEach(item => {
-                        if (item.irnstatus === "Generated" || item.IsSubmitted) {
-                            const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
-                            const poNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
-
-                            const itemCurId = Number(item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (currentPoLookup[poId] ? (currentPoLookup[poId].currencyid || currentPoLookup[poId].CurrencyId) : 0));
-
-                            // Check currency
-                            if (selectedCurrencyId > 0 && itemCurId !== selectedCurrencyId) return;
-
-                            mergedList.push({
-                                Date: item.receipt_date || item.receipt_Date || item.docdate,
-                                Reference: item.receipt_no || item.Reference || item.receiptno || item.docno,
-                                ReferenceDate: item.receipt_date || item.receipt_Date || item.docdate,
-                                IRNAmount: Number(item.totalamount || item.amount || item.total_amount || 0),
-                                ClaimAmount: 0,
-                                grn_no: item.grnno || item.grn_no || "",
-                                grn_date: item.grndate || item.grn_date || "",
-                                grn_id: String(item.grn_id || item.grnid || "0").trim(),
-                                po_no: poNo,
-                                po_date: item.podate || item.po_date || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
-                                po_amount: Number(item.po_amount || (currentPoLookup[poId] ? currentPoLookup[poId].po_amount : 0)),
-                                currencyid: itemCurId,
-                                POId: poId,
-                                invoice_no: item.invoice_no || item.invoiceno || "",
-                                invoice_dt: item.invoice_dt || item.invoicedate || item.receipt_Date || "",
-                                due_dt: item.due_dt || item.duedate || ""
-                            });
-                        }
-                    });
-                }
-
-                // Process standalone GRNs (not yet IRN-ed)
-                if (grnResponse?.data && Array.isArray(grnResponse.data)) {
-                    grnResponse.data.forEach(item => {
-                        const gid = String(item.grnid || item.grn_id || "").trim();
-                        if (gid && gid !== "0" && !irnedGrnIds.has(gid)) {
-                            const itemDate = item.grndate || item.Date;
-                            const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
-
-                            // Check date range
-                            if (fDate && timeStamp < fDate) return;
-                            if (tDate && timeStamp > tDate) return;
-
-                            const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
-                            const poInfo = currentPoLookup[poId] || poLookup[poId] || {};
-
-                            // currencyid may not be on the GRN header — fall back to the linked PO's currency
-                            const itemCurId = Number(item.currencyid || item.CurrencyId || poInfo.currencyid || 0);
-                            if (selectedCurrencyId > 0 && itemCurId !== selectedCurrencyId) return;
-
-                            const poNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no
-                                || poInfo.pono || "";
-                            const poDate = item.podate || item.po_date || poInfo.podate || "";
-
-                            mergedList.push({
-                                Date: itemDate,
-                                Reference: "-", // No IRN yet
-                                ReferenceDate: itemDate,
-                                IRNAmount: Number(item.grnvalue || item.amount || 0),
-                                ClaimAmount: 0,
-                                grn_no: item.grnno || "",
-                                grn_date: itemDate,
-                                grn_id: gid,
-                                PONumber: poNo,
-                                po_no: poNo,
-                                pono: poNo,
-                                po_date: poDate,
-                                po_amount: Number(item.po_amount || poInfo.po_amount || 0),
-                                currencyid: itemCurId,
-                                POId: poId
-                            });
-                        }
-                    });
-                }
-
-                // Process payments from History API
-                if (historyPayments.length > 0) {
-                    historyPayments.forEach(item => {
-                        const isPosted = item.isSubmitted || item.IsSubmitted || item.status === "Approved" || item.status === "Posted" || item.Status === "Posted" || item.Status === "Approved" || true;
-                        if (isPosted) {
-                            const itemDate = item.payment_Date || item.Date || item.payment_date || item.claimdate || item.docdate || item.CreatedDate;
-                            const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
-
-                            // Check date range
-                            if (fDate && timeStamp < fDate) return;
-                            if (tDate && timeStamp > tDate) return;
-
-                            const itemCurId = Number(item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || currencyId);
-                            // Check currency
-                            if (selectedCurrencyId > 0 && itemCurId !== selectedCurrencyId) return;
-
-                            const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
-                            const poNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
-
-                            mergedList.push({
-                                Date: itemDate,
-                                Reference: item.claimno || item.claim_no || item.payment_no || item.PaymentNo || item.Reference || item.receipt_no || item.docno || "Payment",
-                                ReferenceDate: itemDate,
-                                IRNAmount: 0,
-                                ClaimAmount: Number(item.claimamountintc || item.payment || item.amount || item.totalamount || item.total_amount || item.ClaimAmount || item.totalamountinidr || 0),
-                                grn_no: "",
-                                grn_date: "",
-                                PONumber: poNo,
-                                po_date: item.podate || item.po_date || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
-                                po_amount: Number(item.po_amount || (currentPoLookup[poId] ? currentPoLookup[poId].po_amount : 0)),
-                                currencyid: itemCurId,
-                                supplierid: item.supplierid || item.supplier_id || 0,
-                                POId: poId
-                            });
-                        }
-                    });
-                }
-
-                // Process additional claims from AllClaims API
-                if (allClaims.length > 0) {
-                    allClaims.forEach(item => {
-                        const itemSupplierId = item.supplierid || item.supplier_id || item.SupplierId || 0;
-                        const isMatchingSupplier = Number(supplierId) === 0 || Number(itemSupplierId) === Number(supplierId);
-                        const isPosted = (item.isSubmitted || item.IsSubmitted || item.Status === "Posted" || item.Status === "Approved") && (Number(item.ppp_pv_director_approved) === 1);
-
-                        if (isMatchingSupplier && isPosted) {
-                            const itemDate = item.paymentDate || item.claimdate || item.ApplicationDate || item.Date;
-                            const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
-
-                            // Check date range
-                            if (fDate && timeStamp < fDate) return;
-                            if (tDate && timeStamp > tDate) return;
-
-                            const itemCurId = Number(item.currencyid || item.TransactionCurrencyId || item.currency_id || 0);
-                            let finalCurId = itemCurId;
-
-                            // Fallback: If ID is missing, match by currency code from currencyList
-                            if (finalCurId === 0 && item.transactioncurrency) {
-                                const matched = currencyList.find(c => c.label === item.transactioncurrency);
-                                if (matched) finalCurId = matched.value;
-                            }
-
-                            // Check currency
-                            if (selectedCurrencyId > 0 && finalCurId !== selectedCurrencyId) return;
-
-                            const claimNo = item.claimno || item.ApplicationNo || item.Reference;
-                            if (claimNo && !mergedList.some(m => m.Reference === claimNo)) {
-                                const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
-                                const poNo = item.pono || item.POId || item.po_no || item.po_number || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
-
-                                mergedList.push({
-                                    Date: itemDate,
-                                    Reference: claimNo,
-                                    ClaimId: item.ClaimID || item.Claim_ID || item.claimid || item.Id || item.id,
-                                    ReferenceDate: itemDate,
-                                    IRNAmount: 0,
-                                    ClaimAmount: Number(item.claimamountintc || item.amount || item.TotalAmount || item.claimAmountTC || 0),
-                                    grn_no: "",
-                                    grn_date: "",
-                                    PONumber: poNo,
-                                    po_date: item.podate || item.PODate || item.po_date || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
-                                    po_amount: Number(item.po_amount || (currentPoLookup[poId] ? currentPoLookup[poId].po_amount : 0)),
-                                    currencyid: itemCurId,
-                                    supplierid: itemSupplierId,
-                                    POId: poId
-                                });
-                            }
-                        }
-                    });
-                }
-
+                // fallback: Process additional unlinked payments/claims that might not be in the GRN chain
+                // (Optional: Keep original logic if there are non-GRN claims, but users usually want matched data here)
+                
                 mergedList.sort((a, b) => new Date(a.Date) - new Date(b.Date));
 
                 let cumulative = 0;
                 mergedList = mergedList.map(item => {
                     cumulative += (item.IRNAmount - item.ClaimAmount);
-                    // Sanitize near-zero values to fix -0.00 issues
                     if (Math.abs(cumulative) < 0.001) cumulative = 0;
                     return { ...item, CumulativeAmount: cumulative };
                 });

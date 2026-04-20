@@ -685,7 +685,7 @@ const AddCashBook = () => {
         }
 
         // Auto-populate Sales Person only for Customer-based types
-        const isCustomerType = ['Receipt', 'Other Income', 'Round plus'].includes(newRows[index].type);
+        const isCustomerType = ['Receipt', 'Other Income', 'Round minus'].includes(newRows[index].type);
         if (field === 'customerId' && isCustomerType) {
             const defaultSP = customerDefaults[value] || customerDefaults[String(value)];
             if (defaultSP) {
@@ -1748,7 +1748,12 @@ const AddCashBook = () => {
                                 letterSpacing: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '2px' : '1.5px',
                                 textTransform: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'uppercase' : 'none'
                             }}>
-                                {['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'PAYMENT VOUCHER' : 'RECEIPT VOUCHER'}
+                                {(() => {
+                                    const type = String(printRecord?.transaction_type || "").toLowerCase();
+                                    if (type === 'payment' || type === 'transfer to pc book') return 'CASH VOUCHER';
+                                    if (type === 'other income') return 'RECEIPT CASH VOUCHER';
+                                    return 'RECEIPT VOUCHER';
+                                })()}
                             </div>
 
                             {['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? (

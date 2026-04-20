@@ -290,6 +290,8 @@ import ManualInvoice from "pages/Order-Management/Invoice/manual-invoice";
 import AddClaimPaymentDesc from "pages/Masters/add-claim-payment-desc";
 import ManageClaimPaymentDesc from "pages/Masters/manage-claim-payment-desc";
 
+import AddSalesCommission from "../pages/FinanceModule/Master/add-sales-commission";
+
 import DiscussionList from '../pages/Finance/DiscussionList';
 import AccessRights from "pages/RolesAccessRights/AccessRights";
 import CopyPurchaseRequisition from "pages/Procurements/procurementscopy-purchaserequisition";
@@ -728,6 +730,7 @@ const authProtectedRoutes = [
     { path: "/dn-cn", component: DnCn },
     { path: "/add-dn-cn", component: AddDnCn },
     { path: "/edit-dn-cn/:id", component: EditDnCn },
+    { path: "/add-sales-commission", component: AddSalesCommission },
 ];
 
 const publicRoutes = [

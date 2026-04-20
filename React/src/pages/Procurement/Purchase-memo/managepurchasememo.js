@@ -80,6 +80,7 @@ const ManagePurchaseMemo = () => {
     const [branchId, setBranchId] = useState(1);
     const [orgId, setOrgId] = useState(1);
     const [UserData, setUserData] = useState(null);
+    const isRestrictedUser = [159, 160, 161, 163, 165].includes(UserData?.u_id);
     const [detailVisible, setDetailVisible] = useState(false);
     const [selectedDetail, setSelectedDetail] = useState({});
     const [previewUrl, setPreviewUrl] = useState("");
@@ -316,7 +317,7 @@ const ManagePurchaseMemo = () => {
         return (
             <div className="d-flex align-items-center justify-content-center gap-2">
 
-                {rowData.Status === 'Saved' ? (
+                {!isRestrictedUser && rowData.Status === 'Saved' ? (
                     <span onClick={() => editRow(rowData)}
                         title="Edit" style={{ cursor: 'pointer' }}>
                         <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
@@ -330,7 +331,7 @@ const ManagePurchaseMemo = () => {
 
 
 
-                {rowData.isSubmitted == 0 ? (
+                {!isRestrictedUser && rowData.isSubmitted == 0 ? (
 
                     <span onClick={() => handleDeleteConfirm(rowData)}
                         style={{ display: 'flex', alignItems: 'center' }}
@@ -341,8 +342,8 @@ const ManagePurchaseMemo = () => {
 
                 ) : (
                     <span
-                        style={{ color: "gray", display: 'flex', alignItems: 'center' }}
-                        title="Cancel"
+                        style={{ color: "gray", display: 'flex', alignItems: 'center', opacity: 0.5 }}
+                        title="Cancel disabled"
                     >
                         <i className="mdi mdi-trash-can-outline" style={{ fontSize: '1.5rem' }}  ></i>
                     </span>
@@ -577,7 +578,9 @@ const ManagePurchaseMemo = () => {
                                             <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i>{" "}
                                             Export
                                         </button>
-                                        <button type="button" className="btn btn-success" onClick={linkAddPurchaseMemo}><i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New</button>
+                                        {!isRestrictedUser && (
+                                            <button type="button" className="btn btn-success" onClick={linkAddPurchaseMemo}><i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New</button>
+                                        )}
                                     </div>
                                 </div>
                             </div>

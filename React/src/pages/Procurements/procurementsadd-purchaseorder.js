@@ -123,6 +123,7 @@ const ProcurementsAddPurchaseOrder = () => {
     const purchase_order_id = PurchaseOrderDetails?.poid || 0;
     const isEditMode = PurchaseOrderDetails?.poid;
     const [UserData, setUserData] = useState(null);
+    const isRestrictedUser = [159, 160, 161, 163, 165].includes(UserData?.u_id);
     const [owershiplist] = useState([
         { label: "BTG (BTG Owned Property)", value: "1" },
         { label: "COP (Customer Owned Property)", value: "2" },
@@ -934,7 +935,7 @@ const ProcurementsAddPurchaseOrder = () => {
                                                                         handleSubmit(values, 1);
                                                                     }
                                                                 }}
-                                                                disabled={isPostButtonDisabled || isSubmitting} // Disable button if already submitted or submitting
+                                                                disabled={isPostButtonDisabled || isSubmitting || isRestrictedUser} // Disable button if already submitted or submitting or restricted user
                                                             >
                                                                 <i className="bx bxs-save label-icon font-size-16 align-middle me-2"></i>Post
                                                             </button>

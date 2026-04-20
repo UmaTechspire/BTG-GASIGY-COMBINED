@@ -79,6 +79,7 @@ const AddInvoiceReceipt = () => {
   const { irnid } = useParams();
   const isEditMode = Boolean(irnid && parseInt(irnid));
   const [UserData, setUserData] = useState(null);
+  const isRestrictedUser = [159, 160, 161, 163, 165].includes(UserData?.u_id);
   const [suppliers, setsuppliers] = useState(null);
   const [orgId, setOrgId] = useState(1);
   const [branchId, setBranchId] = useState(1);
@@ -482,6 +483,8 @@ const AddInvoiceReceipt = () => {
 
 
   useEffect(() => {
+    const userData = getUserDetails();
+    setUserData(userData);
     loadOptions();
     if (isEditMode) {
       loadEditData(irnid);
@@ -1428,11 +1431,12 @@ const AddInvoiceReceipt = () => {
                         type="button"
                         className="btn btn-info"
                         onClick={() => formikRef.current.submitForm()}
+                        disabled={isRestrictedUser}
                       >
                         <i className="bx bx-comment-check label-icon font-size-16 align-middle me-2" ></i>{isEditMode ? "Update" : "Save"}
 
                       </button>
-                      <button type="button" className="btn btn-primary me-2" onClick={handleGenerateSPC} title="Generate Supplier Payment Claim">
+                      <button type="button" className="btn btn-primary me-2" onClick={handleGenerateSPC} title="Generate Supplier Payment Claim" disabled={isRestrictedUser}>
                         <i className="bx bxs-file label-icon font-size-16 align-middle me-2"></i>Generate SPC
                       </button>
                       <button

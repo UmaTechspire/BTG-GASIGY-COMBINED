@@ -75,6 +75,8 @@ class InvoiceItemDetail(BaseModel):
     PONumber: Optional[str] = ""
     uomid: Optional[int] = 0
     Note: Optional[str] = ""
+    sellingPrice: Optional[float] = 0.0
+    sellingTotal: Optional[float] = 0.0
 
 class InvoiceFullDetail(BaseModel):
     InvoiceId: int
@@ -110,6 +112,9 @@ class ManualInvoiceDetail(BaseModel):
     deliveryAddress: Optional[str] = ""
     ExchangeRate: Optional[float] = 1.0
     Note: Optional[str] = ""
+    sellingPrice: Optional[float] = 0.0
+    sellingTotal: Optional[float] = 0.0
+    commissions: Optional[List[dict]] = []
     
     class Config:
         extra = "ignore"
@@ -200,8 +205,8 @@ async def create_invoice(payload: CreateInvoiceRequest):
                 # C. Insert Detail
                 detail_query = text(f"""
                     INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_details
-                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note)
-                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note)
+                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note, SellingPrice, SellingTotal)
+                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note, :sp, :st)
                 """)
                 await conn.execute(detail_query, {
                     "hid": new_header_id,
@@ -218,10 +223,85 @@ async def create_invoice(payload: CreateInvoiceRequest):
                     "driver": item.driverName,
                     "truck": item.truckName,
                     "addr": item.deliveryAddress,
-                    "note": item.Note
+                    "note": item.Note,
+                    "sp": item.sellingPrice,
+                    "st": item.sellingTotal
                 })
 
-            # 3. Update Header Totals
+            # 3. Process Master Commission Persistence
+            for item in payload.details:
+                if item.commissions:
+                    # A. Find or Create Master Header
+                    find_header = text(f"""
+                        SELECT Id FROM {DB_NAME_MASTER}.master_salesCommission_header
+                        WHERE CustomerId = :cid AND GasId = :gid
+                        ORDER BY EffectiveFrom DESC LIMIT 1
+                    """)
+                    hdr_res = await conn.execute(find_header, {"cid": payload.header.customerId, "gid": item.gasCodeId})
+                    existing_hdr = hdr_res.fetchone()
+                    
+                    if existing_hdr:
+                        master_id = existing_hdr[0]
+                        update_hdr = text(f"""
+                            UPDATE {DB_NAME_MASTER}.master_salesCommission_header
+                            SET SellingPrice = :sp, LastModifiedBy = :user, LastModifiedDate = NOW()
+                            WHERE Id = :mid
+                        """)
+                        await conn.execute(update_hdr, {"sp": item.sellingPrice, "user": payload.header.userId, "mid": master_id})
+                        log_action = "UPDATE"
+                    else:
+                        insert_hdr = text(f"""
+                            INSERT INTO {DB_NAME_MASTER}.master_salesCommission_header
+                            (CustomerId, GasId, SellingPrice, EffectiveFrom, CreatedBy, CreatedDate)
+                            VALUES (:cid, :gid, :sp, :eff, :user, NOW())
+                        """)
+                        res_hdr = await conn.execute(insert_hdr, {
+                            "cid": payload.header.customerId,
+                            "gid": item.gasCodeId,
+                            "sp": item.sellingPrice,
+                            "eff": payload.header.salesInvoiceDate,
+                            "user": payload.header.userId
+                        })
+                        master_id = res_hdr.lastrowid
+                        log_action = "CREATE"
+                    
+                    # B. Log Header
+                    await conn.execute(text(f"""
+                        INSERT INTO {DB_NAME_MASTER}.log_salesCommission_header
+                        (Id, CustomerId, GasId, SellingPrice, EffectiveFrom, LogAction, LogDate, CreatedBy)
+                        VALUES (:mid, :cid, :gid, :sp, :eff, :action, NOW(), :user)
+                    """), {
+                        "mid": master_id, "cid": payload.header.customerId, "gid": item.gasCodeId,
+                        "sp": item.sellingPrice, "eff": payload.header.salesInvoiceDate,
+                        "action": log_action, "user": payload.header.userId
+                    })
+
+                    # C. Sync Master Details
+                    await conn.execute(text(f"DELETE FROM {DB_NAME_MASTER}.master_salesCommission_details WHERE SalesCommissionId = :mid"), {"mid": master_id})
+                    
+                    for comm in item.commissions:
+                        await conn.execute(text(f"""
+                            INSERT INTO {DB_NAME_MASTER}.master_salesCommission_details
+                            (SalesCommissionId, Contact, Rate, Qty, CreatedBy, CreatedDate)
+                            VALUES (:mid, :contact, :rate, :qty, :user, NOW())
+                        """), {
+                            "mid": master_id, "contact": comm.get("contactName", ""),
+                            "rate": comm.get("rate", 0), "qty": comm.get("qty", 1),
+                            "user": payload.header.userId
+                        })
+                        
+                        # D. Log Details
+                        await conn.execute(text(f"""
+                            INSERT INTO {DB_NAME_MASTER}.log_salesCommission_details
+                            (SalesCommissionId, Contact, Rate, Qty, LogAction, LogDate, CreatedBy)
+                            VALUES (:mid, :contact, :rate, :qty, :action, NOW(), :user)
+                        """), {
+                            "mid": master_id, "contact": comm.get("contactName", ""),
+                            "rate": comm.get("rate", 0), "qty": comm.get("qty", 1),
+                            "action": log_action, "user": payload.header.userId
+                        })
+
+            # 4. Update Header Totals
             update_header = text(f"""
                 UPDATE {DB_NAME_USER}.tbl_salesinvoices_header
                 SET TotalAmount = :total,
@@ -286,8 +366,8 @@ async def update_invoice(payload: UpdateInvoiceRequest):
                 # Insert
                 detail_query = text(f"""
                     INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_details
-                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note)
-                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note)
+                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note, SellingPrice, SellingTotal)
+                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note, :sp, :st)
                 """)
                 await conn.execute(detail_query, {
                     "hid": invoice_id,
@@ -304,10 +384,85 @@ async def update_invoice(payload: UpdateInvoiceRequest):
                     "driver": item.driverName,
                     "truck": item.truckName,
                     "addr": item.deliveryAddress,
-                    "note": item.Note
+                    "note": item.Note,
+                    "sp": item.sellingPrice,
+                    "st": item.sellingTotal
                 })
 
-            # 3. Update Header Totals
+            # 3. Process Master Commission Persistence
+            for item in payload.details:
+                if item.commissions:
+                    # A. Find or Create Master Header
+                    find_header = text(f"""
+                        SELECT Id FROM {DB_NAME_MASTER}.master_salesCommission_header
+                        WHERE CustomerId = :cid AND GasId = :gid
+                        ORDER BY EffectiveFrom DESC LIMIT 1
+                    """)
+                    hdr_res = await conn.execute(find_header, {"cid": payload.header.customerId, "gid": item.gasCodeId})
+                    existing_hdr = hdr_res.fetchone()
+                    
+                    if existing_hdr:
+                        master_id = existing_hdr[0]
+                        update_hdr = text(f"""
+                            UPDATE {DB_NAME_MASTER}.master_salesCommission_header
+                            SET SellingPrice = :sp, LastModifiedBy = :user, LastModifiedDate = NOW()
+                            WHERE Id = :mid
+                        """)
+                        await conn.execute(update_hdr, {"sp": item.sellingPrice, "user": payload.header.userId, "mid": master_id})
+                        log_action = "UPDATE"
+                    else:
+                        insert_hdr = text(f"""
+                            INSERT INTO {DB_NAME_MASTER}.master_salesCommission_header
+                            (CustomerId, GasId, SellingPrice, EffectiveFrom, CreatedBy, CreatedDate)
+                            VALUES (:cid, :gid, :sp, :eff, :user, NOW())
+                        """)
+                        res_hdr = await conn.execute(insert_hdr, {
+                            "cid": payload.header.customerId,
+                            "gid": item.gasCodeId,
+                            "sp": item.sellingPrice,
+                            "eff": payload.header.salesInvoiceDate,
+                            "user": payload.header.userId
+                        })
+                        master_id = res_hdr.lastrowid
+                        log_action = "CREATE"
+                    
+                    # B. Log Header
+                    await conn.execute(text(f"""
+                        INSERT INTO {DB_NAME_MASTER}.log_salesCommission_header
+                        (Id, CustomerId, GasId, SellingPrice, EffectiveFrom, LogAction, LogDate, CreatedBy)
+                        VALUES (:mid, :cid, :gid, :sp, :eff, :action, NOW(), :user)
+                    """), {
+                        "mid": master_id, "cid": payload.header.customerId, "gid": item.gasCodeId,
+                        "sp": item.sellingPrice, "eff": payload.header.salesInvoiceDate,
+                        "action": log_action, "user": payload.header.userId
+                    })
+
+                    # C. Sync Master Details
+                    await conn.execute(text(f"DELETE FROM {DB_NAME_MASTER}.master_salesCommission_details WHERE SalesCommissionId = :mid"), {"mid": master_id})
+                    
+                    for comm in item.commissions:
+                        await conn.execute(text(f"""
+                            INSERT INTO {DB_NAME_MASTER}.master_salesCommission_details
+                            (SalesCommissionId, Contact, Rate, Qty, CreatedBy, CreatedDate)
+                            VALUES (:mid, :contact, :rate, :qty, :user, NOW())
+                        """), {
+                            "mid": master_id, "contact": comm.get("contactName", ""),
+                            "rate": comm.get("rate", 0), "qty": comm.get("qty", 1),
+                            "user": payload.header.userId
+                        })
+                        
+                        # D. Log Details
+                        await conn.execute(text(f"""
+                            INSERT INTO {DB_NAME_MASTER}.log_salesCommission_details
+                            (SalesCommissionId, Contact, Rate, Qty, LogAction, LogDate, CreatedBy)
+                            VALUES (:mid, :contact, :rate, :qty, :action, NOW(), :user)
+                        """), {
+                            "mid": master_id, "contact": comm.get("contactName", ""),
+                            "rate": comm.get("rate", 0), "qty": comm.get("qty", 1),
+                            "action": log_action, "user": payload.header.userId
+                        })
+
+            # 4. Update Header Totals
             update_header = text(f"""
                 UPDATE {DB_NAME_USER}.tbl_salesinvoices_header
                 SET TotalAmount = :total,
@@ -391,6 +546,8 @@ async def get_invoice_details(invoiceid: str):
                 row_dict["UnitPrice"] = float(row_dict["UnitPrice"])
                 row_dict["TotalPrice"] = float(row_dict["TotalPrice"])
                 row_dict["ExchangeRate"] = float(row_dict["ExchangeRate"])
+                row_dict["sellingPrice"] = float(row_dict.get("SellingPrice", 0))
+                row_dict["sellingTotal"] = float(row_dict.get("SellingTotal", 0))
                 items_list.append(row_dict)
             
             header_dict["Items"] = items_list
@@ -538,6 +695,67 @@ async def get_gas_items():
     except Exception as e:
         print(f"Error fetching gas items: {e}")
         return {"status": False, "message": str(e), "data": []}
+
+# --- Get Sales Commission ---
+@router.get("/GetSalesCommission")
+async def get_sales_commission(customerId: int, gasId: int, invoiceDate: str):
+    try:
+        async with engine.connect() as conn:
+            # 1. Fetch the master header for the specific customer and gas code, effective as of the invoice date
+            header_query = text(f"""
+                SELECT Id, SellingPrice, EffectiveFrom
+                FROM {DB_NAME_MASTER}.master_salesCommission_header
+                WHERE CustomerId = :cid AND GasId = :gid AND EffectiveFrom <= :invdate
+                ORDER BY EffectiveFrom DESC
+                LIMIT 1
+            """)
+            
+            result = await conn.execute(header_query, {
+                "cid": customerId,
+                "gid": gasId,
+                "invdate": invoiceDate
+            })
+            
+            header = result.first()
+            if not header:
+                return {
+                    "found": False,
+                    "sellingPrice": 0,
+                    "commissions": []
+                }
+                
+            header_id = header[0]
+            selling_price = header[1]
+            effective_from = header[2]
+            
+            # 2. Fetch the associated commission details
+            details_query = text(f"""
+                SELECT Contact, Rate, Qty
+                FROM {DB_NAME_MASTER}.master_salesCommission_details
+                WHERE SalesCommissionId = :hcid
+            """)
+            
+            details_result = await conn.execute(details_query, {"hcid": header_id})
+            details_rows = details_result.fetchall()
+            
+            commissions = []
+            for row in details_rows:
+                commissions.append({
+                    "contactName": row[0] or "",
+                    "rate": float(row[1]) if row[1] else 0.0,
+                    "qty": float(row[2]) if row[2] else 1.0
+                })
+                
+            return {
+                "found": True,
+                "sellingPrice": float(selling_price) if selling_price else 0.0,
+                "effectiveFrom": str(effective_from),
+                "commissions": commissions
+            }
+            
+    except Exception as e:
+        print(f"Error fetching sales commission: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- Get Sales Details (Reports) ---
 @router.post("/GetSalesDetails", response_model=List[SalesReportItem])

@@ -193,7 +193,7 @@ class SidebarContent extends Component {
         // Only show Mktg Verify menu for specific users
         const authUserMktg = JSON.parse(localStorage.getItem("authUser"));
         const currentUserIdMktg = authUserMktg ? (parseInt(authUserMktg.u_id) || 0) : 0;
-        const mktgVerifyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192, 158, 159, 162, 163, 191];
+        const mktgVerifyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192, 158, 159, 160, 162, 163, 191];
 
         if (mktgVerifyUsers.includes(currentUserIdMktg)) {
             const testMenu = {
@@ -416,7 +416,7 @@ class SidebarContent extends Component {
         let mastersModule = menuData.menus.find(m => m.moduleName === "Masters");
         if (!mastersModule) {
             mastersModule = {
-                moduleId: 99990,
+                moduleId: 99994,
                 moduleName: "Masters",
                 icon: "bx bx-customize",
                 screen: [],
@@ -444,6 +444,12 @@ class SidebarContent extends Component {
                 { name: "UOM", url: "/manage-units", icon: "bx bx-ruler" }
             ];
         }
+        // Sales Commission only for users 162 and 163
+        else if (currentUserId === 162 || currentUserId === 163) {
+            masterItems = [
+                { name: "Sales Commission", url: "/add-sales-commission", icon: "bx bx-money" }
+            ];
+        }
         // ELSE -> SHOW FULL LIST (Standard Behavior for Admin/Others)
         else {
             masterItems = [
@@ -458,6 +464,7 @@ class SidebarContent extends Component {
                 { name: "Pallet", url: "/manage-pallet", icon: "bx bx-box" },
                 { name: "Claim & Payment Description", url: "/manage-claim-payment-desc", icon: "bx bx-detail" },
                 { name: "Users", url: "/manage-users", icon: "bx bx-user-circle" },
+                { name: "Sales Commission", url: "/add-sales-commission", icon: "bx bx-money" },
                 // Full Access includes these too:
                 { name: "Payment Terms", url: "/manage-payment-terms", icon: "bx bx-calendar" },
                 { name: "Suppliers", url: "/manage-suppliers", icon: "bx bx-user-check" },
@@ -764,6 +771,11 @@ class SidebarContent extends Component {
             const procurementUsers = [160, 161, 163, 165];
             if (procurementUsers.includes(currentUserIdFilter)) {
                 allowedModules.push("Procurement");
+            }
+
+            // Users 162 and 163 see Masters (Filtered to Sales Commission only via previous block)
+            if (currentUserIdFilter === 162 || currentUserIdFilter === 163) {
+                allowedModules.push("Masters");
             }
 
             menuData.menus = menuData.menus.filter(m => allowedModules.includes(m.moduleName));

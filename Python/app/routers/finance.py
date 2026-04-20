@@ -93,6 +93,12 @@ class ARBookRequest(BaseModel):
     from_date: Optional[date] = None
     to_date: Optional[date] = None
 
+class APLedgerRequest(BaseModel):
+    supplier_id: int = 0
+    currency_id: int = 0
+    from_date: Optional[str] = None
+    to_date: Optional[str] = None
+
 # --------------------------------------------------
 # 2. DB HELPER (SYNC) FOR REPORTING
 # --------------------------------------------------
@@ -150,6 +156,44 @@ def get_ar_book(request: ARBookRequest):
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/get-ap-ledger")
+def get_ap_ledger(
+    supplier_id: int = 0,
+    currency_id: int = 0,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None
+):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.callproc('proc_AP_AccountsPayableLedger', [
+            supplier_id,
+            currency_id,
+            from_date if from_date else None,
+            to_date if to_date else None
+        ])
+        
+        result_rows = []
+        for result in cursor.stored_results():
+            result_rows = result.fetchall()
+
+        # Format dates for JSON
+        for row in result_rows:
+            for key in ['po_date', 'grn_date', 'ref_date']:
+                if row.get(key):
+                    row[key] = str(row[key])
+
+        return {"status": True, "message": "Success", "data": result_rows}
+    except Exception as e:
+        print(f"Error calling proc_AP_AccountsPayableLedger: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 
 # --------------------------------------------------

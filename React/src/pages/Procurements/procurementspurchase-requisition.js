@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { Card, CardBody, Col, Container, Row, Modal, ModalHeader, ModalBody, Label, FormGroup, Input, InputGroup, ModalFooter } from "reactstrap";
 import Breadcrumbs from "../../components/Common/Breadcrumb";
@@ -124,6 +125,9 @@ const ProcurementManagePurchaseRequistion = () => {
     const [poDetailVisible, setPoDetailVisible] = useState(false);
     const [selectedPODetail, setSelectedPODetail] = useState(null);
     const [poOptions, setPoOptions] = useState([]); // ← Add this
+
+    const userData = getUserDetails();
+    const isRestrictedUser = [159, 160, 161, 163, 165].includes(userData?.u_id);
 
     const getSeverity = (Status) => {
         switch (Status) {
@@ -340,7 +344,7 @@ const ProcurementManagePurchaseRequistion = () => {
     const actionBodyTemplate = (rowData) => {
         return (
             <div className="d-flex align-items-center justify-content-center gap-3">
-                {rowData.IsActive === 1 && rowData.Status === 'Saved' ? (
+                {!isRestrictedUser && rowData.IsActive === 1 && rowData.Status === 'Saved' ? (
                     <span onClick={() => editRow(rowData)}
                         title='Edit' style={{ cursor: 'pointer' }}>
                         <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
@@ -996,7 +1000,9 @@ const ProcurementManagePurchaseRequistion = () => {
                                     <button type="button" className="btn btn-info" onClick={searchData}> <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search</button>
                                     <button type="button" className="btn btn-danger" onClick={cancelFilter}><i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i>Cancel</button>
                                     <button type="button" className="btn btn-secondary" onClick={exportToExcel}> <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i> Export</button>
-                                    <button type="button" className="btn btn-success" onClick={linkAddPurchaseRequisition}><i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New</button>
+                                    {!isRestrictedUser && (
+                                        <button type="button" className="btn btn-success" onClick={linkAddPurchaseRequisition}><i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New</button>
+                                    )}
                                 </div>
                             </div>
                         </Card>

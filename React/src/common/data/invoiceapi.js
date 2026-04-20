@@ -198,6 +198,26 @@ export const CreateInvoiceFromDO = async (payload) => {
     }
 };
 
+export const GetSalesCommission = async (customerId, gasId, invoiceDate) => {
+    try {
+        const response = await axios.get(`${PYTHON_API_URL}/pyapi/GetSalesCommission`, {
+            params: {
+                customerId,
+                gasId,
+                invoiceDate: typeof invoiceDate === 'string' ? invoiceDate : new Date(invoiceDate).toISOString().split('T')[0]
+            }
+        });
+
+        if (response.status === 200) {
+            return response.data;
+        }
+        return { found: false, sellingPrice: 0, commissions: [] };
+    } catch (error) {
+        console.error("Error fetching sales commission from Python API:", error);
+        return { found: false, sellingPrice: 0, commissions: [] };
+    }
+};
+
 // =====================================================================
 //  EXISTING .NET API FUNCTIONS (Unchanged / Fallback)
 // =====================================================================

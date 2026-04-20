@@ -8,7 +8,7 @@ import { Formik, Form, ErrorMessage } from "formik";
 import Breadcrumbs from "../../../components/Common/Breadcrumb";
 import { GetCustomerFilter, GetUoM, GetCurrency, fetchGasListDSI, GetCascodedetail, GetCurrencyconversion, getPackingDetails } from "../../../common/data/mastersapi";
 
-import { GetInvoiceDetails, CreatenewInvoice, UpdateInvoice, GetAvailableDOs } from "../../../common/data/invoiceapi";
+import { GetInvoiceDetails, CreatenewInvoice, UpdateInvoice, GetAvailableDOs, GetSalesCommission } from "../../../common/data/invoiceapi";
 import useAccess from "../../../common/access/useAccess";
 import { postInvoiceToAR } from "../../FinanceModule/service/financeapi";
 import { DataTable } from "primereact/datatable";
@@ -639,57 +639,12 @@ const AddManualInvoice = () => {
         rawDetails = data.Details || data.Items || [];
       }
 
-      const mappedItems = rawDetails.map(item => ({
-        ...item,
-        sqid: item.sqid || 0,
-        packingid: item.packingid || 0,
-        id: item.id || 0,
-        salesInvoicesId: actualHeaderId,
-        packingDetailId: item.packingDetailId || 0,
-        deliveryNumber: item.deliveryNumber || "",
-        GasCodeId: item.gascodeid || item.GasCodeId || 0,
-        gasCode: item.gasCode || item.GasName || "",
-        Volume: item.Volume || "",
-        Pressure: item.Pressure || "",
-        Qty: item.Qty || item.PickedQty || 1,
-        pickedQty: item.Qty || item.PickedQty || 1,
-        Uom: item.Uom || "",
-        UomId: item.UomId || 0,
-        doNumber: item.doNumber || "",
-        CurrencyId: item.CurrencyId || item.Currencyid,
-        UnitPrice: item.UnitPrice || 0,
-        TotalPrice: item.TotalPrice || 0,
-        ConvertedPrice: item.price || item.priceIDR || 0,
-        Exchangerate: item.Exchangerate || item.ExchangeRate || 0,
-        driverName: item.driverName || "",
-        truckName: item.truckName || "",
-        requestDeliveryDate: item.requestDeliveryDate || new Date(),
-        deliveryAddress: item.deliveryAddress || "",
-        deliveryInstruction: item.deliveryInstruction || "",
-        soQty: item.soQty || 0,
-        so_Issued_Qty: item.so_Issued_Qty || 0,
-        balance_Qty: item.balance_Qty || 0,
-        ConvertedCurrencyId: item.ConvertedCurrencyId || item.CurrencyId || item.Currencyid,
-        Note: item.Note || "",
-        sellingPrice: item.sellingPrice || 0,
-        sellingTotal: item.sellingTotal || 0,
-        commissions: item.commissions || []
-      }));
+      const mappedItems = rawDetails.map(item => {
+        const comms = item.commissions || [];
+        const rateSum = comms.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
+        const amountSum = comms.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
 
-      setmanualinvoiceDetails(mappedItems);
-
-      if (data && data.DoDetail) {
-        setDoDetail(data.DoDetail);
-        const updatedOptions = data.DoDetail.map(item => ({
-          ...item,
-          value: item.packingId,
-          label: item.packno,
-        }));
-        handleDOSelectChange(updatedOptions);
-      }
-
-      if (rawDetails.length > 0) {
-        const mappedDetails = rawDetails.map(item => ({
+        return {
           sqid: item.sqid || 0,
           packingid: item.packingid || 0,
           id: item.Id || item.id || 0,
@@ -704,13 +659,12 @@ const AddManualInvoice = () => {
           Pressure: item.Pressure || "",
 
           // Qty Logic (Priority to PickedQty)
-          Qty: item.PickedQty ?? item.qty ?? 1,
-          pickedQty: item.PickedQty ?? item.pickedQty ?? item.qty ?? 1,
+          Qty: item.PickedQty ?? item.Qty ?? item.qty ?? 1,
+          pickedQty: item.PickedQty ?? item.Qty ?? item.qty ?? 1,
 
-          // 🟢 FIX: Robust checks for UOM, PO, DO (Case Insensitive Fallbacks)
+          // UOM, PO, DO
           Uom: item.UOM || item.uom || item.Uom || "",
           UomId: item.uomid || item.UomId || 0,
-
           poNumber: item.PONumber || item.poNumber || item.PoNumber || "",
           doNumber: item.DOnumber || item.doNumber || item.DoNumber || item.deliveryNumber || "",
 
@@ -718,7 +672,7 @@ const AddManualInvoice = () => {
           CurrencyId: item.Currencyid || item.currencyId || 0,
           UnitPrice: item.UnitPrice || item.unitPrice || 0,
           TotalPrice: item.TotalPrice || item.totalPrice || 0,
-          price: item.Price || item.price || "",
+          price: item.Price || item.price || 0,
           ConvertedPrice: item.ConvertedPrice || item.Price || item.price || 0,
           Exchangerate: item.ExchangeRate || item.exchangerate || item.Exchangerate || 0,
 
@@ -735,21 +689,25 @@ const AddManualInvoice = () => {
           so_Issued_Qty: item.so_Issued_Qty || 0,
           balance_Qty: item.balance_Qty || 0,
 
-          ConvertedCurrencyId: item.convertedCurrencyId || item.Currencyid || 0,
+          ConvertedCurrencyId: item.convertedCurrencyId || item.ConvertedCurrencyId || item.Currencyid || 0,
           isImportedDO: !!item.ref_do_id,
           Note: item.Note || "",
-        }));
+          
+          // 🟢 Commission Mapping
+          sellingPrice: rateSum > 0 ? rateSum : (item.sellingPrice || item.SellingPrice || 0),
+          sellingTotal: amountSum > 0 ? amountSum : (item.sellingTotal || item.SellingTotal || 0),
+          commissions: comms
+        };
+      });
 
-        setmanualinvoiceDetails(mappedDetails);
+      setmanualinvoiceDetails(mappedItems);
 
-        // Set currency select based on first item
-        if (mappedDetails.length > 0) {
-          setcurrencySelect(mappedDetails[0]?.ConvertedCurrencyId || null);
-        }
+      // Set currency select based on first item
+      if (mappedItems.length > 0) {
+        setcurrencySelect(mappedItems[0]?.ConvertedCurrencyId || null);
       }
 
-      // 3. DO DETAILS MAPPING (For existing DO links)
-      if (Array.isArray(data?.DoDetail)) {
+      if (data && data.DoDetail) {
         setDoDetail(data.DoDetail);
         const updatedOptions = data.DoDetail.map(item => ({
           ...item,
@@ -758,7 +716,6 @@ const AddManualInvoice = () => {
         }));
         handleDOSelectChange(updatedOptions);
       }
-
     } catch (err) {
       console.error("Error fetching invoice details:", err.message);
     }
@@ -899,9 +856,12 @@ const AddManualInvoice = () => {
 
   const handleUnitPriceChange = async (index, uprice) => {
     const updatedDetails = [...manualinvoiceDetails];
-    // Store as plain number/string in state to ensure calculation consistency
+    const qty = parseFloat(updatedDetails[index].pickedQty) || 0;
+    
     updatedDetails[index].UnitPrice = uprice;
-    updatedDetails[index].ConvertedPrice = uprice;
+    updatedDetails[index].TotalPrice = parseFloat((parseFloat(uprice) * qty).toFixed(2));
+    updatedDetails[index].ConvertedPrice = updatedDetails[index].TotalPrice;
+    
     setmanualinvoiceDetails(updatedDetails);
     await GetCurrencyval(index, updatedDetails[index].ConvertedCurrencyId);
   };
@@ -911,11 +871,13 @@ const AddManualInvoice = () => {
     if (!updatedDetails[index]) return;
     
     const qty = parseFloat(value) || 0;
+    const unitPrice = parseFloat(updatedDetails[index].UnitPrice) || 0;
     const sellingPrice = parseFloat(updatedDetails[index].sellingPrice) || 0;
     
     updatedDetails[index] = {
       ...updatedDetails[index],
       pickedQty: value,
+      TotalPrice: parseFloat((qty * unitPrice).toFixed(2)),
       sellingTotal: parseFloat((qty * sellingPrice).toFixed(2))
     };
     setmanualinvoiceDetails(updatedDetails);
@@ -961,16 +923,9 @@ const AddManualInvoice = () => {
     setActiveCommIndex(index);
     setTempCommissions(manualinvoiceDetails[index].commissions || []);
     setIsCommModalOpen(true);
-
-    if (invoiceHeader.customerId) {
-        try {
-            const data = await GetContactName(invoiceHeader.customerId);
-            setContactList(data || []);
-        } catch (e) {
-            console.error("Error fetching contacts:", e);
-        }
-    }
   };
+
+
 
   const handleCommissionUpdate = (commIndex, field, value) => {
     const updated = [...tempCommissions];
@@ -993,7 +948,18 @@ const AddManualInvoice = () => {
 
   const saveCommissions = () => {
     const updatedDetails = [...manualinvoiceDetails];
-    updatedDetails[activeCommIndex].commissions = tempCommissions;
+    const row = updatedDetails[activeCommIndex];
+    if (!row) return;
+
+    // Calculate sum of all commission amounts in the modal
+    const totalCommAmt = tempCommissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+    
+    // Update sellingTotal and sellingPrice based on the modal sum
+    const qty = parseFloat(row.pickedQty) || 1;
+    row.sellingTotal = parseFloat(totalCommAmt.toFixed(2));
+    row.sellingPrice = parseFloat((totalCommAmt / qty).toFixed(2));
+    row.commissions = tempCommissions;
+    
     setmanualinvoiceDetails(updatedDetails);
     setIsCommModalOpen(false);
   };
@@ -1026,6 +992,28 @@ const AddManualInvoice = () => {
     if (selectedGas) {
       try {
         const gascodedetails = await GetCascodedetail(selectedGas.GasCodeId);
+        // 🟢 Fetch Sales Commission Data
+        let sellingPrice = 0;
+        let sellingTotal = 0;
+        let commissions = [];
+
+        if (invoiceHeader.customerId && invoiceHeader.salesInvoiceDate) {
+           const commData = await GetSalesCommission(invoiceHeader.customerId, selectedGas.GasCodeId, invoiceHeader.salesInvoiceDate);
+           if (commData && commData.found) {
+               commissions = commData.commissions.map(c => ({
+                   contactName: c.contactName,
+                   rate: c.rate,
+                   qty: c.qty,
+                   amount: parseFloat((c.rate * c.qty).toFixed(2))
+               }));
+               
+               // 🟢 Source Selling Price/Total from the sum of commissions
+               sellingTotal = commissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+               const qty = 1; // Default initial qty
+               sellingPrice = parseFloat((sellingTotal / qty).toFixed(2));
+           }
+        }
+
         updatedDetails[index] = {
           ...updatedDetails[index],
           GasCodeId: selectedGas.GasCodeId,
@@ -1045,6 +1033,9 @@ const AddManualInvoice = () => {
           ConvertedCurrencyId: currencySelect,
           Exchangerate: "",
           Note: "",
+          sellingPrice: sellingPrice,
+          sellingTotal: sellingTotal,
+          commissions: commissions,
         };
         setIsLoading(false);
         setmanualinvoiceDetails(updatedDetails);
@@ -1447,24 +1438,28 @@ const AddManualInvoice = () => {
 
                                                 {/* Selling Price Column */}
                                                 <td>
-                                                  <Input type="text" name={`manualinvoiceDetails.${index}.sellingPrice`} inputMode="decimal" className="text-end"
-                                                    value={formatInputNumber(manualinvoiceDetails[index]?.sellingPrice || "")}
-                                                    onChange={e => {
-                                                      const raw = e.target.value.replace(/[^0-9.]/g, "");
-                                                      if ((raw.match(/\./g) || []).length > 1) return;
-                                                      handleSellingPriceChange(index, raw);
+                                                  <Input type="text"
+                                                    value={formatInputNumber(manualinvoiceDetails[index]?.sellingPrice)}
+                                                    id={`SellingPrice-${index}`}
+                                                    onChange={e => handleSellingPriceChange(index, e.target.value)}
+                                                    className="text-end"
+                                                    style={{
+                                                      color: (parseFloat(manualinvoiceDetails[index]?.sellingPrice || 0) !== parseFloat(manualinvoiceDetails[index]?.UnitPrice || 0)) ? "firebrick" : "inherit",
+                                                      fontWeight: (parseFloat(manualinvoiceDetails[index]?.sellingPrice || 0) !== parseFloat(manualinvoiceDetails[index]?.UnitPrice || 0)) ? "bold" : "normal"
                                                     }}
                                                   />
                                                 </td>
 
                                                 {/* Selling Total Column */}
                                                 <td>
-                                                  <Input type="text" className="text-end" 
-                                                    value={formatInputNumber(manualinvoiceDetails[index]?.sellingTotal || "")}
-                                                    onChange={e => {
-                                                        const raw = e.target.value.replace(/[^0-9.]/g, "");
-                                                        if ((raw.match(/\./g) || []).length > 1) return;
-                                                        handleSellingTotalChange(index, raw);
+                                                  <Input type="text"
+                                                    value={formatInputNumber(manualinvoiceDetails[index]?.sellingTotal)}
+                                                    id={`SellingTotal-${index}`}
+                                                    onChange={e => handleSellingTotalChange(index, e.target.value)}
+                                                    className="text-end"
+                                                    style={{
+                                                       color: (parseFloat(manualinvoiceDetails[index]?.sellingTotal || 0) !== parseFloat(manualinvoiceDetails[index]?.TotalPrice || 0)) ? "firebrick" : "inherit",
+                                                       fontWeight: (parseFloat(manualinvoiceDetails[index]?.sellingTotal || 0) !== parseFloat(manualinvoiceDetails[index]?.TotalPrice || 0)) ? "bold" : "normal"
                                                     }}
                                                   />
                                                 </td>
@@ -1480,17 +1475,20 @@ const AddManualInvoice = () => {
                                                 </td>
 
                                                 {/* Commission Column */}
-                                                <td className="text-center">
-                                                  <div className="d-flex flex-column align-items-center">
-                                                    <Button color="primary" className="btn-sm" onClick={() => openCommModal(index)}>
-                                                      <i className="mdi mdi-plus text-white" />
-                                                    </Button>
-                                                    <span className="font-size-11 mt-1">
-                                                      {new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(
-                                                        (manualinvoiceDetails[index]?.commissions || []).reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0)
-                                                      )}
-                                                    </span>
-                                                  </div>
+                                                <td className="align-middle text-end" style={{ paddingRight: "15px" }}>
+                                                  <a
+                                                    href="#"
+                                                    onClick={(e) => {
+                                                      e.preventDefault();
+                                                      openCommModal(index);
+                                                    }}
+                                                    className="text-primary font-weight-bold"
+                                                    style={{ textDecoration: "underline", cursor: "pointer" }}
+                                                  >
+                                                    {new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(
+                                                      (manualinvoiceDetails[index]?.commissions || []).reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0)
+                                                    )}
+                                                  </a>
                                                 </td>
                                               </tr>
                                             );
@@ -1614,62 +1612,37 @@ const AddManualInvoice = () => {
         </ModalBody>
       </Modal>
       {/* --- COMMISSION DETAILS MODAL --- */}
-      <Modal isOpen={isCommModalOpen} toggle={() => setIsCommModalOpen(false)} size="lg" centered>
+      <Modal isOpen={isCommModalOpen} toggle={() => setIsCommModalOpen(false)} size="xl" centered>
         <ModalHeader toggle={() => setIsCommModalOpen(false)}>Commission Details</ModalHeader>
         <ModalBody>
           <div className="table-responsive">
             <Table className="table align-middle">
               <thead>
                 <tr>
-                  <th className="text-center" style={{ width: "35%" }}>CONTACT</th>
-                  <th className="text-center" style={{ width: "20%" }}>RATE</th>
-                  <th className="text-center" style={{ width: "20%" }}>QTY</th>
+                  <th className="text-center" style={{ width: "25%" }}>CONTACT</th>
+                  <th className="text-center" style={{ width: "25%" }}>GAS NAME</th>
+                  <th className="text-center" style={{ width: "15%" }}>QTY</th>
+                  <th className="text-center" style={{ width: "15%" }}>RATE</th>
                   <th className="text-center" style={{ width: "20%" }}>AMOUNT</th>
-                  <th className="text-center" style={{ width: "5%" }}>
-                    <Button color="success" size="sm" onClick={addCommRow}>
-                      <i className="mdi mdi-plus text-white" />
-                    </Button>
-                  </th>
                 </tr>
               </thead>
               <tbody>
                 {tempCommissions.map((comm, cIdx) => (
                   <tr key={cIdx}>
                     <td>
-                      <Select
-                        options={contactList.map(c => ({ value: c.contactId, label: c.contactName }))}
-                        value={comm.contactId ? { value: comm.contactId, label: comm.contactName } : null}
-                        onChange={(opt) => handleCommissionUpdate(cIdx, "contactId", opt ? opt.value : "") || handleCommissionUpdate(cIdx, "contactName", opt ? opt.label : "")}
-                      />
+                      <span className="p-2 d-block">{comm.contactName || ""}</span>
                     </td>
                     <td>
-                      <Input
-                        type="text"
-                        className="text-end"
-                        value={comm.rate}
-                        onChange={(e) => handleCommissionUpdate(cIdx, "rate", e.target.value)}
-                      />
+                      <span className="p-2 d-block">{manualinvoiceDetails[activeCommIndex]?.gasCode || ""}</span>
                     </td>
                     <td>
-                      <Input
-                        type="text"
-                        className="text-end"
-                        value={comm.qty}
-                        onChange={(e) => handleCommissionUpdate(cIdx, "qty", e.target.value)}
-                      />
+                      <span className="p-2 d-block text-end">{comm.qty}</span>
                     </td>
                     <td>
-                      <Input
-                        type="text"
-                        disabled
-                        className="text-end"
-                        value={new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(comm.amount || 0)}
-                      />
+                      <span className="p-2 d-block text-end">{new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(comm.rate || 0)}</span>
                     </td>
-                    <td className="text-center">
-                      <Button color="danger" size="sm" onClick={() => removeCommRow(cIdx)}>
-                        <i className="mdi mdi-trash-can-outline text-white" />
-                      </Button>
+                    <td>
+                      <span className="p-2 d-block text-end">{new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(comm.amount || 0)}</span>
                     </td>
                   </tr>
                 ))}
@@ -1677,8 +1650,7 @@ const AddManualInvoice = () => {
             </Table>
           </div>
         </ModalBody>
-        <ModalFooter>
-          <Button color="primary" onClick={saveCommissions}>Save</Button>
+         <ModalFooter>
           <Button color="secondary" onClick={() => setIsCommModalOpen(false)}>Close</Button>
         </ModalFooter>
       </Modal>

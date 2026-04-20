@@ -92,6 +92,7 @@ const InvoiceReceipt = () => {
   const [selectedPODetail, setSelectedPODetail] = useState({});
 
   const [UserData, setUserData] = useState(null);
+  const isRestrictedUser = [159, 160, 161, 163, 165].includes(UserData?.u_id);
   const [autoOptions, setAutoOptions] = useState([]);
   const [globalFilterValue, setGlobalFilterValue] = useState("");
   const history = useHistory();
@@ -158,6 +159,8 @@ const InvoiceReceipt = () => {
         }))
       );
     };
+    const userData = getUserDetails();
+    setUserData(userData);
     fetchAllIRN();
     loadOptions();
   }, []);
@@ -259,7 +262,7 @@ const InvoiceReceipt = () => {
     debugger
     return (
       <div className="d-flex align-items-center justify-content-center gap-3">
-        {rowData.irnstatus === "Saved" ? (
+        {!isRestrictedUser && rowData.irnstatus === "Saved" ? (
           <span onClick={() => editRow(rowData)}
             title='Edit' style={{ cursor: 'pointer' }}>
             <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
@@ -609,7 +612,9 @@ const InvoiceReceipt = () => {
               >
                 <button type="button" className="btn btn-info" onClick={searchData}> <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search</button>
                 <button type="button" className="btn btn-danger" onClick={cancelFilter}><i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i>Cancel</button>
-                <button type="button" className="btn btn-success" onClick={linkAddInvoice}><i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New</button>
+                {!isRestrictedUser && (
+                  <button type="button" className="btn btn-success" onClick={linkAddInvoice}><i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New</button>
+                )}
               </div>
             </div>
           </Card>

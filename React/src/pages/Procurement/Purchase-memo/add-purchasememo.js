@@ -43,6 +43,8 @@ const AddPurchaseMemo = () => {
         }
     };
     const [UserData, setUserData] = useState(null);
+    const isRestrictedUser = [159, 160, 161, 163, 165].includes(UserData?.u_id);
+    const isRestrictedUserDirectlyFromLocal = [159, 160, 161, 163, 165].includes(getUserDetails()?.u_id);
     const [uomOptions, setUomOptions] = useState([]);
     const [pmTypeSuggestions, setPmTypeSuggestions] = useState([]);
     const [selectedPmType, setSelectedPmType] = useState(null);
@@ -126,89 +128,89 @@ const AddPurchaseMemo = () => {
     };
 
 
-const validationSchema = Yup.object().shape({
-  pmNo: Yup.string().required("PM No. is required"),
+    const validationSchema = Yup.object().shape({
+        pmNo: Yup.string().required("PM No. is required"),
 
-  pmDate: Yup.date()
-    .required("PM Date is required")
-    .typeError("Invalid PM Date"),
+        pmDate: Yup.date()
+            .required("PM Date is required")
+            .typeError("Invalid PM Date"),
 
-  btgDeliveryAddress: Yup.string().required("BTG Delivery Address is required"),
+        btgDeliveryAddress: Yup.string().required("BTG Delivery Address is required"),
 
-  items: Yup.array()
-    .of(
-      Yup.object().shape({
-        itemid: Yup.string()
-          .nullable()
-          .required("Item Name is required"),
-        departmentid: Yup.string()
-          .nullable()
-          .required("Department is required"),
-        itemGroupId: Yup.string()
-          .nullable()
-          .required("Item Group is required"),
-        uom: Yup.string().required("UOM is required"),
-        qty: Yup.number()
-          .typeError("Qty must be a number")
-          .positive("Qty must be greater than 0")
-          .required("Qty is required"),
-        availableStock: Yup.number()
-          .nullable()
-          .typeError("Available Stock must be a number"),
-        deliveryDate: Yup.date()
-          .required("Delivery Date is required")
-          .typeError("Invalid date"),
-      })
-    )
-    // integrated duplicate UOM validation
-    .test("duplicate-uom-check", null, function (items) {
-      if (!items || items.length === 0) return true;
+        items: Yup.array()
+            .of(
+                Yup.object().shape({
+                    itemid: Yup.string()
+                        .nullable()
+                        .required("Item Name is required"),
+                    departmentid: Yup.string()
+                        .nullable()
+                        .required("Department is required"),
+                    itemGroupId: Yup.string()
+                        .nullable()
+                        .required("Item Group is required"),
+                    uom: Yup.string().required("UOM is required"),
+                    qty: Yup.number()
+                        .typeError("Qty must be a number")
+                        .positive("Qty must be greater than 0")
+                        .required("Qty is required"),
+                    availableStock: Yup.number()
+                        .nullable()
+                        .typeError("Available Stock must be a number"),
+                    deliveryDate: Yup.date()
+                        .required("Delivery Date is required")
+                        .typeError("Invalid date"),
+                })
+            )
+            // integrated duplicate UOM validation
+            .test("duplicate-uom-check", null, function (items) {
+                if (!items || items.length === 0) return true;
 
-      const seen = new Map();
+                const seen = new Map();
 
-      for (let idx = 0; idx < items.length; idx++) {
-        const row = items[idx];
-        const key = `${row.itemGroupId || ""}_${row.itemid || ""}_${row.uom || ""}`;
+                for (let idx = 0; idx < items.length; idx++) {
+                    const row = items[idx];
+                    const key = `${row.itemGroupId || ""}_${row.itemid || ""}_${row.uom || ""}`;
 
-        if (key !== "_") {
-          if (seen.has(key)) {
-            // Return the specific error path
-            return this.createError({
-              path: `items[${idx}].uom`,
-              message: "Same UOM already used",
-            });
-          }
-          seen.set(key, idx);
-        }
-      }
+                    if (key !== "_") {
+                        if (seen.has(key)) {
+                            // Return the specific error path
+                            return this.createError({
+                                path: `items[${idx}].uom`,
+                                message: "Same UOM already used",
+                            });
+                        }
+                        seen.set(key, idx);
+                    }
+                }
 
-      return true;
-    }),
-});
+                return true;
+            }),
+    });
 
 
-const validateDuplicateUom = (items = []) => {
-  const errors = {};
-  const seen = new Map();               
+    const validateDuplicateUom = (items = []) => {
+        const errors = {};
+        const seen = new Map();
 
-  items.forEach((row, idx) => {
-    const key = `${row.itemGroupId || ""}_${row.itemid || ""}_${row.uom || ""}`;
+        items.forEach((row, idx) => {
+            const key = `${row.itemGroupId || ""}_${row.itemid || ""}_${row.uom || ""}`;
 
-    if (seen.has(key) && key !== "_") {               
-      const prevIdx = seen.get(key);
-      // mark current row
-      errors[idx] = errors[idx] || {};
-      errors[idx].uom = "Same UOM already used ";
+            if (seen.has(key) && key !== "_") {
+                const prevIdx = seen.get(key);
+                // mark current row
+                errors[idx] = errors[idx] || {};
+                errors[idx].uom = "Same UOM already used ";
 
-    //   errors[prevIdx] = errors[prevIdx] || {};
-    //   errors[prevIdx].uom = `Same UOM already used in Row ${idx + 1}`;
-    } else if (key !== "_") {
-      seen.set(key, idx);
-    }
-  });
+                //   errors[prevIdx] = errors[prevIdx] || {};
+                //   errors[prevIdx].uom = `Same UOM already used in Row ${idx + 1}`;
+            } else if (key !== "_") {
+                seen.set(key, idx);
+            }
+        });
 
-  return Object.keys(errors).length ? { items: errors } : {};
-};
+        return Object.keys(errors).length ? { items: errors } : {};
+    };
 
     function formatDateToMySQL(datetime) {
         if (!datetime) return null;
@@ -535,12 +537,12 @@ const validateDuplicateUom = (items = []) => {
             const formikFormatted = mapMemoResponseToFormik(res.data);
             console.log("Formik Formatted Data:", formikFormatted);
             setInitialValues(formikFormatted);
-            
+
             // Also update Formik form directly if ref is available
             if (formikRef.current) {
                 formikRef.current.setValues(formikFormatted);
             }
-            
+
             setSelectedPmType({
                 typename: header.typename,
                 typeid: header.PM_Type,
@@ -559,16 +561,16 @@ const validateDuplicateUom = (items = []) => {
             // Load dropdown options for each detail item and pre-populate with current values
             for (let i = 0; i < details.length; i++) {
                 const item = details[i];
-                
+
                 // Load Item Name options if ItemGroup is selected
                 if (item.itemGroupId) {
                     await loadItemNameOptions(item.itemGroupId, i);
-                    
+
                     // Pre-populate itemNameOptions with the current item if not already there
                     setItemNameOptions(prev => {
                         const currentOptions = prev[i] || [];
                         const itemExists = currentOptions.some(opt => opt.value === item.ItemId);
-                        
+
                         if (!itemExists && item.itemname) {
                             // Add the current item to the options
                             return {
@@ -722,6 +724,7 @@ const validateDuplicateUom = (items = []) => {
                                                         <button
                                                             type="button"
                                                             className="btn btn-success fa-pull-right"
+                                                            disabled={isRestrictedUser}
                                                             onClick={async () => {
                                                                 setTouched(markAllTouched(values), true);
                                                                 const validationErrors = await validateForm();
@@ -737,6 +740,7 @@ const validateDuplicateUom = (items = []) => {
                                                         <button
                                                             type="button"
                                                             className="btn btn-info fa-pull-right"
+                                                            disabled={isRestrictedUser}
                                                             onClick={async () => {
                                                                 setTouched(markAllTouched(values), true);
                                                                 const validationErrors = await validateForm();
@@ -809,7 +813,7 @@ const validateDuplicateUom = (items = []) => {
 
                                                     </Col>
 
-                                                    {/* Row 3 
+                                                    {/* Row 3
                                                     <Col md="4">
                                                         <FormGroup>
                                                             <Label htmlFor="requestor">Requestor <span className="text-danger">*</span></Label>
@@ -930,7 +934,7 @@ const validateDuplicateUom = (items = []) => {
                                                                 <th className="text-center" style={{ width: "10%" }}>Item Group</th>
                                                                 <th className="text-center" style={{ width: "15%" }}>Item Name</th>
                                                                 <th className="text-center" style={{ width: "10%" }}>Department</th>
-                                                               
+
                                                                 <th className="text-center" style={{ width: "5%" }}>Qty</th>
                                                                 <th className="text-center" style={{ width: "7%" }}>UOM</th>
                                                                 <th className="text-center" style={{ width: "5%" }}>Avail. Stock</th>
@@ -1024,7 +1028,7 @@ const validateDuplicateUom = (items = []) => {
                                                                                 </td>
 
                                                                                 {/* UOM */}
-                                                                               
+
 
                                                                                 {/* Qty */}
                                                                                 {/* <td>
@@ -1052,51 +1056,51 @@ const validateDuplicateUom = (items = []) => {
                                                                                         }}
                                                                                     /> */}
 
-                                                                                      <Field name={`items[${i}].qty`}>
-                                                                                                                                                                                                                                                                        {({ field }) => {
-                                                                                                                                                                                                                                                                            const formatWithCommas = (value) => {
-                                                                                                                                                                                                                                                                                if (!value) return '';
-                                                                                                                                                                                                                                                                                const [intPart, decPart] = value.split('.');
-                                                                                                                                                                                                                                                                                const intFormatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-                                                                                                                                                                                                                                                                                return decPart !== undefined
-                                                                                                                                                                                                                                                                                    ? `${intFormatted}.${decPart.slice(0, 3)}`
-                                                                                                                                                                                                                                                                                    : intFormatted;
-                                                                                                                                                                                                                                                                            };
-                                                                                                                                                                            
-                                                                                                                                                                                                                                                                            return (
-                                                                                                                                                                                                                                                                                <input
-                                                                                                                                                                                                                                                                                    type="text"
-                                                                                                                                                                                                                                                                                    className={`form-control text-end ${errors?.items?.[i]?.qty && touched?.items?.[i]?.qty
-                                                                                                                                                                                                                                                                                            ? 'is-invalid'
-                                                                                                                                                                                                                                                                                            : ''
-                                                                                                                                                                                                                                                                                        }`}
-                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                    value={formatWithCommas(field.value?.toString() || '')}
-                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                    onChange={(e) => {
-                                                                                                                                                                                                                                                                                        // Remove commas
-                                                                                                                                                                                                                                                                                        let plainValue = e.target.value.replace(/,/g, '');
-                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                        // Allow only digits and one decimal point
-                                                                                                                                                                                                                                                                                        if (!/^\d*\.?\d*$/.test(plainValue)) {
-                                                                                                                                                                                                                                                                                            return; // Ignore invalid characters
-                                                                                                                                                                                                                                                                                        }
-                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                        // Enforce DECIMAL(24,6) → allow 16 digits before decimal, 6 after
-                                                                                                                                                                                                                                                                                        if (plainValue.includes('.')) {
-                                                                                                                                                                                                                                                                                            const [intPart, decPart] = plainValue.split('.');
-                                                                                                                                                                                                                                                                                            plainValue = intPart.slice(0, 12) + '.' + (decPart ? decPart.slice(0, 3) : '');
-                                                                                                                                                                                                                                                                                        } else {
-                                                                                                                                                                                                                                                                                            plainValue = plainValue.slice(0, 12);
-                                                                                                                                                                                                                                                                                        }
-                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                        setFieldValue(`items[${i}].qty`, plainValue);
-                                                                                                                                                                                                                                                                                    }}
-                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                />
-                                                                                                                                                                                                                                                                            );
-                                                                                                                                                                                                                                                                        }}
-                                                                                                                                                                                                                                                                    </Field>
+                                                                                    <Field name={`items[${i}].qty`}>
+                                                                                        {({ field }) => {
+                                                                                            const formatWithCommas = (value) => {
+                                                                                                if (!value) return '';
+                                                                                                const [intPart, decPart] = value.split('.');
+                                                                                                const intFormatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                                                                                                return decPart !== undefined
+                                                                                                    ? `${intFormatted}.${decPart.slice(0, 3)}`
+                                                                                                    : intFormatted;
+                                                                                            };
+
+                                                                                            return (
+                                                                                                <input
+                                                                                                    type="text"
+                                                                                                    className={`form-control text-end ${errors?.items?.[i]?.qty && touched?.items?.[i]?.qty
+                                                                                                        ? 'is-invalid'
+                                                                                                        : ''
+                                                                                                        }`}
+
+                                                                                                    value={formatWithCommas(field.value?.toString() || '')}
+
+                                                                                                    onChange={(e) => {
+                                                                                                        // Remove commas
+                                                                                                        let plainValue = e.target.value.replace(/,/g, '');
+
+                                                                                                        // Allow only digits and one decimal point
+                                                                                                        if (!/^\d*\.?\d*$/.test(plainValue)) {
+                                                                                                            return; // Ignore invalid characters
+                                                                                                        }
+
+                                                                                                        // Enforce DECIMAL(24,6) → allow 16 digits before decimal, 6 after
+                                                                                                        if (plainValue.includes('.')) {
+                                                                                                            const [intPart, decPart] = plainValue.split('.');
+                                                                                                            plainValue = intPart.slice(0, 12) + '.' + (decPart ? decPart.slice(0, 3) : '');
+                                                                                                        } else {
+                                                                                                            plainValue = plainValue.slice(0, 12);
+                                                                                                        }
+
+                                                                                                        setFieldValue(`items[${i}].qty`, plainValue);
+                                                                                                    }}
+
+                                                                                                />
+                                                                                            );
+                                                                                        }}
+                                                                                    </Field>
                                                                                     {errors.items?.[i]?.qty && touched.items?.[i]?.qty && (
                                                                                         <div className="text-danger small">{errors.items[i].qty}</div>
                                                                                     )}

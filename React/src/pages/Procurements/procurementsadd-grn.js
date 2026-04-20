@@ -50,6 +50,7 @@ const ProcurementsAddGRN = () => {
   const [branchId, setBranchId] = useState(1);
   const [orgId, setOrgId] = useState(1);
   const [UserData, setUserData] = useState(null);
+  const isRestrictedUser = [159, 160, 161, 163, 165].includes(UserData?.u_id);
   // const isEditMode = !!grnData;
 
   // const initialValues = {
@@ -647,7 +648,7 @@ const ProcurementsAddGRN = () => {
                             type="button"
                             className="btn btn-info"
                             onClick={() => handleSubmit(values, 0)}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || isRestrictedUser}
                           >
                             <i className="bx bx-comment-check label-icon font-size-16 align-middle me-2" ></i>{isEditMode ? "Update" : "Save"}
 
@@ -656,7 +657,7 @@ const ProcurementsAddGRN = () => {
                             type="button"
                             className="btn btn-success fa-pull-right"
                             onClick={() => handleSubmit(values, 1)}// Post  
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || isRestrictedUser}
                           >
                             <i className="bx bxs-save label-icon font-size-16 align-middle me-2"></i>Post
                           </button>

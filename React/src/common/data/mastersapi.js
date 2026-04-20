@@ -28,6 +28,56 @@ export const fetchGasList = async (branchId, sq_Id, SearchText = "%") => {
     }
 };
 
+export const SaveSalesCommission = async (payload) => {
+    try {
+        const response = await post("/MasterSalesCommission/create-update", payload);
+        return response;
+    } catch (error) {
+        console.error("Error saving sales commission:", error);
+        throw error;
+    }
+};
+
+export const GetAllSalesCommissionListing = async ({ customerId, gasId }) => {
+    try {
+        const queryParams = new URLSearchParams();
+        if (customerId) queryParams.append("customerId", customerId);
+        if (gasId) queryParams.append("gasId", gasId);
+
+        const baseUrl = "/MasterSalesCommission/get-list";
+        const fullUrl = queryParams.toString()
+            ? `${baseUrl}?${queryParams.toString()}`
+            : baseUrl;
+
+        const response = await get(fullUrl);
+        return response;
+    } catch (error) {
+        console.error("API error fetching sales commissions:", error);
+        return { status: false, data: [] };
+    }
+};
+
+export const GetSalesCommissionById = async (id) => {
+    try {
+        const response = await get(`/MasterSalesCommission/GetByID?id=${id}`);
+        return response;
+    } catch (error) {
+        console.error("API error fetching sales commission by ID:", error);
+        throw error;
+    }
+};
+
+export const UpdateSalesCommissionStatus = async (payload) => {
+    try {
+        const response = await put("/MasterSalesCommission/toggle-actve-status", payload);
+        return response;
+    } catch (error) {
+        console.error("API error updating sales commission status:", error);
+        throw error;
+    }
+};
+
+
 // 🟢 NEW: Fetches from Python API -> DB_NAME_USER_NEW
 export const fetchGasListDSI = async (branchId, sq_Id, SearchText = "%") => {
     try {
@@ -5636,6 +5686,17 @@ export const getLedgerCurrencies = async () => {
     }
 };
 //#endregion
+
+export const FetchAPLedger = async (supplierId, currencyId, fromDate, toDate) => {
+    try {
+        const response = await get(`${PYTHON_API_URL}/AR/get-ap-ledger?supplier_id=${supplierId}&currency_id=${currencyId}&from_date=${fromDate}&to_date=${toDate}`);
+        return response;
+    } catch (error) {
+        console.error("Error fetching AP ledger:", error);
+        return { status: false, message: error.message };
+    }
+};
+
 
 // New functions
 
