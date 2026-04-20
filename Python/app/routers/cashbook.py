@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import text, select, update
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import BaseModel
 from .. import schemas
 from .. import crud 
@@ -25,6 +25,8 @@ class CashReceiptItem(BaseModel):
     sales_person_id: Optional[int] = None
     send_notification: bool = False
     transaction_type: str = "Receipt"
+    bank_amount: float = 0
+    deposit_bank_id: Union[int, str] = 0
     linked_claim_id: Optional[int] = None
     currencyid: Optional[int] = None
     status: str 
@@ -63,17 +65,24 @@ async def get_daily_cash_entries(db: AsyncSession = Depends(get_db)):
                 CASE 
                     WHEN LOWER(r.transaction_type) = 'cash deposit' THEN 'Cash Deposit'
                     WHEN r.cash_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+                    WHEN r.reference_no LIKE 'PC%' AND r.reference_no LIKE '% | %' THEN SUBSTRING_INDEX(r.reference_no, ' | ', -1)
                     WHEN r.reference_no LIKE 'CLM%' AND r.reference_no LIKE '% - %' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
                     ELSE COALESCE(c.CustomerName, 'Unknown Customer')
                 END as customerName,
                 r.cash_amount,
                 r.deposit_bank_id,
-                r.reference_no,
+                CASE 
+                    WHEN r.reference_no LIKE 'PC%' AND r.reference_no LIKE '% | %' THEN SUBSTRING_INDEX(r.reference_no, ' | ', 1)
+                    ELSE r.reference_no 
+                END as reference_no,
                 r.sales_person_id,
                 r.send_notification,
                 r.is_posted, 
                 r.pending_verification, 
                 r.is_submitted,
+                r.is_combined,
+                r.combine_group_id,
+                r.custom_voucher_no,
                 tfc.Purpose as purpose,
                 mcc.claimcategory as claimCategory,
                 CASE WHEN r.is_posted = 1 THEN 'P' ELSE 'S' END as status_code,
@@ -146,7 +155,6 @@ async def get_cash_claims(claim_category: Optional[str] = None, db: AsyncSession
             LEFT JOIN btggasify_live.users u ON h.CreatedBy = u.Id
             INNER JOIN {DB_NAME_FINANCE}.tbl_PaymentSummary_header s ON h.SummaryId = s.SummaryId
             WHERE h.PPP_PV_Director_approve = 1
-              AND h.ModeOfPaymentId = 1
               AND h.IsActive = 1
               AND h.SummaryId > 0
               AND s.PaymentNo >= 'PPP0000041'
@@ -228,7 +236,7 @@ async def get_cash_book_report(
                 FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
                 LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON r.ar_id = h.Claim_ID
                 WHERE r.receipt_id IN ({','.join(map(str, receipt_ids))})
-                  AND (r.ar_id = 0 OR r.ar_id IS NULL OR h.PPP_PV_Director_approve = 1)
+                  AND (LOWER(r.transaction_type) = 'receipt' OR r.ar_id = 0 OR r.ar_id IS NULL OR h.PPP_PV_Director_approve = 1)
             """)
             approval_result = await db.execute(approval_sql)
             approved_ids = {row[0] for row in approval_result.all()}
@@ -331,9 +339,9 @@ async def create_cash_receipt(payload: CreateCashReceiptRequest, db: AsyncSessio
                 
                 # KEY DIFFERENCE: Write to cash_amount, leave bank_amount as 0
                 cash_amount=item.cash_amount,
-                bank_amount=0,
+                bank_amount=item.bank_amount,
                 bank_charges=0,
-                deposit_bank_id="0",
+                deposit_bank_id=str(item.deposit_bank_id),
                 
                 # Standard fields
                 reference_no=item.reference_no,
@@ -384,14 +392,14 @@ async def update_cash_receipt(receipt_id: int, payload: CreateCashReceiptRequest
             raise HTTPException(status_code=404, detail="Entry not found")
 
         entry.customer_id = data.customer_id
-        entry.deposit_bank_id = "0"  # Cash entries have no bank
+        entry.deposit_bank_id = str(data.deposit_bank_id) if data.deposit_bank_id else "0"
 
         if data.receipt_date:
             entry.receipt_date = data.receipt_date 
 
         # KEY DIFFERENCE: Write to cash_amount
         entry.cash_amount = data.cash_amount
-        entry.bank_amount = 0
+        entry.bank_amount = data.bank_amount
         entry.bank_charges = 0
         
         entry.reference_no = data.reference_no
@@ -452,14 +460,29 @@ async def submit_cash_receipt(receipt_id: int, db: AsyncSession = Depends(get_db
 async def finalize_cash_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
     """
     Called by Finance to finally POST to the Cash Book report. Sets is_submitted=1.
+    If the receipt is part of a combined group, all entries in that group are posted.
     """
-    stmt = (
-        update(ARReceipt)
-        .where(ARReceipt.receipt_id == receipt_id)
-        .values(is_submitted=True, pending_verification=False)
-    )
-    await db.execute(stmt)
-    await db.commit()
+    # Fetch the receipt to check for combine_group_id
+    stmt_sel = select(ARReceipt).where(ARReceipt.receipt_id == receipt_id)
+    res = await db.execute(stmt_sel)
+    receipt = res.scalar_one_or_none()
+    
+    if not receipt:
+        return {"status": "error", "message": "Receipt not found"}
+
+    # 1. Determine target record IDs
+    if receipt.combine_group_id:
+        stmt_group = select(ARReceipt.receipt_id).where(ARReceipt.combine_group_id == receipt.combine_group_id, ARReceipt.is_active == True)
+        res_group = await db.execute(stmt_group)
+        ids = [r for r in res_group.scalars().all()]
+    else:
+        ids = [receipt_id]
+
+    # 2. Finalize each record using the standard business logic
+    # This ensures references are updated with linked invoices
+    for rid in ids:
+        await crud.finalize_receipt_and_update_ref(db, rid)
+        
     return {"status": "success"}
 
 @router.put("/cancel-claim/{claim_id}")
@@ -479,3 +502,12 @@ async def cancel_claim(claim_id: int, payload: CancelClaimPayload, db: AsyncSess
     except Exception as e:
         await db.rollback()
         return {"status": "error", "detail": str(e)}
+
+@router.post("/combine-vouchers")
+async def combine_cash_vouchers(request: schemas.CombineVouchersRequest, db: AsyncSession = Depends(get_db)):
+    """Combines multiple cash entries into one."""
+    result = await crud.combine_receipts(db, request)
+    if result:
+        return {"status": "success", "message": "Vouchers combined successfully", "new_id": result.receipt_id}
+    else:
+        raise HTTPException(status_code=400, detail="Failed to combine vouchers. Ensure they exist and are active.")

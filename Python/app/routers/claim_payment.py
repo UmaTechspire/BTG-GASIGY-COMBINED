@@ -638,6 +638,7 @@ def get_all_claims(
 
         user_db = os.getenv('DB_NAME_USER_NEW', 'btggasify_userpanel_live')
         live_db = os.getenv('DB_NAME_USER', 'btggasify_live')
+        purchase_db = os.getenv('DB_NAME_PURCHASE', 'btggasify_purchase_live')
         
         # 1. Check if user is HOD
         is_hod = 0
@@ -681,7 +682,10 @@ def get_all_claims(
                 CASE WHEN IFNULL(ch.claim_hod_isapproved,0)=0 THEN 1 ELSE 0 END AS candelete_old,
                 CASE WHEN IFNULL(ch.ppp_gm_approvalone,0)=0 AND IFNULL(ch.Claim_Discussed_Count,0)<=2 THEN 1 ELSE 0 END AS canedit,
                 ch.totalamountinidr, ch.voucherid, ch.voucherno,
+                DATE_FORMAT(ch.PaymentDate, '%d-%b-%Y') AS paymentDate,
                 IFNULL(psh.PaymentNo,'') AS PaymentNo,
+                IFNULL(ph.nettotal, 0) AS po_amount,
+                DATE_FORMAT(ph.podate, '%d-%b-%Y') AS podate,
                 CASE WHEN IFNULL(ch.isdiscussionaccepted,0)=1 THEN 1 ELSE IFNULL(ch.IsSubmitted,0) END AS isSubmitted,
                 ch.SupplierId,
                 IFNULL(ch.claim_director_isapproved, 0) AS claim_director_isapproved,
@@ -704,6 +708,7 @@ def get_all_claims(
             JOIN {live_db}.master_currency cur ON cur.currencyid = ch.TransactionCurrencyId
             LEFT JOIN {live_db}.master_paymentmethod pm ON pm.Id = ch.ModeOfPaymentId
             LEFT JOIN tbl_PaymentSummary_header psh ON psh.SummaryId = ch.SummaryId AND psh.Isactive=1
+            LEFT JOIN {purchase_db}.tbl_purchaseorder_header ph ON ph.poid = tfc.poid
             WHERE ch.IsActive=1
             AND (ch.ClaimCategoryId = %s OR %s = 0)
             AND (ch.DepartmentId = %s OR %s = 0)

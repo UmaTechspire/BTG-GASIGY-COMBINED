@@ -46,7 +46,7 @@ const formatDate = (date) => {
 const formatPrintDate = (date) => {
     if (!date) return "-";
     const d = new Date(date);
-    const day = d.getDate();
+    const day = d.getDate().toString().padStart(2, "0");
     const month = d.toLocaleString("en-US", { month: "short" });
     const year = d.getFullYear();
     return `${day}-${month}-${year}`;
@@ -383,7 +383,7 @@ const BankBook = () => {
 
         const exportData = filtered.map((ex) => {
             const row = {
-                Date: ex.date ? ex.date.toLocaleDateString() : "",
+                Date: ex.date ? formatPrintDate(ex.date) : "-",
                 "Reference No": ex.voucherNo,
                 "Transaction Type": ex.transactionType,
                 "Party": ex.party,
@@ -621,7 +621,7 @@ const BankBook = () => {
                                         filter
                                         filterPlaceholder="Search Party"
                                         body={(rowData) => {
-                                            const isSpecialType = ["bank transfer", "bank interest", "bank charges", "cash deposit"].includes(rowData.transactionType?.toLowerCase());
+                                            const isSpecialType = ["bank transfer", "bank interest", "bank charges", "cash deposit", "deposit to bank"].includes(rowData.transactionType?.toLowerCase());
 
                                             if (!isSpecialType && rowData.groupedClaims && rowData.groupedClaims.length > 0) {
                                                 return (
@@ -1122,7 +1122,7 @@ const BankBook = () => {
                                     </Col>
                                     <Col md={6} className="d-flex">
                                         <span className="fw-bold me-2" style={{ minWidth: '120px' }}>Invoice Date</span>
-                                        <span>: {invoiceDetails.Salesinvoicesdate ? new Date(invoiceDetails.Salesinvoicesdate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span>
+                                        <span>: {invoiceDetails.Salesinvoicesdate ? formatPrintDate(invoiceDetails.Salesinvoicesdate) : ''}</span>
                                     </Col>
                                 </Row>
                                 <Row className="mb-2">

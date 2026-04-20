@@ -11,7 +11,7 @@ import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/themes/material_blue.css";
 import axios from "axios";
 import { PYTHON_API_URL } from "common/pyapiconfig";
-import { GetAllCurrencies } from "common/data/mastersapi";
+import { GetAllCurrencies, GetBankList } from "common/data/mastersapi";
 
 
 const Breadcrumbs = ({ title, breadcrumbItem }) => (
@@ -36,10 +36,30 @@ const formatDate = (date) => {
 const formatPrintDate = (date) => {
     if (!date) return "-";
     const d = new Date(date);
-    const day = d.getDate();
+    const day = d.getDate().toString().padStart(2, "0");
     const month = d.toLocaleString("en-US", { month: "short" });
     const year = d.getFullYear();
     return `${day}-${month}-${year}`;
+};
+
+const formatVoucherNumber = (no, type) => {
+    if (!no || no === "-" || no === 0 || no === "0") return "-";
+    
+    // If it already has letters (like PPP001), don't add another prefix
+    if (/^[A-Za-z]/.test(String(no))) return no;
+    
+    let prefix = "";
+    const t = String(type || "").toLowerCase();
+    
+    if (t === 'receipt' || t === 'deposit') {
+        prefix = "RV - ";
+    } else if (t === 'payment' || t === 'transfer' || t === 'transfer to pc book' || t === 'deposit to bank') {
+        prefix = "CV - ";
+    } else if (t === 'other income') {
+        prefix = "RCV - ";
+    }
+    
+    return `${prefix}${no}`;
 };
 
 // Shared style: force React Select to the same height as Bootstrap controls (38px)
@@ -59,6 +79,7 @@ const CashBook = () => {
     const today = formatDate(new Date());
 
     const [cashBook, setCashBook] = useState([]);
+    const [bankList, setBankList] = useState([]);
     const [loading, setLoading] = useState(false);
     const [globalFilter, setGlobalFilter] = useState("");
     const [filters, setFilters] = useState({
@@ -81,7 +102,9 @@ const CashBook = () => {
         { value: 'Round plus', label: 'Round plus' },
         { value: 'Round minus', label: 'Round minus' },
         { value: 'Deposit', label: 'Deposit' },
-        { value: 'Cash withdraw', label: 'Cash withdraw' }
+        { value: 'Deposit to Bank', label: 'Deposit to Bank' },
+        { value: 'Cash withdraw', label: 'Cash withdraw' },
+        { value: 'Transfer to PC Book', label: 'Transfer to PC Book' }
     ]);
     const [selectedTransactionType, setSelectedTransactionType] = useState(null);
     const [currencyList, setCurrencyList] = useState([]);
@@ -89,7 +112,7 @@ const CashBook = () => {
 
 
 
-    const fetchCashBook = async (overrideCurrency = null) => {
+    const fetchCashBook = async (overrideCurrency = null, bankListOverride = null) => {
         try {
             setLoading(true);
             setCashBook([]);
@@ -133,17 +156,48 @@ const CashBook = () => {
                     cashOut = 0;
                 }
 
+                let balance = parseFloat(item.Balance || 0);
+
+                // Handle transfer directions
+                if (type === 'Transfer to PC Book' || type === 'Deposit to Bank') {
+                    // Always Credit (outflow) for CB -> PC or CB -> Bank
+                    cashOut = Math.abs(cashIn || cashOut);
+                    cashIn = 0;
+                } else if (type === 'transfer') {
+                    const ref = item.VoucherNo || "";
+                    if (ref.startsWith("CLM")) {
+                        // Historical CB -> PC (Credit)
+                        cashOut = Math.abs(cashIn || cashOut);
+                        cashIn = 0;
+                    } else {
+                        // PC -> CB (Debit)
+                        cashIn = Math.abs(cashIn || cashOut);
+                        cashOut = 0;
+                    }
+                }
+
+                const rawVoucher = item.VoucherNo ? item.VoucherNo.split(" - ")[0] : "-";
+                let partyName = (item.Party === "Unknown Customer" || item.Party === "unknown customer") ? "-" : (item.Party || "-");
+                
+                // Decode bank name for deposits
+                if (type === 'Deposit to Bank') {
+                    const banksToUse = bankListOverride || bankList;
+                    const bankId = parseInt(item.deposit_bank_id || item.CustomerID || item.customerId || 0);
+                    const bank = banksToUse.find(b => parseInt(b.value) === bankId);
+                    if (bank) partyName = bank.label;
+                }
+
                 return {
                     date: item.Date ? new Date(item.Date) : null,
-                    voucherNo: item.VoucherNo ? item.VoucherNo.split(" - ")[0] : "-",
+                    voucherNo: formatVoucherNumber(rawVoucher, type),
                     transactionType: type,
-                    party: (item.Party === "Unknown Customer" || item.Party === "unknown customer") ? "-" : (item.Party || "-"),
+                    party: partyName,
                     description: item.Description || "-",
                     bankName: item.BankName || "-",
                     actamount: item.NetAmount,
                     cashIn: cashIn,
                     cashOut: cashOut,
-                    balance: parseFloat(item.Balance || 0),
+                    balance: balance,
                 };
             });
 
@@ -182,7 +236,15 @@ const CashBook = () => {
                     }
                 }
             } catch (err) { console.error("Failed to load currencies", err); }
-            fetchCashBook(initialCurrency);
+            // Load Banks for Lookups
+            let fetchedBanks = [];
+            try {
+                const banks = await GetBankList(1, 1);
+                fetchedBanks = banks.map(item => ({ value: item.value, label: item.BankName }));
+                setBankList(fetchedBanks);
+            } catch (err) { console.error("Failed to load banks", err); }
+
+            fetchCashBook(initialCurrency, fetchedBanks);
         };
         loadInitialData();
     }, []);
@@ -191,7 +253,7 @@ const CashBook = () => {
 
     const exportToExcel = () => {
         const exportData = cashBook.map((ex) => ({
-            Date: ex.date ? ex.date.toLocaleDateString() : "",
+            Date: ex.date ? formatPrintDate(ex.date) : "-",
             "Description": ex.voucherNo,
             "Transaction Type": ex.transactionType,
             "Party / Account": ex.party,

@@ -25,9 +25,20 @@ const PaymentHistory = ({ poId }) => {
           ? res.data
           : [];
 
-      if (claimList.length > 0) {
-        // ✅ Group by PO
-        const grouped = claimList.reduce((acc, item) => {
+      // Keep only latest record per PO
+      const latestPaymentsMap = new Map();
+
+      claimList.forEach(item => {
+        const key = item.pono; // PO is unique in your case
+
+        // Always override → last record wins (latest update)
+        latestPaymentsMap.set(key, item);
+      });
+
+      const filteredList = Array.from(latestPaymentsMap.values());
+
+      if (filteredList.length > 0) {
+        const grouped = filteredList.reduce((acc, item) => {
           const po = item.pono || "N/A";
           if (!acc[po]) acc[po] = [];
           acc[po].push(item);

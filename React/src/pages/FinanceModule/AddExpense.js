@@ -28,7 +28,8 @@ import {
   GetPettyCashSeqNum,
   getPettyCashCategories,
   getPettyCashExpenseTypes,
-  getPettyCashGroupById
+  getPettyCashGroupById,
+  saveCashReceipt
 } from "../../../src/common/data/mastersapi";
 import makeAnimated from "react-select/animated";
 import Swal from 'sweetalert2';
@@ -36,6 +37,17 @@ import { format } from "date-fns";
 
 import "primereact/resources/themes/bootstrap4-light-blue/theme.css";
 import "primereact/resources/primereact.min.css";
+
+const getUserDetails = () => {
+  if (localStorage.getItem("authUser")) {
+    try {
+      return JSON.parse(localStorage.getItem("authUser"));
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+};
 
 const Breadcrumbs = ({ title, breadcrumbItem }) => (
   <div className="page-title-box d-sm-flex align-items-center justify-content-between">
@@ -331,6 +343,42 @@ const AddExpense = () => {
       };
 
       await saveOrUpdatePettyCash(body, isEditMode, values.attachment);
+
+      // --- REVERSE AUTOMATION: CASH BOOK TRANSFER ---
+      if (isPost) {
+        const transferItems = values.items.filter(item => parseInt(item.category) === 6);
+        if (transferItems.length > 0) {
+          const userData = getUserDetails();
+          const cashBookItems = transferItems.map(item => ({
+            receipt_id: 0,
+            customer_id: 0, // Using 0 as 'Whom' is free-text
+            cash_amount: Math.abs(parseFloat(item.amount || 0)), // Positive for Debit/Receipt
+            receipt_date: format(values.expDate, "yyyy-MM-dd"),
+            reference_no: `${values.pcNumber} | ${item.whom}`,
+            transaction_type: 'transfer',
+            status: 'Posted',
+            is_posted: true,
+            currencyid: parseInt(values.currencyid)
+          }));
+
+          const cashPayload = {
+            orgId: 1,
+            branchId: 1,
+            userId: userData?.u_id || 505,
+            userIp: "127.0.0.1",
+            header: cashBookItems
+          };
+
+          try {
+            await saveCashReceipt(cashPayload);
+            console.log("Cash Book automated entry created for transfers");
+          } catch (cbErr) {
+            console.error("Failed to create automated Cash Book entry", cbErr);
+            toast.warning("Petty Cash saved, but failed to sync with Cash Book.");
+          }
+        }
+      }
+
       toast.success(`Petty Cash ${isPost ? "posted" : "saved"} successfully`);
 
       if (isEditMode) {

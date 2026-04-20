@@ -111,9 +111,19 @@ const AddManualInvoice = () => {
       balance_Qty: 0,
       ConvertedCurrencyId: currencySelect,
       isImportedDO: false,
-      Note: ""
+      Note: "",
+      sellingPrice: 0,
+      sellingTotal: 0,
+      commissions: []
     },
   ]);
+
+  // --- COMMISSION MODAL STATES ---
+  const [isCommModalOpen, setIsCommModalOpen] = useState(false);
+  const [activeCommIndex, setActiveCommIndex] = useState(null);
+  const [tempCommissions, setTempCommissions] = useState([]);
+  const [contactList, setContactList] = useState([]);
+
 
   // [FIX] Helper to Format Number with Commas for Display (e.g. 1000 -> 1,000)
   const formatInputNumber = (val) => {
@@ -186,7 +196,10 @@ const AddManualInvoice = () => {
       balance_Qty: 0,
       ConvertedCurrencyId: currencySelect || null,
       isImportedDO: false,
-      Note: ""
+      Note: "",
+      sellingPrice: 0,
+      sellingTotal: 0,
+      commissions: []
     };
 
     const updatedDetails = [...manualinvoiceDetails, newRow];
@@ -218,7 +231,7 @@ const AddManualInvoice = () => {
       Volume: 1, Pressure: 1, Qty: 1, pickedQty: 1, Uom: "", UomId: 0, CurrencyId: currencySelect, UnitPrice: 0, TotalPrice: 0,
       ConvertedPrice: "", price: "", Exchangerate: 0, driverName: "", truckName: "", doNumber: "",
       requestDeliveryDate: currentDate, deliveryAddress: "", deliveryInstruction: "", soQty: 0, so_Issued_Qty: 0, balance_Qty: 0,
-      ConvertedCurrencyId: currencySelect, isImportedDO: false, Note: ""
+      ConvertedCurrencyId: currencySelect, isImportedDO: false, Note: "", sellingPrice: 0, sellingTotal: 0, commissions: []
     }]);
   };
 
@@ -505,6 +518,9 @@ const AddManualInvoice = () => {
       balance_Qty: Number(item.balance_Qty) || 0,
       ConvertedCurrencyId: item.ConvertedCurrencyId,
       Note: item.Note || "",
+      sellingPrice: Number(item.sellingPrice) || 0,
+      sellingTotal: Number(item.sellingTotal) || 0,
+      commissions: item.commissions || [],
     }));
 
     const doDetailPayload = doDetail.map(item => ({
@@ -599,7 +615,7 @@ const AddManualInvoice = () => {
           id: actualHeaderId,
           salesInvoiceNbr: data.InvoiceNbr || "",
           customerId: data.customerid || "",
-          salesInvoiceDate: data.Salesinvoicesdate || new Date(),
+          salesInvoiceDate: data.Salesinvoicesdate ? new Date(data.Salesinvoicesdate) : new Date(),
           totalAmount: data.TotalAmount || 0,
           calculatedPrice: data.CalculatedPrice || 0,
           isSubmitted: data.Status === 'Posted' ? 1 : 0,
@@ -610,6 +626,7 @@ const AddManualInvoice = () => {
           ...prev,
           ...data.Header,
           id: data.Header.id || id,
+          salesInvoiceDate: data.Header.salesInvoiceDate ? new Date(data.Header.salesInvoiceDate) : new Date(),
           isSubmitted: data.Header.IsSubmitted ?? data.Header.isSubmitted ?? 0,
         }));
       }
@@ -618,8 +635,57 @@ const AddManualInvoice = () => {
       let rawDetails = [];
       if (isNewStructure) {
         rawDetails = data.Items || [];
-      } else if (Array.isArray(data?.Details)) {
-        rawDetails = data.Details || [];
+      } else if (Array.isArray(data?.Details || data?.Items)) {
+        rawDetails = data.Details || data.Items || [];
+      }
+
+      const mappedItems = rawDetails.map(item => ({
+        ...item,
+        sqid: item.sqid || 0,
+        packingid: item.packingid || 0,
+        id: item.id || 0,
+        salesInvoicesId: actualHeaderId,
+        packingDetailId: item.packingDetailId || 0,
+        deliveryNumber: item.deliveryNumber || "",
+        GasCodeId: item.gascodeid || item.GasCodeId || 0,
+        gasCode: item.gasCode || item.GasName || "",
+        Volume: item.Volume || "",
+        Pressure: item.Pressure || "",
+        Qty: item.Qty || item.PickedQty || 1,
+        pickedQty: item.Qty || item.PickedQty || 1,
+        Uom: item.Uom || "",
+        UomId: item.UomId || 0,
+        doNumber: item.doNumber || "",
+        CurrencyId: item.CurrencyId || item.Currencyid,
+        UnitPrice: item.UnitPrice || 0,
+        TotalPrice: item.TotalPrice || 0,
+        ConvertedPrice: item.price || item.priceIDR || 0,
+        Exchangerate: item.Exchangerate || item.ExchangeRate || 0,
+        driverName: item.driverName || "",
+        truckName: item.truckName || "",
+        requestDeliveryDate: item.requestDeliveryDate || new Date(),
+        deliveryAddress: item.deliveryAddress || "",
+        deliveryInstruction: item.deliveryInstruction || "",
+        soQty: item.soQty || 0,
+        so_Issued_Qty: item.so_Issued_Qty || 0,
+        balance_Qty: item.balance_Qty || 0,
+        ConvertedCurrencyId: item.ConvertedCurrencyId || item.CurrencyId || item.Currencyid,
+        Note: item.Note || "",
+        sellingPrice: item.sellingPrice || 0,
+        sellingTotal: item.sellingTotal || 0,
+        commissions: item.commissions || []
+      }));
+
+      setmanualinvoiceDetails(mappedItems);
+
+      if (data && data.DoDetail) {
+        setDoDetail(data.DoDetail);
+        const updatedOptions = data.DoDetail.map(item => ({
+          ...item,
+          value: item.packingId,
+          label: item.packno,
+        }));
+        handleDOSelectChange(updatedOptions);
       }
 
       if (rawDetails.length > 0) {
@@ -843,12 +909,93 @@ const AddManualInvoice = () => {
   const handleQtyUpdate = async (index, value) => {
     const updatedDetails = [...manualinvoiceDetails];
     if (!updatedDetails[index]) return;
+    
+    const qty = parseFloat(value) || 0;
+    const sellingPrice = parseFloat(updatedDetails[index].sellingPrice) || 0;
+    
     updatedDetails[index] = {
       ...updatedDetails[index],
-      pickedQty: value
+      pickedQty: value,
+      sellingTotal: parseFloat((qty * sellingPrice).toFixed(2))
     };
     setmanualinvoiceDetails(updatedDetails);
     await GetCurrencyval(index, updatedDetails[index].ConvertedCurrencyId);
+  };
+
+  const handleSellingPriceChange = (index, value) => {
+    const updatedDetails = [...manualinvoiceDetails];
+    if (!updatedDetails[index]) return;
+
+    updatedDetails[index].sellingPrice = value;
+    const sellingPrice = parseFloat(value) || 0;
+    const qty = parseFloat(updatedDetails[index].pickedQty) || 0;
+    updatedDetails[index].sellingTotal = parseFloat((sellingPrice * qty).toFixed(2));
+    
+    setmanualinvoiceDetails(updatedDetails);
+  };
+
+  const handleTotalPriceChange = (index, value) => {
+    const updatedDetails = [...manualinvoiceDetails];
+    if (!updatedDetails[index]) return;
+
+    updatedDetails[index].TotalPrice = value;
+    // We could recalculate UnitPrice here, but user said "explained functionalities later"
+    // For now just keep the value.
+    setmanualinvoiceDetails(updatedDetails);
+    
+    // Also update ConvertedPrice (IDR) if possible
+    if (updatedDetails[index].Exchangerate) {
+        updatedDetails[index].ConvertedPrice = parseFloat((parseFloat(value) * parseFloat(updatedDetails[index].Exchangerate)).toFixed(2));
+    }
+  };
+
+  const handleSellingTotalChange = (index, value) => {
+    const updatedDetails = [...manualinvoiceDetails];
+    if (!updatedDetails[index]) return;
+
+    updatedDetails[index].sellingTotal = value;
+    setmanualinvoiceDetails(updatedDetails);
+  };
+
+  const openCommModal = async (index) => {
+    setActiveCommIndex(index);
+    setTempCommissions(manualinvoiceDetails[index].commissions || []);
+    setIsCommModalOpen(true);
+
+    if (invoiceHeader.customerId) {
+        try {
+            const data = await GetContactName(invoiceHeader.customerId);
+            setContactList(data || []);
+        } catch (e) {
+            console.error("Error fetching contacts:", e);
+        }
+    }
+  };
+
+  const handleCommissionUpdate = (commIndex, field, value) => {
+    const updated = [...tempCommissions];
+    updated[commIndex] = { ...updated[commIndex], [field]: value };
+    
+    const rate = parseFloat(updated[commIndex].rate) || 0;
+    const qty = parseFloat(updated[commIndex].qty) || 0;
+    updated[commIndex].amount = parseFloat((rate * qty).toFixed(2));
+    
+    setTempCommissions(updated);
+  };
+
+  const addCommRow = () => {
+    setTempCommissions([...tempCommissions, { contactId: "", contactName: "", rate: 0, qty: 1, amount: 0 }]);
+  };
+
+  const removeCommRow = (commIndex) => {
+    setTempCommissions(tempCommissions.filter((_, i) => i !== commIndex));
+  };
+
+  const saveCommissions = () => {
+    const updatedDetails = [...manualinvoiceDetails];
+    updatedDetails[activeCommIndex].commissions = tempCommissions;
+    setmanualinvoiceDetails(updatedDetails);
+    setIsCommModalOpen(false);
   };
 
   const handleGasCodeChange = async (index, selectedValue) => {
@@ -1139,7 +1286,7 @@ const AddManualInvoice = () => {
                                 >
                                   <div className="accordion-body">
                                     <div className="table-responsive tab-wid table-height">
-                                      <Table className="table mb-0">
+                                      <Table className="table mb-0" style={{ minWidth: "1600px" }}>
                                         <thead style={{ backgroundColor: "#3e90e2" }}>
                                           <tr>
                                             <th className="text-center" style={{ width: "2%" }}>
@@ -1147,17 +1294,20 @@ const AddManualInvoice = () => {
                                                 <i className="mdi mdi-plus" />
                                               </span>
                                             </th>
-                                            <th className="text-center required-label" style={{ width: "14%" }}> Gas Name </th>
+                                            <th className="text-center" style={{ minWidth: "200px" }}> GAS </th>
 
-                                            <th className="text-center " style={{ width: "8%" }}> DO No. </th>
-                                            <th className="text-center " style={{ width: "13%" }}> Note </th>
+                                            <th className="text-center " style={{ minWidth: "120px" }}> DO NO </th>
+                                            <th className="text-center " style={{ minWidth: "200px" }}> NOTE </th>
 
-                                            <th className="text-center required-label" style={{ width: "8%" }}> Qty </th>
+                                            <th className="text-center required-label" style={{ minWidth: "100px" }}> QTY </th>
 
-                                            <th className="text-center required-label" style={{ width: "10%" }}> UOM </th>
-                                            <th className="text-center required-label" style={{ width: "12%" }}> Unit Price </th>
-                                            <th className="text-center" style={{ width: "11%" }}> Total Price{" "} </th>
-                                            <th className="text-center" style={{ width: "14%" }}> Price (IDR) </th>
+                                            <th className="text-center required-label" style={{ minWidth: "150px" }}> UOM </th>
+                                            <th className="text-center required-label" style={{ minWidth: "150px" }}> UNIT PRICE </th>
+                                            <th className="text-center" style={{ minWidth: "150px" }}> TOTAL PRICE </th>
+                                            <th className="text-center required-label" style={{ minWidth: "150px" }}> SELLING PRICE </th>
+                                            <th className="text-center" style={{ minWidth: "150px" }}> SELLING TOTAL </th>
+                                            <th className="text-center" style={{ minWidth: "150px" }}> IDR </th>
+                                            <th className="text-center" style={{ minWidth: "80px" }}> COMM </th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -1285,14 +1435,41 @@ const AddManualInvoice = () => {
 
                                                 {/* Total Price Column */}
                                                 <td>
-                                                  <Input type="text" disabled name="TotalPrice" className="text-end" value={new Intl.NumberFormat("en-US",
-                                                    { style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2, }
-                                                  ).format(manualinvoiceDetails[index]?.TotalPrice || 0)}
-                                                    id={`TotalPrice-${index}`}
+                                                  <Input type="text" name="TotalPrice" className="text-end" 
+                                                    value={formatInputNumber(manualinvoiceDetails[index]?.TotalPrice || "")}
+                                                    onChange={e => {
+                                                        const raw = e.target.value.replace(/[^0-9.]/g, "");
+                                                        if ((raw.match(/\./g) || []).length > 1) return;
+                                                        handleTotalPriceChange(index, raw);
+                                                    }}
                                                   />
                                                 </td>
 
-                                                {/* Converted Price Column */}
+                                                {/* Selling Price Column */}
+                                                <td>
+                                                  <Input type="text" name={`manualinvoiceDetails.${index}.sellingPrice`} inputMode="decimal" className="text-end"
+                                                    value={formatInputNumber(manualinvoiceDetails[index]?.sellingPrice || "")}
+                                                    onChange={e => {
+                                                      const raw = e.target.value.replace(/[^0-9.]/g, "");
+                                                      if ((raw.match(/\./g) || []).length > 1) return;
+                                                      handleSellingPriceChange(index, raw);
+                                                    }}
+                                                  />
+                                                </td>
+
+                                                {/* Selling Total Column */}
+                                                <td>
+                                                  <Input type="text" className="text-end" 
+                                                    value={formatInputNumber(manualinvoiceDetails[index]?.sellingTotal || "")}
+                                                    onChange={e => {
+                                                        const raw = e.target.value.replace(/[^0-9.]/g, "");
+                                                        if ((raw.match(/\./g) || []).length > 1) return;
+                                                        handleSellingTotalChange(index, raw);
+                                                    }}
+                                                  />
+                                                </td>
+
+                                                {/* IDR Price Column */}
                                                 <td>
                                                   <Input type="text" disabled name="ConvertedPrice"
                                                     value={new Intl.NumberFormat("en-US",
@@ -1301,28 +1478,51 @@ const AddManualInvoice = () => {
                                                     id={`ConvertedPrice-${index}`} className="text-end"
                                                   />
                                                 </td>
+
+                                                {/* Commission Column */}
+                                                <td className="text-center">
+                                                  <div className="d-flex flex-column align-items-center">
+                                                    <Button color="primary" className="btn-sm" onClick={() => openCommModal(index)}>
+                                                      <i className="mdi mdi-plus text-white" />
+                                                    </Button>
+                                                    <span className="font-size-11 mt-1">
+                                                      {new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(
+                                                        (manualinvoiceDetails[index]?.commissions || []).reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0)
+                                                      )}
+                                                    </span>
+                                                  </div>
+                                                </td>
                                               </tr>
                                             );
                                           })}
                                         </tbody>
                                         {/* Footer remains unchanged as colSpan covers the rearranged columns */}
-                                        <tfoot>
-                                          <tr className="fw-bold">
-                                            <td colSpan="7" className="text-end">Total</td>
-                                            <td className="text-end">
-                                              {new Intl.NumberFormat("en-US", {
-                                                style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
-                                              }).format(
-                                                manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.TotalPrice) || 0), 0)
-                                              )}
-                                            </td>
-                                            <td className="text-end">
-                                              {new Intl.NumberFormat("en-US", {
-                                                style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
-                                              }).format(
+                                      <tfoot>
+                                        <tr className="fw-bold">
+                                          <td colSpan="7" className="text-end">Total</td>
+                                          <td className="text-end">
+                                            {new Intl.NumberFormat("en-US", {
+                                              style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
+                                            }).format(
+                                              manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.TotalPrice) || 0), 0)
+                                            )}
+                                          </td>
+                                          <td></td>
+                                          <td className="text-end">
+                                            {new Intl.NumberFormat("en-US", {
+                                              style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
+                                            }).format(
+                                              manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.sellingTotal) || 0), 0)
+                                            )}
+                                          </td>
+                                          <td className="text-end">
+                                            {new Intl.NumberFormat("en-US", {
+                                              style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
+                                            }).format(
                                                 manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.ConvertedPrice) || 0), 0)
                                               )}
                                             </td>
+                                            <td></td>
                                           </tr>
                                         </tfoot>
                                       </Table>
@@ -1412,6 +1612,75 @@ const AddManualInvoice = () => {
             </Col>
           </Row>
         </ModalBody>
+      </Modal>
+      {/* --- COMMISSION DETAILS MODAL --- */}
+      <Modal isOpen={isCommModalOpen} toggle={() => setIsCommModalOpen(false)} size="lg" centered>
+        <ModalHeader toggle={() => setIsCommModalOpen(false)}>Commission Details</ModalHeader>
+        <ModalBody>
+          <div className="table-responsive">
+            <Table className="table align-middle">
+              <thead>
+                <tr>
+                  <th className="text-center" style={{ width: "35%" }}>CONTACT</th>
+                  <th className="text-center" style={{ width: "20%" }}>RATE</th>
+                  <th className="text-center" style={{ width: "20%" }}>QTY</th>
+                  <th className="text-center" style={{ width: "20%" }}>AMOUNT</th>
+                  <th className="text-center" style={{ width: "5%" }}>
+                    <Button color="success" size="sm" onClick={addCommRow}>
+                      <i className="mdi mdi-plus text-white" />
+                    </Button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {tempCommissions.map((comm, cIdx) => (
+                  <tr key={cIdx}>
+                    <td>
+                      <Select
+                        options={contactList.map(c => ({ value: c.contactId, label: c.contactName }))}
+                        value={comm.contactId ? { value: comm.contactId, label: comm.contactName } : null}
+                        onChange={(opt) => handleCommissionUpdate(cIdx, "contactId", opt ? opt.value : "") || handleCommissionUpdate(cIdx, "contactName", opt ? opt.label : "")}
+                      />
+                    </td>
+                    <td>
+                      <Input
+                        type="text"
+                        className="text-end"
+                        value={comm.rate}
+                        onChange={(e) => handleCommissionUpdate(cIdx, "rate", e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <Input
+                        type="text"
+                        className="text-end"
+                        value={comm.qty}
+                        onChange={(e) => handleCommissionUpdate(cIdx, "qty", e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <Input
+                        type="text"
+                        disabled
+                        className="text-end"
+                        value={new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(comm.amount || 0)}
+                      />
+                    </td>
+                    <td className="text-center">
+                      <Button color="danger" size="sm" onClick={() => removeCommRow(cIdx)}>
+                        <i className="mdi mdi-trash-can-outline text-white" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="primary" onClick={saveCommissions}>Save</Button>
+          <Button color="secondary" onClick={() => setIsCommModalOpen(false)}>Close</Button>
+        </ModalFooter>
       </Modal>
     </div>
   );

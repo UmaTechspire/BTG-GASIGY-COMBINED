@@ -88,7 +88,7 @@ const AP = () => {
     const [irnDetailVisible, setIrnDetailVisible] = useState(false);
     const [selectedClaimDetail, setSelectedClaimDetail] = useState(null);
     const [claimDetailVisible, setClaimDetailVisible] = useState(false);
-    
+
     // --- New States for CLM Link Details ---
     const [showClaimDetailModal, setShowClaimDetailModal] = useState(false);
     const [claimDetailData, setClaimDetailData] = useState(null);
@@ -109,7 +109,7 @@ const AP = () => {
             background-color: #3e6e9e !important;
             color: white !important;
             font-weight: bold !important;
-            text-align: center;
+            text-align: left;
         }
         .btn-close-custom {
             background-color: #c06361 !important;
@@ -145,14 +145,14 @@ const AP = () => {
 
                 const poRes = await GetAllPurchaseOrderList(0, branchId, 0, orgId, userId);
                 const poDataList = poRes?.data || (Array.isArray(poRes) ? poRes : []);
-                
+
                 if (poDataList && Array.isArray(poDataList)) {
                     const lookup = {};
                     poDataList.forEach(po => {
                         const pid = po.poid || po.POId || po.po_id || po.purchase_id;
                         if (pid) {
-                            lookup[pid] = { 
-                                pono: po.pono || po.PONo || po.PO_Number || po.ponumber || po.po_no || po.PONumber, 
+                            lookup[pid] = {
+                                pono: po.pono || po.PONo || po.PO_Number || po.ponumber || po.po_no || po.PONumber,
                                 podate: po.podate || po.PODate || po.po_date || po.docdate,
                                 currencyid: po.currencyid || po.CurrencyId || po.currency_id || po.TransactionCurrencyId,
                                 currencycode: po.currencycode || po.CurrencyCode || po.currency_code || po.transactioncurrency || po.TransactionCurrency
@@ -172,7 +172,7 @@ const AP = () => {
         const isSubmitted = rowData.IsSubmitted || rowData.issubmitted;
         return (
             <div className="d-flex justify-content-center align-items-center">
-                <span 
+                <span
                     className={classnames("badge rounded-circle d-flex align-items-center justify-content-center", {
                         "bg-success": isSubmitted,
                         "bg-danger": !isSubmitted
@@ -229,24 +229,24 @@ const AP = () => {
             // Refresh PO Lookup locally for this fetch to ensure accuracy
             const poRes = await GetAllPurchaseOrderList(0, branchId, supplierId, orgId, userId);
             const poDataList = poRes?.data || (Array.isArray(poRes) ? poRes : []);
-            const currentPoLookup = { ...poLookup };
+            // Build currentPoLookup fresh from the API response (not from stale React state)
+            // so that po_amount and other fields are available within this render cycle
+            const currentPoLookup = {};
             if (Array.isArray(poDataList)) {
-                setPoLookup(prev => {
-                    const newLookup = { ...prev };
-                    poDataList.forEach(po => {
-                        const pid = po.poid || po.POId || po.po_id || po.purchase_id;
-                        if (pid) {
-                            newLookup[pid] = {
-                                pono: po.pono || po.PONo || po.PO_Number || po.ponumber || po.po_no || po.PONumber,
-                                podate: po.podate || po.PODate || po.po_date || po.docdate,
-                                currencyid: po.currencyid || po.CurrencyId || po.currency_id || po.TransactionCurrencyId,
-                                currencycode: po.currencycode || po.CurrencyCode || po.currency_code || po.transactioncurrency || po.TransactionCurrency,
-                                po_amount: po.totalamount || po.nettotal || po.po_amount || po.po_total || 0
-                            };
-                        }
-                    });
-                    return newLookup;
+                poDataList.forEach(po => {
+                    const pid = po.poid || po.POId || po.po_id || po.purchase_id;
+                    if (pid) {
+                        currentPoLookup[pid] = {
+                            pono: po.pono || po.PONo || po.PO_Number || po.ponumber || po.po_no || po.PONumber,
+                            podate: po.podate || po.PODate || po.po_date || po.docdate,
+                            currencyid: po.currencyid || po.CurrencyId || po.currency_id || po.TransactionCurrencyId,
+                            currencycode: po.currencycode || po.CurrencyCode || po.currency_code || po.transactioncurrency || po.TransactionCurrency,
+                            po_amount: po.nettotal || po.totalamount || po.po_amount || po.po_total || 0
+                        };
+                    }
                 });
+                // Also sync to React state for other uses
+                setPoLookup(prev => ({ ...prev, ...currentPoLookup }));
             }
 
             if (activeTab === "1") {
@@ -346,9 +346,12 @@ const AP = () => {
                             grnid: item.grn_id || item.grnid || "0",
                             supplierid: item.supplierid || item.supplier_id || 0,
                             modeOfPaymentId: item.ModeOfPaymentId || item.modeOfPaymentId || 0,
-                            invoiceno: item.receiptno || item.receipt_no || "",
-                            invoicedate: item.receiptdate || item.receipt_Date || "",
-                            duedate: item.due_dt || item.duedate || "",
+                            invoiceno: item.invoice_no || item.invoiceno || item.receipt_no || "",
+                            invoicedate: item.invoice_dt || item.invoicedate || item.receipt_Date || "",
+                            duedate: item.due_dt || item.duedate || item.due_Date || "",
+                            invoice_no: item.invoice_no || "",
+                            invoice_dt: item.invoice_dt || "",
+                            due_dt: item.due_dt || "",
                             po_amount: item.po_amount || 0,
                             adv_payment: item.adv_payment || 0,
                             balance_payment: item.balance_payment || 0,
@@ -391,7 +394,7 @@ const AP = () => {
 
                 let allClaimsResponse = { status: false, data: [] };
                 try {
-                    allClaimsResponse = await GetAllClaimAndPayment(0, 0, branchId, orgId, userId);
+                    allClaimsResponse = await GetAllClaimAndPayment(1, 3, branchId, orgId, userId);
                 } catch (e) { console.error("Claims fetch failed", e); }
 
                 let grnResponse = { data: [] };
@@ -420,9 +423,9 @@ const AP = () => {
                         if (item.irnstatus === "Generated" || item.IsSubmitted) {
                             const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
                             const poNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
-                            
+
                             const itemCurId = Number(item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (currentPoLookup[poId] ? (currentPoLookup[poId].currencyid || currentPoLookup[poId].CurrencyId) : 0));
-                            
+
                             // Check currency
                             if (selectedCurrencyId > 0 && itemCurId !== selectedCurrencyId) return;
 
@@ -439,7 +442,10 @@ const AP = () => {
                                 po_date: item.podate || item.po_date || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
                                 po_amount: Number(item.po_amount || (currentPoLookup[poId] ? currentPoLookup[poId].po_amount : 0)),
                                 currencyid: itemCurId,
-                                POId: poId
+                                POId: poId,
+                                invoice_no: item.invoice_no || item.invoiceno || "",
+                                invoice_dt: item.invoice_dt || item.invoicedate || item.receipt_Date || "",
+                                due_dt: item.due_dt || item.duedate || ""
                             });
                         }
                     });
@@ -452,16 +458,21 @@ const AP = () => {
                         if (gid && gid !== "0" && !irnedGrnIds.has(gid)) {
                             const itemDate = item.grndate || item.Date;
                             const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
-                            
+
                             // Check date range
                             if (fDate && timeStamp < fDate) return;
                             if (tDate && timeStamp > tDate) return;
 
-                            const itemCurId = Number(item.currencyid || 0);
+                            const poId = item.poid || item.POId || item.purchase_id || item.po_id || 0;
+                            const poInfo = currentPoLookup[poId] || poLookup[poId] || {};
+
+                            // currencyid may not be on the GRN header — fall back to the linked PO's currency
+                            const itemCurId = Number(item.currencyid || item.CurrencyId || poInfo.currencyid || 0);
                             if (selectedCurrencyId > 0 && itemCurId !== selectedCurrencyId) return;
 
-                            const poId = item.poid || item.POId || 0;
-                            const poNo = item.pono || (currentPoLookup[poId] ? currentPoLookup[poId].pono : "");
+                            const poNo = item.pono || item.po_number || item.ponumber || item.PONo || item.po_no
+                                || poInfo.pono || "";
+                            const poDate = item.podate || item.po_date || poInfo.podate || "";
 
                             mergedList.push({
                                 Date: itemDate,
@@ -473,8 +484,10 @@ const AP = () => {
                                 grn_date: itemDate,
                                 grn_id: gid,
                                 PONumber: poNo,
-                                po_date: item.podate || (currentPoLookup[poId] ? currentPoLookup[poId].podate : ""),
-                                po_amount: Number(item.po_amount || (currentPoLookup[poId] ? currentPoLookup[poId].po_amount : 0)),
+                                po_no: poNo,
+                                pono: poNo,
+                                po_date: poDate,
+                                po_amount: Number(item.po_amount || poInfo.po_amount || 0),
                                 currencyid: itemCurId,
                                 POId: poId
                             });
@@ -489,7 +502,7 @@ const AP = () => {
                         if (isPosted) {
                             const itemDate = item.payment_Date || item.Date || item.payment_date || item.claimdate || item.docdate || item.CreatedDate;
                             const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
-                            
+
                             // Check date range
                             if (fDate && timeStamp < fDate) return;
                             if (tDate && timeStamp > tDate) return;
@@ -528,7 +541,7 @@ const AP = () => {
                         const isPosted = (item.isSubmitted || item.IsSubmitted || item.Status === "Posted" || item.Status === "Approved") && (Number(item.ppp_pv_director_approved) === 1);
 
                         if (isMatchingSupplier && isPosted) {
-                            const itemDate = item.claimdate || item.ApplicationDate || item.Date;
+                            const itemDate = item.paymentDate || item.claimdate || item.ApplicationDate || item.Date;
                             const timeStamp = itemDate ? new Date(itemDate).getTime() : 0;
 
                             // Check date range
@@ -537,7 +550,7 @@ const AP = () => {
 
                             const itemCurId = Number(item.currencyid || item.TransactionCurrencyId || item.currency_id || 0);
                             let finalCurId = itemCurId;
-                            
+
                             // Fallback: If ID is missing, match by currency code from currencyList
                             if (finalCurId === 0 && item.transactioncurrency) {
                                 const matched = currencyList.find(c => c.label === item.transactioncurrency);
@@ -596,13 +609,13 @@ const AP = () => {
     const displayPONumber = (item) => {
         const poNo = item.PONumber || item.pono || item.po_no || (poLookup[item.POId] ? poLookup[item.POId].pono : null);
         const poDate = item.po_date || item.podate || (poLookup[item.POId] ? poLookup[item.POId].podate : null);
-        
+
         if (poNo && poNo !== "-") {
             return (
                 <div className="d-flex flex-column">
-                    <span 
+                    <span
                         className="fw-bold cursor-pointer text-primary"
-                        style={{ textDecoration: 'underline' }} 
+                        style={{ textDecoration: 'underline' }}
                         onClick={() => handlePOClick(item.POId)}
                         title="View PO Details"
                     >
@@ -623,9 +636,9 @@ const AP = () => {
         if (item.grn_no && item.grn_no !== "") {
             return (
                 <div className="d-flex flex-column">
-                    <span 
-                        className="fw-bold cursor-pointer text-primary" 
-                        style={{ textDecoration: 'underline' }} 
+                    <span
+                        className="fw-bold cursor-pointer text-primary"
+                        style={{ textDecoration: 'underline' }}
                         onClick={() => handleGRNClick(item.grn_id)}
                         title="View GRN Details"
                     >
@@ -644,7 +657,7 @@ const AP = () => {
 
     const renderHeader = (tabType) => {
         let filterValue = "";
-        let setFilterValue = () => {};
+        let setFilterValue = () => { };
 
         if (tabType === "GRN") {
             filterValue = globalFilterAccrued;
@@ -660,8 +673,8 @@ const AP = () => {
         return (
             <div className="row align-items-center g-3">
                 <div className="col-12 col-lg-6">
-                    <Button 
-                        className="btn btn-danger btn-label" 
+                    <Button
+                        className="btn btn-danger btn-label"
                         onClick={handleClearFilter}
                     >
                         <i className="mdi mdi-filter-off label-icon" /> Clear
@@ -670,12 +683,12 @@ const AP = () => {
                 <div className="col-12 col-lg-3 text-end">
                 </div>
                 <div className="col-12 col-lg-3">
-                    <InputText 
-                        type="search" 
-                        placeholder="Keyword Search" 
-                        className="form-control" 
-                        value={filterValue} 
-                        onChange={(e) => setFilterValue(e.target.value)} 
+                    <InputText
+                        type="search"
+                        placeholder="Keyword Search"
+                        className="form-control"
+                        value={filterValue}
+                        onChange={(e) => setFilterValue(e.target.value)}
                     />
                 </div>
             </div>
@@ -745,7 +758,19 @@ const AP = () => {
         try {
             const res = await GetGRNById(grnId, branchId, orgId);
             if (res.status && res.data) {
-                setModalData(res.data);
+                const details = res.data.Details || [];
+                // Extract unique PO numbers from line items to display in header
+                const poList = [...new Set(details.map(d => d.pono || d.PO_Number || d.po_no || d.PONumber).filter(Boolean))];
+                const poConcat = poList.length > 0 ? poList.join(", ") : "N/A";
+
+                const enrichedData = {
+                    ...res.data,
+                    Header: {
+                        ...(res.data.Header || {}),
+                        POConcat: poConcat
+                    }
+                };
+                setModalData(enrichedData);
             } else {
                 toast.error("Failed to fetch GRN details");
                 setModal(false);
@@ -758,7 +783,7 @@ const AP = () => {
         }
     };
 
-    const handleIRNClick = async (poId) => {
+    const handleIRNClick = async (poId, row = {}) => {
         if (!poId) {
             toast.warning("No linked PO found.");
             return;
@@ -769,7 +794,18 @@ const AP = () => {
         try {
             const res = await GetByIdPurchaseOrder(poId, orgId, branchId);
             if (res.status && res.data) {
-                setModalData(res.data);
+                // Incorporate IRN data for the modal display
+                const enrichedData = {
+                    ...res.data,
+                    IRN_Header: {
+                        irn_no: row.Reference || row.receipt_no || row.receiptno || "-",
+                        irn_date: row.IRNDate || row.ReferenceDate || row.receipt_date || row.receipt_Date || "-",
+                        inv_no: row.invoice_no || row.invoiceno || "-",
+                        inv_date: row.invoice_dt || row.invoicedate || "-",
+                        due_date: row.due_dt || row.DueDate || row.duedate || "-"
+                    }
+                };
+                setModalData(enrichedData);
             } else {
                 toast.error("Failed to fetch details");
                 setModal(false);
@@ -833,17 +869,17 @@ const AP = () => {
                         const cNo = (c.claimno || c.claim_no || c.ApplicationNo || c.Reference || "").trim();
                         const cNoPureStr = cNo.replace("CLM", "").trim();
                         const cNoPureNum = parseInt(cNoPureStr, 10);
-                        
-                        return cNo === pureClaimNo || 
-                               (cNoPureStr === searchNoStr && searchNoStr !== "") ||
-                               (!isNaN(searchNoNum) && searchNoNum === cNoPureNum);
+
+                        return cNo === pureClaimNo ||
+                            (cNoPureStr === searchNoStr && searchNoStr !== "") ||
+                            (!isNaN(searchNoNum) && searchNoNum === cNoPureNum);
                     });
-                    
+
                     if (match) {
                         claimId = match.ClaimID || match.Claim_ID || match.claimid || match.Id || match.id;
                     }
                 }
-                
+
                 // Final fallback
                 if (!claimId) {
                     const numericOnly = pureClaimNo.replace(/\D/g, '');
@@ -883,7 +919,7 @@ const AP = () => {
                     CostCenter: header.CostCenter || "-",
                     ClaimAmtInTC: header.ClaimAmountInTC || header.claimamountintc || 0,
                     Attachment: header.AttachmentName || "No Attachment",
-                    PaymentMode: header.paymentmethodname || "-"
+                    PaymentMode: header.paymentmethodname || header.modeOfPayment || header.ModeOfPayment || (header.ModeOfPaymentId === 1 ? "Cash" : header.ModeOfPaymentId === 2 ? "Bank Transfer" : "-")
                 });
             } else {
                 console.error("❌ No header found in claim response");
@@ -1028,13 +1064,13 @@ const AP = () => {
                             <Col md={3}>
                                 <div className="mb-3">
                                     <Label className="fw-bold">Currency</Label>
-                                    <Select 
-                                        options={currencyList} 
-                                        value={activeTab === "1" ? null : filter.currency} 
-                                        onChange={(opt) => handleFilterChange("currency", opt)} 
-                                        isClearable 
-                                        placeholder="Select Currency" 
-                                        isDisabled={activeTab === "1"} 
+                                    <Select
+                                        options={currencyList}
+                                        value={activeTab === "1" ? null : filter.currency}
+                                        onChange={(opt) => handleFilterChange("currency", opt)}
+                                        isClearable
+                                        placeholder="Select Currency"
+                                        isDisabled={activeTab === "1"}
                                     />
                                 </div>
                             </Col>
@@ -1147,7 +1183,7 @@ const AP = () => {
                                         bodyStyle={{ textAlign: "center" }}
                                     />
                                     <Column field="Reference" header="Reference (IRN)" body={(item) => (
-                                        <span className="fw-bold cursor-pointer text-primary" style={{ textDecoration: 'underline' }} onClick={() => handleIRNClick(item.POId)}>
+                                        <span className="fw-bold cursor-pointer text-primary" style={{ textDecoration: 'underline' }} onClick={() => handleIRNClick(item.POId, item)}>
                                             {item.Reference}
                                         </span>
                                     )} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
@@ -1185,37 +1221,37 @@ const AP = () => {
                                     showGridlines
                                     size="small"
                                 >
-                                    <Column field="Reference" header="Reference No." body={(rowData) => {
+                                    <Column field="po_no" header="PO No / DATE" body={displayPONumber} sortable />
+                                    <Column field="po_amount" header="PO Amt" body={(item) => {
+                                        let val = item.po_amount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+                                    }} className="text-end" sortable />
+                                    <Column field="grn_no" header="GRN No. / DATE" body={displayGRNNumber} sortable />
+                                    <Column field="Reference" header="Ref No." body={(rowData) => {
                                         const ref = rowData.Reference;
                                         if (!ref || ref === "" || ref === "-") return "-";
-                                        
+
                                         if (ref.startsWith("CLM")) {
                                             return <span className="text-primary cursor-pointer fw-bold" onClick={() => handleClaimClick(rowData)}>{ref}</span>;
                                         }
                                         if (ref.startsWith("IRN") || ref.startsWith("SPC")) {
-                                            return <span className="text-primary cursor-pointer fw-bold" onClick={() => handleIRNClick(rowData)}>{ref}</span>;
+                                            return <span className="text-primary cursor-pointer fw-bold" onClick={() => handleIRNClick(rowData.POId || rowData.poid, rowData)}>{ref}</span>;
                                         }
                                         return <span>{ref}</span>;
                                     }} sortable />
-                                    <Column field="ReferenceDate" header="Reference Date" body={(item) => formatDate(item.ReferenceDate)} sortable />
+                                    <Column field="ReferenceDate" header="Ref Date" body={(item) => formatDate(item.ReferenceDate)} sortable />
                                     <Column field="IRNAmount" header="IRN Amount" body={(item) => {
                                         let val = item.IRNAmount || 0;
                                         if (Math.abs(val) < 0.001) val = 0;
                                         return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
                                     }} className="text-end" sortable />
-                                    <Column field="grn_no" header="GRN No / Date" body={displayGRNNumber} sortable />
-                                    <Column field="po_no" header="PO No / Date" body={displayPONumber} sortable />
-                                    <Column field="po_amount" header="PO Amount" body={(item) => {
-                                        let val = item.po_amount || 0;
-                                        if (Math.abs(val) < 0.001) val = 0;
-                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
-                                    }} className="text-end" sortable />
-                                    <Column field="ClaimAmount" header="Claim Amount" body={(item) => {
+                                    <Column field="ClaimAmount" header="Claim Amt" body={(item) => {
                                         let val = item.ClaimAmount || 0;
                                         if (Math.abs(val) < 0.001) val = 0;
                                         return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
                                     }} className="text-end" sortable />
-                                    <Column field="CumulativeAmount" header="Cumulative Value" body={(item) => {
+                                    <Column field="CumulativeAmount" header="Cumulative" body={(item) => {
                                         let val = item.CumulativeAmount || 0;
                                         if (Math.abs(val) < 0.001) val = 0;
                                         return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1244,8 +1280,8 @@ const AP = () => {
                                                     <span>: {modalData.Header?.grnno}</span>
                                                 </div>
                                                 <div className="d-flex mb-2">
-                                                    <span className="bold-label" style={{ minWidth: "120px" }}>PO No(s).</span>
-                                                    <span>: {modalData.Header?.POConcat || modalData.Header?.pono || "N/A"}</span>
+                                                    <span className="bold-label" style={{ minWidth: "120px" }}>PO No.</span>
+                                                    <span>: {modalData.Header?.POConcat || "N/A"}</span>
                                                 </div>
                                             </Col>
                                             <Col md={4}>
@@ -1262,34 +1298,69 @@ const AP = () => {
                                             </Col>
                                         </Row>
                                     ) : (
-                                        <Row>
-                                            <Col md={4}>
-                                                <div className="d-flex mb-2">
-                                                    <span className="bold-label" style={{ minWidth: "120px" }}>PO No.</span>
-                                                    <span>: {modalData.Header?.pono}</span>
-                                                </div>
-                                                <div className="d-flex mb-2">
-                                                    <span className="bold-label" style={{ minWidth: "120px" }}>Currency</span>
-                                                    <span>: {modalData.Header?.currencycode || "N/A"}</span>
-                                                </div>
-                                            </Col>
-                                            <Col md={4}>
-                                                <div className="d-flex mb-2">
-                                                    <span className="bold-label" style={{ minWidth: "120px" }}>PO Date</span>
-                                                    <span>: {formatDate(modalData.Header?.podate)}</span>
-                                                </div>
-                                                <div className="d-flex mb-2">
-                                                    <span className="bold-label" style={{ minWidth: "120px" }}>PR No.</span>
-                                                    <span className="text-danger fw-bold">: {modalData.Requisition?.[0]?.prnumber || "-"}</span>
-                                                </div>
-                                            </Col>
-                                            <Col md={4}>
-                                                <div className="d-flex mb-2">
-                                                    <span className="bold-label" style={{ minWidth: "120px" }}>Supplier</span>
-                                                    <span className="text-uppercase">: {modalData.Header?.suppliername}</span>
-                                                </div>
-                                            </Col>
-                                        </Row>
+                                        <>
+                                            {modalType === "IRN" && modalData.IRN_Header && (
+                                                <>
+                                                    <Row className="mb-2">
+                                                        <Col md={4}>
+                                                            <div className="d-flex mb-2">
+                                                                <span className="bold-label" style={{ minWidth: "120px" }}>IRN No.</span>
+                                                                <span className="fw-bold">: {modalData.IRN_Header.irn_no}</span>
+                                                            </div>
+                                                            <div className="d-flex mb-2">
+                                                                <span className="bold-label" style={{ minWidth: "120px" }}>IRN Date</span>
+                                                                <span>: {modalData.IRN_Header.irn_date}</span>
+                                                            </div>
+                                                        </Col>
+                                                        <Col md={4}>
+                                                            <div className="d-flex mb-2">
+                                                                <span className="bold-label" style={{ minWidth: "120px" }}>Inv No.</span>
+                                                                <span>: {modalData.IRN_Header.inv_no}</span>
+                                                            </div>
+                                                            <div className="d-flex mb-2">
+                                                                <span className="bold-label" style={{ minWidth: "120px" }}>Inv Date</span>
+                                                                <span>: {modalData.IRN_Header.inv_date}</span>
+                                                            </div>
+                                                        </Col>
+                                                        <Col md={4}>
+                                                            <div className="d-flex mb-2">
+                                                                <span className="bold-label" style={{ minWidth: "120px" }}>Due Date</span>
+                                                                <span>: {modalData.IRN_Header.due_date}</span>
+                                                            </div>
+                                                        </Col>
+                                                    </Row>
+                                                    <hr className="my-2" />
+                                                </>
+                                            )}
+                                            <Row>
+                                                <Col md={4}>
+                                                    <div className="d-flex mb-2">
+                                                        <span className="bold-label" style={{ minWidth: "120px" }}>PO No.</span>
+                                                        <span>: {modalData.Header?.pono}</span>
+                                                    </div>
+                                                    <div className="d-flex mb-2">
+                                                        <span className="bold-label" style={{ minWidth: "120px" }}>Currency</span>
+                                                        <span>: {modalData.Header?.currencycode || "N/A"}</span>
+                                                    </div>
+                                                </Col>
+                                                <Col md={4}>
+                                                    <div className="d-flex mb-2">
+                                                        <span className="bold-label" style={{ minWidth: "120px" }}>PO Date</span>
+                                                        <span>: {formatDate(modalData.Header?.podate)}</span>
+                                                    </div>
+                                                    <div className="d-flex mb-2">
+                                                        <span className="bold-label" style={{ minWidth: "120px" }}>PR No.</span>
+                                                        <span className="text-danger fw-bold">: {modalData.Requisition?.[0]?.prnumber || "-"}</span>
+                                                    </div>
+                                                </Col>
+                                                <Col md={4}>
+                                                    <div className="d-flex mb-2">
+                                                        <span className="bold-label" style={{ minWidth: "120px" }}>Supplier</span>
+                                                        <span className="text-uppercase">: {modalData.Header?.suppliername}</span>
+                                                    </div>
+                                                </Col>
+                                            </Row>
+                                        </>
                                     )}
                                 </div>
                                 <hr />
@@ -1302,7 +1373,7 @@ const AP = () => {
                                                 <th>#</th>
                                                 {(modalType === "PO" || modalType === "IRN") && <th>PR No.</th>}
                                                 {(modalType === "PO" || modalType === "IRN") && <th>Item Group</th>}
-                                                <th>{modalType === "GRN" ? "Item Description" : "Item Name"}</th>
+                                                <th style={{ whiteSpace: 'nowrap' }}>{modalType === "GRN" ? "Item Description" : "Item Name"}</th>
                                                 <th>Qty</th>
                                                 <th>UOM</th>
                                                 {modalType === "GRN" && <th>Recd Qty</th>}
@@ -1322,7 +1393,7 @@ const AP = () => {
                                                     <td>{i + 1}</td>
                                                     {(modalType === "PO" || modalType === "IRN") && <td><span className="fw-bold text-danger cursor-pointer" onClick={() => handlePRClick(row.prid)}>{row.prnumber || row.pr_number || "-"}</span></td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td>{row.groupname || "-"}</td>}
-                                                    <td>{row.itemname || row.itemDescription || "-"}</td>
+                                                    <td style={{ minWidth: '200px' }}>{row.itemname || row.itemDescription || "-"}</td>
                                                     <td>{row.qty || row.poqty || 0}</td>
                                                     <td>{row.uom || row.UOM || "-"}</td>
                                                     {modalType === "GRN" && <td>{row.alreadyrecqty || 0}</td>}
@@ -1520,11 +1591,11 @@ const AP = () => {
                 </Modal>
 
                 {/* Claim Link Detail Modal */}
-                <Modal 
-                    isOpen={showClaimDetailModal} 
-                    toggle={() => setShowClaimDetailModal(false)} 
-                    size="xl" 
-                    centered 
+                <Modal
+                    isOpen={showClaimDetailModal}
+                    toggle={() => setShowClaimDetailModal(false)}
+                    size="xl"
+                    centered
                     backdrop="static"
                 >
                     <ModalHeader toggle={() => setShowClaimDetailModal(false)}>

@@ -553,13 +553,20 @@ BEGIN
     SELECT 
         r.receipt_id,
         COALESCE(r.receipt_date, r.created_date) as Date,
-        r.reference_no as VoucherNo,
+        CASE 
+            WHEN r.reference_no LIKE 'PC%' AND r.reference_no LIKE '% | %' THEN SUBSTRING_INDEX(r.reference_no, ' | ', 1)
+            ELSE r.reference_no 
+        END as VoucherNo,
         COALESCE(r.transaction_type, CASE WHEN r.cash_amount > 0 THEN 'Receipt' ELSE 'Payment' END) as TransactionType, 
         CASE 
+            WHEN LOWER(r.transaction_type) = 'deposit to bank' THEN COALESCE(b.BankName, 'Bank Withdrawal')
+            WHEN LOWER(r.transaction_type) = 'bank transfer' AND r.bank_amount < 0 THEN COALESCE(b.BankName, 'Bank Withdrawal')
             WHEN (r.cash_amount > 0 OR r.transaction_type = 'Deposit') AND r.deposit_bank_id != '0' AND r.deposit_bank_id IS NOT NULL 
                 THEN COALESCE(b.BankName, 'Bank Withdrawal')
             WHEN r.cash_amount < 0 AND r.customer_id != 0 
                 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+            WHEN r.reference_no LIKE 'PC%' AND r.reference_no LIKE '% | %'
+                THEN SUBSTRING_INDEX(r.reference_no, ' | ', -1)
             WHEN r.reference_no LIKE 'CLM%' AND r.reference_no LIKE '% - %'
                 THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
             ELSE COALESCE(c.CustomerName, 'Unknown Customer') 
@@ -578,8 +585,8 @@ BEGIN
     LEFT JOIN btggasify_masterpanel_live.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
     WHERE DATE(COALESCE(r.receipt_date, r.created_date)) BETWEEN p_from_date AND p_to_date
       AND r.is_active = 1
-      AND IFNULL(r.is_submitted, 0) = 1
-      AND r.cash_amount != 0
+      AND (r.is_posted = 1 OR IFNULL(r.is_submitted, 0) = 1)
+      AND (r.cash_amount > 0 OR (r.cash_amount != 0 AND LOWER(r.transaction_type) != 'bank transfer'))
       AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL
            OR (r.deposit_bank_id IS NULL OR r.deposit_bank_id = '' OR r.deposit_bank_id = '0'))
       AND (p_bank_id = 0 OR r.deposit_bank_id = CAST(p_bank_id AS CHAR))

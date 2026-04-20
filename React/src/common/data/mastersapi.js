@@ -4856,6 +4856,21 @@ export const saveOrUpdatePettyCash = async (payload, isEdit = false, file = null
     }
 };
 
+/**
+ * Creates one or more cash book entries (Receipts/Payments/Transfers).
+ * Calls the Python backend endpoint for Cash Book creation.
+ */
+export const saveCashReceipt = async (payload) => {
+    try {
+        const url = `${PYTHON_API_URL}/AR/cash/create`;
+        const response = await axios.post(url, payload);
+        return response.data;
+    } catch (error) {
+        console.error("Error creating cash book entry:", error);
+        throw error;
+    }
+};
+
 export const getPettyCashList = async (orgId, branchId, pettycashId = null, expType = null, voucherNo = null, categoryId = null, fromDate = null, toDate = null) => {
     try {
         debugger

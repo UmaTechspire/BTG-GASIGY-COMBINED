@@ -406,6 +406,13 @@ const InvoiceReceipt = () => {
             ...r,
             PR_NUMBER: pr ? pr.pr_number : "NA",
             PRDisplay: pr ? pr.pr_number : "NA",
+            // IRN Header data injection
+            irn_no: row.receipt_no,
+            irn_date: row.receipt_Date,
+            supplier_name: row.suppliername,
+            inv_no: row.invoice_no,
+            inv_date: row.invoice_dt,
+            due_date: row.due_dt
           };
         });
       } else {
@@ -413,6 +420,13 @@ const InvoiceReceipt = () => {
           ...r,
           PR_NUMBER: "NA",
           PRDisplay: "NA",
+          // IRN Header data injection
+          irn_no: row.receipt_no,
+          irn_date: row.receipt_Date,
+          supplier_name: row.suppliername,
+          inv_no: row.invoice_no,
+          inv_date: row.invoice_dt,
+          due_date: row.due_dt
         }));
       }
 
@@ -425,6 +439,14 @@ const InvoiceReceipt = () => {
 
       setSelectedPODetail({
         ...res.data,
+        IRN_Header: {
+          irn_no: row.receipt_no || row.Receipt_No,
+          irn_date: row.receipt_Date || row.Receipt_Date,
+          supplier: row.suppliername || row.SupplierName,
+          inv_no: row.invoice_no || row.Invoice_No,
+          inv_date: row.invoice_dt || row.Invoice_Dt,
+          due_date: row.due_dt || row.Due_Dt
+        },
         Header: {
           ...res.data.Header,
           PRConcat: headerPRNumbers, // header field with PR numbers
@@ -788,27 +810,56 @@ const InvoiceReceipt = () => {
 
 
       <Modal isOpen={POdetailVisible} toggle={() => setPODetailVisible(false)} size="xl">
-        <ModalHeader toggle={() => setPODetailVisible(false)}>Purchase Order Details</ModalHeader>
+        <ModalHeader toggle={() => setPODetailVisible(false)}>IRN Details</ModalHeader>
         <ModalBody>
           {selectedPODetail && (
             <>
-              {/* PO Header Section */}
-              <Row form>
+              {/* IRN Header Section */}
+              <Row className="mb-2">
                 {[
-                  ["PO No.", selectedPODetail.Header?.pono],
-                  ["PO Date", formatDate(selectedPODetail.Header?.podate)],
-                  ["Supplier", selectedPODetail.Header?.suppliername],
+                  ["IRN No.", selectedPODetail.IRN_Header?.irn_no],
+                  ["IRN Date", selectedPODetail.IRN_Header?.irn_date],
+                  ["Due Date", selectedPODetail.IRN_Header?.due_date],
+                  ["Inv Date", selectedPODetail.IRN_Header?.inv_date],
+                  ["Inv No.", selectedPODetail.IRN_Header?.inv_no],
                   ["Currency", selectedPODetail.Header?.currencycode],
-                  ["PR No.", selectedPODetail.Header?.PRConcat], // concat of all PRs
                 ].map(([label, val], i) => (
-                  <Col md="4" key={i} className="form-group row ">
-                    <Label className="col-sm-5 col-form-label bold">{label}</Label>
-                    <Col sm="7" className="mt-2">: {val}</Col>
+                  <Col md="4" key={i} className="mb-2 d-flex align-items-center">
+                    <div className="bold font-size-13" style={{ minWidth: "100px", flexShrink: 0 }}>
+                      {label}
+                    </div>
+                    <div className="mx-2">:</div>
+                    <div className="text-dark font-size-13 text-nowrap text-truncate">
+                      {val || "NA"}
+                    </div>
                   </Col>
                 ))}
               </Row>
 
-              <hr />
+              <hr className="my-2" />
+
+              {/* PO Header Section */}
+              <Row className="mb-2">
+                {[
+                  ["PO No.", selectedPODetail.Header?.pono],
+                  ["PO Date", formatDate(selectedPODetail.Header?.podate)],
+                  ["Supplier", selectedPODetail.Header?.suppliername],
+                ].map(([label, val], i) => (
+                  <Col md="4" key={i} className="mb-2 d-flex align-items-center">
+                    <div className="bold font-size-13" style={{ minWidth: "100px", flexShrink: 0 }}>
+                      {label}
+                    </div>
+                    <div className="mx-2">:</div>
+                    <div
+                      className="text-dark font-size-13 text-nowrap text-truncate"
+                    >
+                      {val || "NA"}
+                    </div>
+                  </Col>
+                ))}
+              </Row>
+
+              <hr className="mb-4" />
 
               <DataTable value={selectedPODetail.Requisition}>
                 <Column header="#" body={(_, { rowIndex }) => rowIndex + 1} />

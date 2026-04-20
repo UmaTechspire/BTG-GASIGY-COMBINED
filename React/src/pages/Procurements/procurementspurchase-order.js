@@ -170,8 +170,8 @@ const ProcurementsManagePurchaseOrder = () => {
         { field: 'totalamount', header: 'Total Amount' },
         { field: 'CreatedDate', header: 'Created Date' },
         { field: 'createdbyName', header: 'Created By' },
-        { field: 'irn_no', header: 'IRN No' },
         { field: 'grn_no', header: 'GRN No' },
+        { field: 'irn_no', header: 'IRN No' },
         { field: 'claim_no', header: 'Claim No' }
     ];
     const [visibleColumns, setVisibleColumns] = useState(columns);
@@ -197,46 +197,27 @@ const ProcurementsManagePurchaseOrder = () => {
     const [selectedClaimDetail, setSelectedClaimDetail] = useState(null);
 
     useEffect(() => {
-        const fetchItemsFromPOs = async () => {
-            if (!allPurchaseOrders || allPurchaseOrders.length === 0) {
-                setAllItemsForFilter([]);
-                return;
-            }
-
+        const fetchItemsForFilter = async () => {
             try {
-                // Fetch details for the POs in the table to populate the Item filter natively.
-                const posToFetch = allPurchaseOrders;
-                const uniqueItemMap = new Map();
-
-                const chunkSize = 20;
-                for (let i = 0; i < posToFetch.length; i += chunkSize) {
-                    const chunk = posToFetch.slice(i, i + chunkSize);
-                    await Promise.all(chunk.map(async (po) => {
-                        try {
-                            const res = await GetByIdPurchaseOrder(po.poid, orgId, branchId);
-                            if (res?.status && res.data?.Requisition) {
-                                res.data.Requisition.forEach(item => {
-                                    const name = item.itemname || item.itemdescription;
-                                    if (name) {
-                                        uniqueItemMap.set(name.trim(), true);
-                                    }
-                                });
-                            }
-                        } catch (err) {
-                            // ignore individual fail
-                        }
+                // Instead of fetching details for every PO, we fetch the common master items.
+                // This avoids the massive number of API calls on page load.
+                const res = await GetCommonProcurementItemDetails(0, orgId, branchId, "%");
+                if (res?.status && Array.isArray(res.data)) {
+                    const uniqueItems = res.data.map(item => ({
+                        label: item.itemname || item.itemdescription,
+                        value: item.itemname || item.itemdescription
                     }));
+                    setAllItemsForFilter(uniqueItems);
                 }
-
-                const uniqueItems = Array.from(uniqueItemMap.keys()).map(name => ({ label: name, value: name }));
-                setAllItemsForFilter(uniqueItems);
             } catch (error) {
-                console.error("Error fetching PO items:", error);
+                console.error("Error fetching items for filter:", error);
             }
         };
 
-        fetchItemsFromPOs();
-    }, [allPurchaseOrders, orgId, branchId]);
+        if (orgId && branchId) {
+            fetchItemsForFilter();
+        }
+    }, [orgId, branchId]);
 
     const getSeverity = (Status) => {
         switch (Status) {
@@ -535,6 +516,19 @@ const ProcurementsManagePurchaseOrder = () => {
     };
 
     const fetchAdvancedData = async () => {
+
+        if (!selectedFilterType || selectedFilterType.length === 0) {
+            Swal.fire("warning", "Please select at least one option in the 'Search By' field before proceeding an Advanced Search.", "warning");
+            return;
+        }
+
+        const hasFilterValue = filterPoNo || filterSupplier || filterCurrency || filterPoDateFrom || filterPoDateTo || filterAmountFrom || filterAmountTo || filterCreatedDateFrom || filterCreatedDateTo || filterCreatedBy || filterItemName;
+
+        if (!hasFilterValue) {
+            Swal.fire("warning", "Please enter a value for the selected search criteria before proceeding an Advanced Search.", "warning");
+            return;
+        }
+
         setIsAdvancedLoading(true);
         try {
             const filteredData = await getFilteredPurchaseOrders();
@@ -546,25 +540,54 @@ const ProcurementsManagePurchaseOrder = () => {
                 return;
             }
 
-            // Verify against all filtered data
+            // Limit mass-fetching to avoid server issues
+            const MAX_AUTO_FETCH = 50;
             const posToFetch = filteredData;
 
-            let detailedPOs = await Promise.all(
-                posToFetch.map(async (po) => {
-                    try {
-                        const res = await GetByIdPurchaseOrder(po.poid, orgId, branchId);
-                        if (res?.status && res.data) {
-                            return {
-                                header: { ...po, PaymentTerm: res.data.Header?.paymentterm || res.data.Header?.PaymentTermName || res.data.Header?.PaymentTerm || po.PaymentTerm },
-                                details: res.data.Requisition || [],
-                            };
+            if (posToFetch.length > MAX_AUTO_FETCH && filterItemName) {
+                const confirmed = await Swal.fire({
+                    title: "Large Result Set",
+                    text: `Searching items across ${posToFetch.length} POs may take some time. Do you want to continue?`,
+                    icon: "warning",
+                    showCancelButton: true,
+                    confirmButtonText: "Yes, continue",
+                    cancelButtonText: "No, stop"
+                });
+                if (!confirmed.isConfirmed) {
+                    setIsAdvancedLoading(false);
+                    return;
+                }
+            }
+
+            let detailedPOs = [];
+
+            // To prevent blocking the server, we fetch in smaller chunks
+            const chunkSize = 10;
+            for (let i = 0; i < posToFetch.length; i += chunkSize) {
+                // If not filtering by item name and we already have enough for initial view,
+                // we could potentially stop or lazy load others. But for now, we just chunk it.
+                const chunk = posToFetch.slice(i, i + chunkSize);
+                const chunkDetailed = await Promise.all(
+                    chunk.map(async (po) => {
+                        try {
+                            const res = await GetByIdPurchaseOrder(po.poid, orgId, branchId);
+                            if (res?.status && res.data) {
+                                return {
+                                    header: { ...po, PaymentTerm: res.data.Header?.paymentterm || res.data.Header?.PaymentTermName || res.data.Header?.PaymentTerm || po.PaymentTerm },
+                                    details: res.data.Requisition || [],
+                                };
+                            }
+                        } catch (err) {
+                            console.error("Failed to fetch detail for PO", po.poid);
                         }
-                    } catch (err) {
-                        console.error("Failed to fetch detail for PO", po.poid);
-                    }
-                    return { header: po, details: [] };
-                })
-            );
+                        return { header: po, details: [] };
+                    })
+                );
+                detailedPOs = [...detailedPOs, ...chunkDetailed];
+
+                // Safety break if it's too large and no item filter is used
+                if (!filterItemName && detailedPOs.length >= 100) break;
+            }
 
             if (filterItemName) {
                 const searchLower = (filterItemName.value || filterItemName.label || '').toLowerCase();
@@ -574,7 +597,6 @@ const ProcurementsManagePurchaseOrder = () => {
                         (item.itemdescription && item.itemdescription.toLowerCase().includes(searchLower))
                     )
                 );
-                // Also update the main table with this filtered list based on line items
                 const matchingPOIds = new Set(detailedPOs.map(po => po.header.poid));
                 setPurchaseOrders(filteredData.filter(po => matchingPOIds.has(po.poid)));
             } else {
@@ -1752,15 +1774,6 @@ const ProcurementsManagePurchaseOrder = () => {
                                             style={{ width: "10%" }}
                                         />
                                         <Column
-                                            field="irn_no"
-                                            header="IRN No"
-                                            filter
-                                            filterPlaceholder="Search by IRN"
-                                            className="text-left"
-                                            style={{ width: "10%" }}
-                                            body={irnLinkBodyTemplate}
-                                        />
-                                        <Column
                                             field="grn_no"
                                             header="GRN No"
                                             filter
@@ -1768,6 +1781,15 @@ const ProcurementsManagePurchaseOrder = () => {
                                             className="text-left"
                                             style={{ width: "10%" }}
                                             body={grnLinkBodyTemplate}
+                                        />
+                                        <Column
+                                            field="irn_no"
+                                            header="IRN No"
+                                            filter
+                                            filterPlaceholder="Search by IRN"
+                                            className="text-left"
+                                            style={{ width: "10%" }}
+                                            body={irnLinkBodyTemplate}
                                         />
                                         <Column
                                             field="claim_no"

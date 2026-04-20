@@ -23,7 +23,7 @@ import {
     ClaimAndPaymentGetById, DownloadFileById, GetClaimAndPaymentApplicantDetails, GetClaimAndPaymentSeqNum,
     GetClaimAndPaymentSupplierList, GetClaimAndPaymentTransactionCurrency, GetClaimCategoryData, GetPaymentMethods,
     GetClaimDepartmentData, GetClaimTypeList, GetPaymentDescriptionList, SaveClaimAndPayment, uploadFileToServer,
-    GetSupplierTaxList, GetSupplierVATList, GetClaimPOList
+    GetSupplierTaxList, GetSupplierVATList, GetClaimPOList, GetUserById, GetDepartmentById
 } from "common/data/mastersapi";
 import Swal from 'sweetalert2';
 import { AutoComplete } from "primereact/autocomplete";
@@ -60,18 +60,24 @@ const Addclaimpayment = () => {
     const formikRef = useRef();
     const history = useHistory();
     const [activeTab, setActiveTab] = useState(1);
-    const [activeapp, setactiveapp] = useState(1);
+    const [activeapp, setactiveapp] = useState(0);
     const [branchId, setBranchId] = useState(1);
     const [orgId, setOrgId] = useState(1);
     const [categorySuggestions, setCategorySuggestions] = useState([]);
     const [departmentSuggestions, setDepartmentSuggestions] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState({ categoryname: "Claim", categoryid: 1 });
-    const [selectedDepartment, setSelectedDepartment] = useState(null);
+    const [selectedDepartment, setSelectedDepartment] = useState({
+        departmentid: (JSON.parse(localStorage.getItem("authUser"))?.departmentId || JSON.parse(localStorage.getItem("authUser"))?.departmentid || JSON.parse(localStorage.getItem("authUser"))?.department || ""),
+        departmentname: (JSON.parse(localStorage.getItem("authUser"))?.departmentname || ""),
+    });
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [supplierSuggestions, setSupplierSuggestions] = useState([]);
 
     const [polist, setpolist] = useState([]);
-    const [selectedApplicant, setSelectedApplicant] = useState(null);
+    const [selectedApplicant, setSelectedApplicant] = useState({
+        userid: JSON.parse(localStorage.getItem("authUser"))?.u_id || "",
+        username: JSON.parse(localStorage.getItem("authUser"))?.username || "",
+    });
     const [applicantSuggestions, setApplicantSuggestions] = useState([]);
     const [selectedCurrency, setSelectedCurrency] = useState(null);
     const [DefaultCurrency, setDefaultCurrency] = useState(null);
@@ -98,13 +104,13 @@ const Addclaimpayment = () => {
         supplier: "",
         applicationDate: new Date().toISOString().slice(0, 10),
         claimNumber: "",
-        applicant: "",
+        applicant: JSON.parse(localStorage.getItem("authUser"))?.u_id || "",
         poNumber: "",
         jobTitle: "",
         currency: "",
         modeOfPayment: "",
         modeOfPaymentId: "",
-        department: "",
+        department: (JSON.parse(localStorage.getItem("authUser"))?.departmentId || JSON.parse(localStorage.getItem("authUser"))?.departmentid || JSON.parse(localStorage.getItem("authUser"))?.department || ""),
         costCenter: "",
         claimAmountTC: formatToTwoDecimals(),
         claimAmountIDR: "",
@@ -347,10 +353,7 @@ const Addclaimpayment = () => {
                 const data = res.data;
                 setLogininfo(data);
 
-                if (data.hodlogin == 0) {
-                    setactiveapp(0);
-                }
-
+                setactiveapp(0);
             }
         }
         const fetchSeqNum = async () => {
@@ -360,28 +363,47 @@ const Addclaimpayment = () => {
             if (res.status) {
                 const data = res.data
                 setLogininfo(data);
-                if (data.hodlogin == 0) {
-                    setactiveapp(0);
+                const applicantId = data.applicantid || userData?.u_id || "";
+                let applicantName = data.applicantname || userData?.username || "";
+                let departmentId = data.departmentid || data.DepartmentId || "";
+                let departmentName = data.departmentname || data.DepartmentName || "";
 
-
-                    setInitialValues((prev) => ({
-                        ...prev,
-                        applicant: data?.applicantid,
-                        department: data?.departmentid,
-
-                    }));
-
-
-                    setSelectedApplicant({
-                        username: data.applicantname,
-                        userid: data.applicantid,
-                    });
-
-                    setSelectedDepartment({
-                        departmentname: data.departmentname,
-                        departmentid: data.departmentid,
-                    });
+                // Final resolution mirrored from Header script
+                try {
+                    const userDetailsRes = await GetUserById(userData?.u_id, 1);
+                    if (userDetailsRes) {
+                        if (!departmentId) departmentId = userDetailsRes.department;
+                        // If name is still missing or is an ID, resolve correctly
+                        if (!departmentName || !isNaN(departmentName)) {
+                            const deptRes = await GetDepartmentById(`1?DepartId=${departmentId}`);
+                            if (deptRes?.status && deptRes?.data?.DepartmentName) {
+                                departmentName = deptRes.data.DepartmentName;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Critical Resolution Failure", err);
                 }
+
+                // Fallbacks just in case
+                if (!departmentId) departmentId = userData?.departmentId || userData?.departmentid || userData?.department || "";
+                if (!departmentName) departmentName = userData?.departmentname || userData?.department || departmentId;
+
+                setSelectedApplicant({
+                    username: applicantName,
+                    userid: applicantId,
+                });
+
+                setSelectedDepartment({
+                    departmentname: departmentName,
+                    departmentid: departmentId,
+                });
+
+                setInitialValues((prev) => ({
+                    ...prev,
+                    applicant: applicantId,
+                    department: departmentId,
+                }));
                 setInitialValues((prev) => ({
                     ...prev,
                     claimNumber: data?.ClaimNo,
@@ -389,9 +411,6 @@ const Addclaimpayment = () => {
                     CostCenter_id: data?.CostCenter_id,
                     hod: data?.HOD,
                     hod_id: data?.HODID,
-
-
-
                 }));
 
                 setSelectedCurrency({
@@ -1151,62 +1170,30 @@ const Addclaimpayment = () => {
                                                                             setSelectedCurrency({});
                                                                             setFieldValue("currency", "");
                                                                             setFieldValue("claimAmountIDR", "");
-
-
-                                                                            // setFieldValue("applicant", 0);
-                                                                            // setFieldValue("department", 0);
-                                                                            // setSelectedApplicant({
-                                                                            //     username: "",
-                                                                            //     userid: 0,
-                                                                            // });
-                                                                            // setSelectedDepartment({
-                                                                            //     departmentname: "",
-                                                                            //     departmentid: 0,
-                                                                            // });
-
-
-                                                                            if (Logininfo.hodlogin == 0) {
-
-                                                                                // setSelectedApplicant({
-                                                                                //     username: Logininfo.applicantname,
-                                                                                //     userid: Logininfo.applicantid,
-                                                                                // });
-
-                                                                                // setSelectedDepartment({
-                                                                                //     departmentname: Logininfo.departmentname,
-                                                                                //     departmentid: Logininfo.departmentid,
-                                                                                // });
-                                                                                setactiveapp(0);
-                                                                                // setFieldValue("applicant",  Logininfo.applicantid);
-                                                                                // setFieldValue("department", Logininfo.departmentid);
-                                                                            }
-
-                                                                            setactiveapp(0);
                                                                         }
                                                                         else {
                                                                             setSelectedCurrency(DefaultCurrency);
-
-
-                                                                            if (Logininfo.hodlogin == 0) {
-
-                                                                                // setSelectedApplicant({
-                                                                                //     username: Logininfo.applicantname,
-                                                                                //     userid: Logininfo.applicantid,
-                                                                                // });
-
-                                                                                // setSelectedDepartment({
-                                                                                //     departmentname: Logininfo.departmentname,
-                                                                                //     departmentid: Logininfo.departmentid,
-                                                                                // });
-                                                                                setactiveapp(0);
-                                                                                // setFieldValue("applicant",  Logininfo.applicantid);
-                                                                                // setFieldValue("department", Logininfo.departmentid);
-                                                                            }
-
-
                                                                             setFieldValue("currency", DefaultCurrency?.currencyid || "");
                                                                             setFieldValue("claimAmountIDR", DefaultCurrency?.ExchangeRate || "");
                                                                         }
+
+                                                                        // Shared population logic for Applicant and Department
+                                                                        setactiveapp(0);
+                                                                        const deptid = Logininfo?.departmentid || UserData?.departmentId || UserData?.departmentid || UserData?.department || "";
+                                                                        const deptname = Logininfo?.departmentname || UserData?.departmentname || UserData?.department || "";
+
+                                                                        setFieldValue("applicant", Logininfo?.applicantid || UserData?.u_id || "");
+                                                                        setFieldValue("department", deptid);
+
+                                                                        setSelectedApplicant({
+                                                                            username: Logininfo?.applicantname || UserData?.username || "",
+                                                                            userid: Logininfo?.applicantid || UserData?.u_id || "",
+                                                                        });
+
+                                                                        setSelectedDepartment({
+                                                                            departmentname: deptname,
+                                                                            departmentid: deptid,
+                                                                        });
                                                                     }}
                                                                     classNamePrefix="select"
                                                                     isDisabled={(isirn === 1 && UserData?.u_id !== 158)}
@@ -1271,7 +1258,7 @@ const Addclaimpayment = () => {
                                                                             components={animatedComponents}
                                                                             placeholder="Select Supplier"
                                                                         />
-                                                                        {/*                                                                         
+                                                                        {/*                                                                        
                                                                         <AutoComplete
                                                                             value={selectedSupplier}
                                                                             suggestions={supplierSuggestions}
@@ -1312,20 +1299,20 @@ const Addclaimpayment = () => {
                                                                                     label: category.departmentname,
                                                                                     departmentid: category.departmentid,
                                                                                     departmentname: category.departmentname,
-                                                                                })) : []).find(option => option.value === selectedDepartment?.departmentid) || null
+                                                                                })) : []).find(option => String(option.value) === String(selectedDepartment?.departmentid)) || (selectedDepartment?.departmentid ? { value: selectedDepartment.departmentid, label: selectedDepartment.departmentname || selectedDepartment.departmentid } : null)
                                                                             }
                                                                             onChange={(option) => {
                                                                                 setSelectedDepartment(option);
                                                                                 setFieldValue("department", option.departmentid)
                                                                             }}
                                                                             classNamePrefix="select"
-                                                                            isDisabled={(activeapp == 0 && UserData?.u_id !== 158)}
+                                                                            isDisabled={(activeapp == 0)}
 
                                                                             isClearable={true}
 
                                                                             isSearchable={true}
 
-                                                                            components={animatedComponents}
+                                                                            components={{ DropdownIndicator: null, IndicatorSeparator: null }}
                                                                             placeholder="Select Department"
                                                                         />
 
@@ -1341,7 +1328,7 @@ const Addclaimpayment = () => {
                                                                             placeholder="Search Department"
                                                                             style={{ width: '100%' }}
                                                                             className={`my-autocomplete`}
-                                                                              
+                                                                             
                                                                         /> */}
                                                                     </Col>
                                                                     <Col md={4}>
@@ -1365,7 +1352,7 @@ const Addclaimpayment = () => {
                                                                                     userid: category.userid,
                                                                                     username: category.username,
                                                                                     jobtitle: category.jobtitle
-                                                                                })) : []).find(option => option.value === selectedApplicant?.userid) || null
+                                                                                })) : []).find(option => String(option.value) === String(selectedApplicant?.userid)) || (selectedApplicant?.userid ? { value: selectedApplicant.userid, label: selectedApplicant.username || selectedApplicant.userid } : null)
                                                                             }
                                                                             onChange={(option) => {
                                                                                 const selected = option;
@@ -1375,13 +1362,13 @@ const Addclaimpayment = () => {
                                                                                 setFieldValue("jobTitle", selected?.jobtitle || "");
                                                                             }}
                                                                             classNamePrefix="select"
-                                                                            isDisabled={(activeapp == 0 && UserData?.u_id !== 158)}
+                                                                            isDisabled={(activeapp == 0)}
 
                                                                             isClearable={true}
 
                                                                             isSearchable={true}
 
-                                                                            components={animatedComponents}
+                                                                            components={{ DropdownIndicator: null, IndicatorSeparator: null }}
                                                                             placeholder="Select Applicant"
                                                                         />
 
@@ -1878,7 +1865,7 @@ const Addclaimpayment = () => {
                                                                                                         />
                                                                                                     </>
                                                                                                 )}
-                                                                                                {/* 
+                                                                                                {/*
                                                                                     <AutoComplete
                                                                                         value={selectedClaimTypes[i] || null}
                                                                                         suggestions={claimTypeSuggestions}
@@ -1974,7 +1961,7 @@ const Addclaimpayment = () => {
                                                                                                 onChange={(e) => {
                                                                                                     const amount = parseFloat(e.target.value) || 0;
                                                                                                     setFieldValue(`items[${i}].amount`, amount);
-                                                                                                  
+                                                                                                 
                                                                                                      
                                                                                                     const taxPerc = parseFloat(values.items[i].taxPerc || 0);
                                                                                                     const taxRate = (amount * taxPerc) / 100;
@@ -2269,7 +2256,7 @@ const Addclaimpayment = () => {
                                                                                         claimType: "",
                                                                                         description: "",
                                                                                         amount: "",        
-                                                                                        taxRate: "",       
+                                                                                        taxRate: "",      
                                                                                         date: new Date().toISOString().slice(0, 10),
                                                                                         purpose: "",
                                                                                         PaymentDescription:""

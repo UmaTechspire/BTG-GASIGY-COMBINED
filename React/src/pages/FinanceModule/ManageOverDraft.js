@@ -35,6 +35,16 @@ const Breadcrumbs = ({ title, breadcrumbItem }) => (
   </div>
 );
 
+const formatDate = (date) => {
+  if (!date) return "-";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "-";
+  const day = d.getDate().toString().padStart(2, "0");
+  const month = d.toLocaleString("en-US", { month: "short" });
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+};
+
 const ManageOverDraft = () => {
   const history = useHistory();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -173,7 +183,7 @@ const ManageOverDraft = () => {
   const exportToExcel = () => {
     const exportData = overDraftList.map((d) => ({
       "Voucher No": d.voucherNo,
-      "Date": new Date(d.overDraftDate).toLocaleDateString(),
+      "Date": d.overDraftDate ? formatDate(d.overDraftDate) : "-",
       "Type": d.overDraftType,
       "Bank": d.bank,
       "Interest Type": d.interestType,
@@ -298,7 +308,7 @@ const ManageOverDraft = () => {
                   <Column
                     field="overDraftDate"
                     header="Date"
-                    body={(d) => new Date(d.overDraftDate).toLocaleDateString()}
+                    body={(d) => formatDate(d.overDraftDate)}
                     sortable
                   />
                   <Column field="overDraftType" header="Type" sortable />

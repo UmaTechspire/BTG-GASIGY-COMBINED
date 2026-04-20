@@ -74,7 +74,6 @@ const numberToWords = (amount) => {
     return str.trim();
 };
 
-// --- HELPER: Date Formatter (dd-mm-yyyy) ---
 const formatDatePrint = (dateInput) => {
     if (!dateInput || dateInput === "N/A") return "";
     const d = new Date(dateInput);
@@ -85,6 +84,17 @@ const formatDatePrint = (dateInput) => {
     const year = d.getFullYear();
 
     return `${day}-${month}-${year}`;
+};
+
+const getUserDetails = () => {
+    if (localStorage.getItem("authUser")) {
+        try {
+            return JSON.parse(localStorage.getItem("authUser"));
+        } catch (e) {
+            return null;
+        }
+    }
+    return null;
 };
 
 // --- HELPER: Parse Invoices from Reference (handles combined pipes as well) ---
@@ -406,6 +416,7 @@ const AddBankBook = () => {
         if (field === 'type' && newRows[index].type !== value) {
             newRows[index]['customerId'] = "";
             newRows[index]['salesPersonId'] = "";
+            newRows[index]['bank_payment_via'] = 2;
         }
 
         newRows[index][field] = value;
@@ -455,6 +466,15 @@ const AddBankBook = () => {
     };
 
     const openEditModal = (rowData) => {
+        const user = getUserDetails();
+        const isSuperAdmin = user?.u_id === 158;
+        const isPosted = rowData.is_posted === 1;
+
+        if (isPosted && !isSuperAdmin) {
+            toast.error("Only Super Admin can edit posted entries.");
+            return;
+        }
+
         setEditMode(true);
         const bank = bankList.find(b => b.value === parseInt(rowData.deposit_bank_id));
         setSelectedBank(bank || null);
@@ -479,7 +499,8 @@ const AddBankBook = () => {
             salesPersonId: rowData.sales_person_id,
             bank_payment_via: rowData.bank_payment_via || (parseFloat(rowData.cash_amount || 0) !== 0 ? 4 : 2),
             cheque_number: rowData.cheque_number || "",
-            sendNotification: rowData.send_notification
+            sendNotification: rowData.send_notification,
+            isPosted: isPosted
         }]);
 
         setIsModalOpen(true);
@@ -518,15 +539,21 @@ const AddBankBook = () => {
             const headerPayload = rows.map(row => {
                 // Calculate amount (Negative for Payment/Charges)
                 let finalAmount = Math.abs(parseFloat(row.amount));
-                if (row.type === 'Payment' || row.type === 'Bank Charges') {
+                const typeLower = row.type?.toLowerCase();
+                if (typeLower === 'payment' || typeLower === 'bank charges' || typeLower === 'bank transfer') {
                     finalAmount = -finalAmount;
                 }
+
+                // Detect if the target of a Bank Transfer is "Cash in Hand"
+                const targetBank = bankList.find(b => String(b.value) === String(row.customerId));
+                const isTransferToCash = typeLower === 'bank transfer' && targetBank?.label?.toLowerCase().includes("cash in hand");
 
                 return {
                     receipt_id: row.rowId || 0,
                     transaction_type: row.type,
                     customer_id: (row.type === 'Bank Charges' || row.type === 'Bank Interest' || row.type === 'Cash Deposit') ? 0 : parseInt(row.customerId || 0),
-                    bank_amount: finalAmount,
+                    bank_amount: isTransferToCash ? -Math.abs(finalAmount) : (typeLower === 'bank transfer' ? -Math.abs(finalAmount) : (row.bank_payment_via === 4 ? 0 : finalAmount)),
+                    cash_amount: isTransferToCash ? Math.abs(finalAmount) : (typeLower === 'bank transfer' ? 0 : (row.bank_payment_via === 4 ? finalAmount : 0)),
                     bank_charges: parseFloat(row.bankCharges) || 0,
                     deposit_bank_id: parseInt(selectedBank.value),
                     receipt_date: format(row.date, "yyyy-MM-dd"),
@@ -535,12 +562,10 @@ const AddBankBook = () => {
                     send_notification: row.sendNotification,
                     status: isPosted ? "Posted" : "Saved",
                     is_posted: isPosted,
-                    cash_amount: row.bank_payment_via === 4 ? finalAmount : 0,
-                    bank_amount: row.bank_payment_via === 4 ? 0 : finalAmount,
                     contra_amount: 0,
                     tax_rate: 0,
                     bank_payment_via: parseInt(row.bank_payment_via),
-                    cheque_number: row.cheque_number,
+                    cheque_number: row.cheque_number || "",
                     proof_missing: false
                 };
             });
@@ -966,7 +991,11 @@ const AddBankBook = () => {
     };
 
     const actionBodyTemplate = (rowData) => {
-        const isEditable = !(rowData.is_posted && rowData.verificationStatus === 'Completed');
+        const user = getUserDetails();
+        const isSuperAdmin = user?.u_id === 158;
+        const isPosted = rowData.is_posted === 1;
+
+        const canEdit = !isPosted || isSuperAdmin;
 
         return (
             <div className="d-flex justify-content-center align-items-center gap-3">
@@ -974,12 +1003,12 @@ const AddBankBook = () => {
                     className="mdi mdi-square-edit-outline"
                     style={{
                         fontSize: '1.5rem',
-                        cursor: isEditable ? 'pointer' : 'default',
-                        color: isEditable ? '#495057' : '#ced4da',
-                        opacity: isEditable ? 1 : 0.5
+                        cursor: canEdit ? 'pointer' : 'not-allowed',
+                        color: canEdit ? '#495057' : '#ced4da',
+                        opacity: canEdit ? 1 : 0.5
                     }}
-                    onClick={() => { if (isEditable) openEditModal(rowData); else handlePreview(rowData); }}
-                    title={isEditable ? "Edit" : "View Details (Read-only)"}
+                    onClick={() => { if (canEdit) openEditModal(rowData); else handlePreview(rowData); }}
+                    title={canEdit ? "Edit" : "Only Super Admin can edit posted entries"}
                 ></i>
                 <div style={{ position: 'relative', display: 'inline-block' }}>
                     <i
@@ -1281,6 +1310,7 @@ const AddBankBook = () => {
                                                 value={row.type}
                                                 onChange={(e) => handleRowChange(index, 'type', e.target.value)}
                                                 style={{ fontSize: '12px' }}
+                                                disabled={row.isPosted}
                                             >
                                                 <option value="Receipt">Receipt</option>
                                                 <option value="Payment">Payment</option>
@@ -1333,6 +1363,7 @@ const AddBankBook = () => {
                                                     value={row.bank_payment_via}
                                                     onChange={(e) => handleRowChange(index, 'bank_payment_via', parseInt(e.target.value))}
                                                     style={{ fontSize: '11px' }}
+                                                    disabled={true}
                                                 >
                                                     <option value={2}>Bank Transfer</option>
                                                     <option value={1}>Cheque</option>

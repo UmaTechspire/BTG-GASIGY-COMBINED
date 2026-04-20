@@ -260,6 +260,11 @@ const AddOverDraft = () => {
                                 name="overDraftDate"
                                 value={values.overDraftDate}
                                 onChange={([date]) => setFieldValue("overDraftDate", date)}
+                                options={{
+                                  altInput: true,
+                                  altFormat: "d-M-Y",
+                                  dateFormat: "Y-m-d"
+                                }}
                               />
                               {errors.overDraftDate && touched.overDraftDate && (
                                 <div className="text-danger small mt-1">{errors.overDraftDate}</div>
@@ -618,6 +623,11 @@ const AddOverDraft = () => {
                                 name="finalSettlementDate"
                                 value={values.finalSettlementDate}
                                 onChange={([date]) => setFieldValue("finalSettlementDate", date)}
+                                options={{
+                                  altInput: true,
+                                  altFormat: "d-M-Y",
+                                  dateFormat: "Y-m-d"
+                                }}
                               />
                             </FormGroup>
                           </Col>

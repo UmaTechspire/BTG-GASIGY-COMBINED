@@ -20,7 +20,8 @@ import {
   GetPOList, GetPOItemDetails,
   SaveGRN,
   GetGRNById,
-  GetGRNNoSeq
+  GetGRNNoSeq,
+  GetByIdPurchaseOrder
 } from "common/data/mastersapi";
 
 
@@ -70,6 +71,7 @@ const ProcurementsAddGRN = () => {
     supplier: null,
     grnNo: "",
     grnDate: new Date(),
+    poDate: null,
     items: [],
   });
   // const [isEditMode, setIsEditMode] = useState(false);
@@ -182,7 +184,7 @@ const ProcurementsAddGRN = () => {
       const poResp = await GetPOList(selectedSupplier.value, 1, 1, header.grnid);
       if (poResp?.status) {
         const poArray = Array.isArray(poResp.data) ? poResp.data : [poResp.data];
-        poOptions = poArray.map(p => ({ value: p.poid, label: p.pono }));
+        poOptions = poArray.map(p => ({ value: p.poid, label: p.pono, podate: p.podate }));
       }
     }
     setPoNo(poOptions);
@@ -210,6 +212,7 @@ const ProcurementsAddGRN = () => {
       grnDate: new Date(header.grndate),
       supplier: selectedSupplier,
       poNo: selectedPOs.length > 0 ? selectedPOs[0] : null,   // ✅ SINGLE PO
+      poDate: selectedPOs.length > 0 ? selectedPOs[0].podate : null,
       items: allItems,
     });
 
@@ -411,7 +414,18 @@ const ProcurementsAddGRN = () => {
     poNo: Yup.object().required("PO No. is required"),
     supplier: Yup.object().required("Supplier is required"),
     grnNo: Yup.string().required("GRN No. is required"),
-    grnDate: Yup.date().required("GRN Date is required"),
+    grnDate: Yup.date()
+      .required("GRN Date is required")
+      .test("min-po-date", "GRN Date cannot be earlier than PO Date", function (value) {
+        const { poDate } = this.parent;
+        if (!poDate || !value) return true;
+        // Compare dates without time to avoid precision issues
+        const grnDt = new Date(value);
+        const poDt = new Date(poDate);
+        grnDt.setHours(0, 0, 0, 0);
+        poDt.setHours(0, 0, 0, 0);
+        return grnDt >= poDt;
+      }),
     items: Yup.array().of(
       Yup.object().shape({
         grnQty: Yup.number()
@@ -665,7 +679,6 @@ const ProcurementsAddGRN = () => {
                             <Label>GRN No.</Label>
                             <Field
                               name="grnNo"
-                              disabled
                               className={`form-control ${errors.grnNo && touched.grnNo ? "is-invalid" : ""
                                 }`}
                             />
@@ -679,14 +692,36 @@ const ProcurementsAddGRN = () => {
                             <Label>GRN Date<span className="text-danger">*</span></Label>
                             <Flatpickr
                               name="grnDate"
-                              disabled
                               className="form-control"
                               value={values.grnDate || null}
-                              onChange={(date) => setFieldValue("grnDate", date[0])}
+                              onChange={(date) => {
+                                const selectedDate = date[0];
+                                if (values.poDate && selectedDate) {
+                                  const poDt = new Date(values.poDate);
+                                  const grnDt = new Date(selectedDate);
+
+                                  // Clear times for accurate comparison
+                                  poDt.setHours(0, 0, 0, 0);
+                                  grnDt.setHours(0, 0, 0, 0);
+
+                                  if (grnDt < poDt) {
+                                    Swal.fire({
+                                      icon: "warning",
+                                      title: "Invalid Date",
+                                      text: "You cannot select a GRN date earlier than the PO date.",
+                                      confirmButtonColor: "#3e6e9e"
+                                    });
+                                    setFieldValue("grnDate", values.poDate); // Default to PO Date
+                                    return;
+                                  }
+                                }
+                                setFieldValue("grnDate", selectedDate);
+                              }}
                               options={{
                                 altInput: true,
                                 altFormat: "d-M-Y",
                                 dateFormat: "Y-m-d",
+                                minDate: values.poDate ? new Date(values.poDate) : null,
                               }}
                             />
                             {errors.grnDate && touched.grnDate && (
@@ -717,6 +752,7 @@ const ProcurementsAddGRN = () => {
                                     const options = data.map(item => ({
                                       value: item.poid,
                                       label: item.pono,
+                                      podate: item.podate,
                                     }));
                                     setPoNo(options);
                                   }
@@ -743,6 +779,22 @@ const ProcurementsAddGRN = () => {
                               menuPortalTarget={document.body}
                               onChange={async (selectedOption) => {
                                 setFieldValue("poNo", selectedOption || null);
+
+                                // Capture PO Date for validation
+                                let finalPoDate = selectedOption?.podate || null;
+
+                                // Fallback: If podate is missing from list, fetch PO details
+                                if (selectedOption && !finalPoDate) {
+                                  try {
+                                    const poRes = await GetByIdPurchaseOrder(selectedOption.value, orgId, branchId);
+                                    if (poRes?.status && poRes.data?.Header?.podate) {
+                                      finalPoDate = poRes.data.Header.podate;
+                                    }
+                                  } catch (err) {
+                                    console.error("Failed to fetch PO details for date validation", err);
+                                  }
+                                }
+                                setFieldValue("poDate", finalPoDate);
 
                                 if (selectedOption && selectedOption.value) {
                                   const poItems = await loadItemsByPO(selectedOption.value, grnData?.data?.Details || []);

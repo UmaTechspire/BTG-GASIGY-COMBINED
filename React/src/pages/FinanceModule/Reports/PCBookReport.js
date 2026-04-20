@@ -186,12 +186,18 @@ const PCBookReport = () => {
             );
             const others = allItems.filter(item => item !== openingBalanceRow);
 
-            // Sort others by Reference No descending
+            // Sort others by Date DESC, then Reference No ASC
             others.sort((a, b) => {
+                const dateA = new Date(a.expdate || a.ExpDate);
+                const dateB = new Date(b.expdate || b.ExpDate);
+                
+                if (dateB - dateA !== 0) {
+                    return dateB - dateA; // Date DESC
+                }
+                
                 const refA = a.pc_number || "";
                 const refB = b.pc_number || "";
-                // Using numeric sort for strings like PC000184
-                return refB.localeCompare(refA, undefined, { numeric: true, sensitivity: 'base' });
+                return refA.localeCompare(refB, undefined, { numeric: true, sensitivity: 'base' }); // Ref ASC
             });
 
             const finalSorted = openingBalanceRow ? [openingBalanceRow, ...others] : others;
@@ -199,11 +205,13 @@ const PCBookReport = () => {
             let processed = finalSorted.map((row) => {
                 const amount = parseFloat(row.amount || row.Amount) || 0;
                 // Treat category_id === 6 (Transfer) as Debit as well
+                const rawDesc = (row.expensedescription || row.ExpenseDescription || row.description || row.Description || row.remarks || row.Remarks || "").toUpperCase();
                 const isDebit = (
-                    row.category_id === 1 ||
-                    row.category_id === 6 ||
-                    (row.description && row.description.toUpperCase().includes("OPENING")) ||
-                    (row.pc_number && row.pc_number.startsWith("CLM"))
+                    row.category_id == 1 ||
+                    rawDesc.includes("OPENING") ||
+                    rawDesc.includes("CLM") ||
+                    (row.pc_number && String(row.pc_number).toUpperCase().startsWith("CLM")) ||
+                    (row.VoucherNo && String(row.VoucherNo).toUpperCase().startsWith("CLM"))
                 );
 
                 const debit = isDebit ? amount : 0;
@@ -289,6 +297,16 @@ const PCBookReport = () => {
                 if (sortField === "expdate") {
                     valA = new Date(a.expdate || a.ExpDate).getTime();
                     valB = new Date(b.expdate || b.ExpDate).getTime();
+                    
+                    if (valA === valB) {
+                        const refA = a.pc_number || "";
+                        const refB = b.pc_number || "";
+                        // Secondary sort by reference number ASC
+                        const secondaryResult = refA.localeCompare(refB, undefined, { numeric: true, sensitivity: 'base' });
+                        // If we are sorting Date DESC, we need to negate the secondary result if we want it to stay ASC, 
+                        // because the whole return value is negated at the end.
+                        return sortOrder === 1 ? secondaryResult : -secondaryResult;
+                    }
                 }
 
                 let result = 0;
@@ -390,7 +408,7 @@ const PCBookReport = () => {
             try {
                 const res = await getPettyCashById(pcId, 1, 1);
                 if (res) {
-                    setSelectedPcDetail(res);
+                    setSelectedPcDetail({ ...res, dailyVoucher: row.dailyVoucher });
                     setPcDetailVisible(true);
                 } else {
                     toast.error("Failed to fetch petty cash details");
@@ -797,7 +815,7 @@ const PCBookReport = () => {
 
                 {/* Petty Cash Detail Modal */}
                 <Dialog
-                    header={`Petty Cash Details - ${selectedPcDetail?.pc_number || ""}`}
+                    header={`Petty Cash Details - ${selectedPcDetail?.pc_number || ""} ${selectedPcDetail?.dailyVoucher ? `| ${selectedPcDetail.dailyVoucher}` : ""}`}
                     visible={pcDetailVisible}
                     style={{ width: "70vw" }}
                     onHide={() => setPcDetailVisible(false)}

@@ -83,6 +83,22 @@ const formatDatePrint = (dateInput) => {
     return `${day}-${month}-${year}`;
 };
 
+const formatVoucherNumber = (id, type) => {
+    if (!id || id === 0 || id === "0") return "-";
+    let prefix = "";
+    const t = String(type || "").toLowerCase();
+    
+    if (t === 'receipt' || t === 'deposit') {
+        prefix = "RV - ";
+    } else if (t === 'payment' || t === 'Transfer to PC Book') {
+        prefix = "CV - ";
+    } else if (t === 'other income') {
+        prefix = "RCV - ";
+    }
+    
+    return `${prefix}${id}`;
+};
+
 // --- HELPER: Split Reference No into Claim No and Purpose ---
 const splitReferenceNo = (ref, backendPurpose) => {
     if (backendPurpose) {
@@ -99,6 +115,17 @@ const splitReferenceNo = (ref, backendPurpose) => {
         return { claimNo: claimNo.trim(), purpose: descParts.join(" - ").trim() };
     }
     return { claimNo: "", purpose: ref };
+};
+
+const getUserDetails = () => {
+    if (localStorage.getItem("authUser")) {
+        try {
+            return JSON.parse(localStorage.getItem("authUser"));
+        } catch (e) {
+            return null;
+        }
+    }
+    return null;
 };
 
 // --- HELPER: Format Number with Commas ---
@@ -162,6 +189,7 @@ const AddCashBook = () => {
     const [rows, setRows] = useState([]);
     const [totals, setTotals] = useState({ receipt: 0, payment: 0 });
     const [editMode, setEditMode] = useState(false);
+    const [selectedVouchers, setSelectedVouchers] = useState([]);
 
     // --- CURRENCY STATES ---
     const [currencyList, setCurrencyList] = useState([]);
@@ -194,12 +222,12 @@ const AddCashBook = () => {
         { value: 'Supplier Payment', label: 'Supplier Payment' },
     ];
 
-    const loadClaimsForCategory = async (category) => {
+    const loadClaimsForCategory = async (category, force = false) => {
         // Force reload if cache exists but lacks necessary party ID fields (older data format)
         const cachedData = claimListCache[category];
         const isStale = cachedData && cachedData.length > 0 && !Object.prototype.hasOwnProperty.call(cachedData[0], 'supplier_id');
 
-        if (cachedData && !isStale) return; 
+        if (!force && cachedData && !isStale) return; 
 
         try {
             const res = await axios.get(`${PYTHON_API_URL}/AR/cash/get-cash-claims`, {
@@ -271,8 +299,8 @@ const AddCashBook = () => {
             const amtStr = String(row.amount || 0).replace(/,/g, '');
             const amt = parseFloat(amtStr || 0);
             if (row.type === 'Receipt' || row.type === 'Other Income' || row.type === 'Round minus') acc.receipt += amt;
-            // Treat transfer as payment (cashbook deduction)
-            else if (row.type === 'transfer' || row.type === 'Payment' || row.type === 'Round plus' || row.type === 'Deposit') acc.payment += amt;
+            // Payment group (cashbook deduction)
+            else if (row.type === 'Payment' || row.type === 'Round plus' || row.type === 'Deposit' || row.type === 'Transfer to PC Book' || row.type === 'Deposit to Bank') acc.payment += amt;
             return acc;
         }, { receipt: 0, payment: 0 });
         setTotals(t);
@@ -305,7 +333,10 @@ const AddCashBook = () => {
                 const mapped = response.data.data.map(item => {
                     const isPosted = item.is_posted === 1;
                     const isVerified = item.verification_status === "Completed";
-                    const amountVal = parseFloat(item.cash_amount || 0);
+                    let amountVal = parseFloat(item.cash_amount || 0);
+                    if (item.transaction_type === 'transfer') {
+                        amountVal = Math.abs(amountVal);
+                    }
 
                     const isPayment = ['Payment', 'Deposit', 'Round plus'].includes(item.transaction_type);
                     const lookupList = isPayment ? supplierList : customerList;
@@ -326,13 +357,46 @@ const AddCashBook = () => {
                         ar_id: item.ar_id || item.linked_claim_id,
 
                         // Searchable fields for global filter
-                        receiptIdStr: String(item.receipt_id),
+                        receiptIdStr: formatVoucherNumber(item.receipt_id, item.transaction_type),
                         searchableAmount: amountVal === 0 ? "" : amountVal.toLocaleString('en-US', { minimumFractionDigits: 2 }),
                         statusText: isPosted ? "Posted" : "Saved",
                         verificationText: (item.transaction_type === 'Receipt' && isPosted) ? (isVerified ? "Completed" : "Pending") : ""
                     };
                 });
-                setEntryList(mapped);
+
+                // --- GROUPING LOGIC FOR COMBINED ROWS ---
+                const grouped = [];
+                const groupMap = {}; // hashmap to track group indexes by combine_group_id
+
+                mapped.forEach(item => {
+                    if (item.is_combined && item.combine_group_id) {
+                        const gid = item.combine_group_id;
+                        if (groupMap[gid] !== undefined) {
+                            const masterIdx = groupMap[gid];
+                            // Accumulate amount (absolute for display)
+                            const currentAmt = parseFloat(String(grouped[masterIdx].cash_amount || 0));
+                            const itemAmt = parseFloat(String(item.cash_amount || 0));
+                            grouped[masterIdx].cash_amount = currentAmt + itemAmt;
+                            
+                            // Re-format searchableAmount with new total
+                            let displayAmt = grouped[masterIdx].cash_amount;
+                            if (grouped[masterIdx].transaction_type === 'transfer') displayAmt = Math.abs(displayAmt);
+                            grouped[masterIdx].searchableAmount = Math.abs(displayAmt).toLocaleString('en-US', { minimumFractionDigits: 2 });
+                        } else {
+                            groupMap[gid] = grouped.length;
+                            // For master row, ensure we use the custom_voucher_no if available
+                            grouped.push({
+                                ...item,
+                                cash_amount: parseFloat(String(item.cash_amount || 0)),
+                                receiptIdStr: item.custom_voucher_no ? formatVoucherNumber(item.custom_voucher_no, item.transaction_type) : item.receiptIdStr
+                            });
+                        }
+                    } else {
+                        grouped.push(item);
+                    }
+                });
+
+                setEntryList(grouped);
             }
         } catch (err) { console.error("Failed to load entries", err); }
         finally { setLoading(false); }
@@ -488,31 +552,37 @@ const AddCashBook = () => {
         setRows(newRows);
     };
 
-    // Helper to filter claims based on selected Party (Supplier/Applicant)
     const getFilteredClaims = (row) => {
         const allClaims = claimListCache[row.claimCategory] || [];
+        let filtered = [];
         
-        // Skip filtering for Claim and Cash Advance categories
+        // 1. Initial Filtering
         if (['Claim', 'Cash Advance'].includes(row.claimCategory)) {
-            return allClaims;
+            filtered = [...allClaims];
+        } else if (!row.customerId) {
+            filtered = [];
+        } else {
+            const targetId = String(row.customerId).trim();
+            filtered = allClaims.filter(c => {
+                const claimSupId = c.supplier_id != null ? String(c.supplier_id).trim() : '';
+                const claimAppId = c.applicant_id != null ? String(c.applicant_id).trim() : '';
+                return claimSupId === targetId || claimAppId === targetId;
+            });
         }
 
-        if (!row.customerId) return [];
+        // 1b. Transfer-specific filtering (Show only Petty Cash claims for transfers)
+        if (row.type === 'Transfer to PC Book') {
+            filtered = filtered.filter(c => {
+                const t = String(c.type || "").trim().toUpperCase();
+                return t === 'PETTY CASH' || t === 'PC' || t === 'PETTYCASH';
+            });
+        }
 
-        const targetId = String(row.customerId).trim();
-        
-        return allClaims.filter(c => {
-            const claimSupId = c.supplier_id != null ? String(c.supplier_id).trim() : '';
-            const claimAppId = c.applicant_id != null ? String(c.applicant_id).trim() : '';
-            
-            return claimSupId === targetId || claimAppId === targetId;
-        });
-
-        // --- ENHANCED RECOVERY LOGIC ---
-        // 1. Try to find the claim by ID if we have it
+        // 2. ENHANCED RECOVERY LOGIC
+        // Try to find the claim by ID if we have it
         let currentClaim = filtered.find(c => c.value === row.linkedClaimId);
 
-        // 2. If not found by ID, try to find by Claim Number string inside the referenceNo
+        // If not found by ID, try to find by Claim Number string inside the referenceNo
         if (!currentClaim && row.referenceNo && row.referenceNo.startsWith("CLM")) {
             const claimNo = row.referenceNo.split(" - ")[0].trim();
             currentClaim = filtered.find(c => c.label.includes(claimNo));
@@ -523,12 +593,18 @@ const AddCashBook = () => {
             }
         }
 
-        // 3. Fallback: If still not in the list (likely already paid), manually inject it
-        if (row.linkedClaimId && !filtered.some(c => c.value === row.linkedClaimId)) {
-            filtered.push({
-                value: row.linkedClaimId,
-                label: row.referenceNo || "Linked Claim" 
-            });
+        // 3. AGGRESSIVE FALLBACK: If still not in the list (meaning the backend filtered it out),
+        // we extract the claim number from the description and inject a Virtual Option.
+        if (!currentClaim && row.referenceNo && row.referenceNo.startsWith("CLM")) {
+            const claimNoPart = row.referenceNo.split(" - ")[0].trim();
+            const virtualValue = row.linkedClaimId || ("VIRTUAL_" + claimNoPart);
+            
+            if (!filtered.some(c => c.value === virtualValue)) {
+                filtered.push({
+                    value: virtualValue,
+                    label: row.referenceNo // Use the full existing description as the label
+                });
+            }
         }
 
         return filtered;
@@ -540,7 +616,8 @@ const AddCashBook = () => {
         if (['Payment', 'Round plus', 'Deposit'].includes(type)) {
             return supplierList;
         }
-        if (type === 'transfer') return []; // No party selection for transfer
+        if (type === 'Transfer to PC Book') return []; // No party selection for transfer
+        if (type === 'Deposit to Bank') return bankList; // Use Bank List for deposits
         return [];
     };
 
@@ -557,9 +634,9 @@ const AddCashBook = () => {
             newRows[index]['amount'] = "";
             
             // Auto-set claimCategory to "Claim" if transfer is selected
-            if (value === 'transfer') {
+            if (value === 'Transfer to PC Book') {
                 newRows[index]['claimCategory'] = 'Claim';
-                loadClaimsForCategory('Claim');
+                loadClaimsForCategory('Claim', true); // Force refresh
             }
         }
 
@@ -593,9 +670,7 @@ const AddCashBook = () => {
             const claimOpt = (claimListCache[cat] || []).find(c => c.value === value);
             if (claimOpt) {
                 newRows[index]['referenceNo'] = claimOpt.label;
-                if (claimOpt.payment_date) {
-                    newRows[index]['date'] = new Date(claimOpt.payment_date);
-                }
+
                 if (claimOpt.amount) {
                     newRows[index]['amount'] = formatWithCommas(claimOpt.amount);
                 }
@@ -649,10 +724,20 @@ const AddCashBook = () => {
         setSelectedCurrency(idr || null);
         setTotals({ receipt: 0, payment: 0 });
         setRows([getInitialRow()]);
+        loadClaimsForCategory('Claim', true); // Ensure claims are fresh
         setIsModalOpen(true);
     };
 
     const openEditModal = (rowData) => {
+        const user = getUserDetails();
+        const isSuperAdmin = user?.u_id === 158;
+        const isPosted = rowData.is_posted === 1;
+
+        if (isPosted && !isSuperAdmin) {
+            toast.error("Only Super Admin can edit posted entries.");
+            return;
+        }
+
         setEditMode(true);
         const amount = parseFloat(rowData.cash_amount);
         const type = amount < 0 ? "Payment" : "Receipt";
@@ -671,7 +756,8 @@ const AddCashBook = () => {
             salesPersonId: rowData.sales_person_id,
             sendNotification: rowData.send_notification,
             claimCategory: rowData.claimCategory || rowData.claim_category || "",
-            linkedClaimId: rowData.ar_id || rowData.linked_claim_id || rowData.linkedClaimId || null
+            linkedClaimId: rowData.ar_id || rowData.linked_claim_id || rowData.linkedClaimId || null,
+            isPosted: isPosted
         }]);
 
         if (rowData.claimCategory) {
@@ -693,15 +779,18 @@ const AddCashBook = () => {
         }
 
         for (let i = 0; i < rows.length; i++) {
-            // Skip Party validation for transfer, Claim and Cash Advance categories
-            const isOptionalParty = ['Claim', 'Cash Advance'].includes(rows[i].claimCategory) || rows[i].type === 'transfer';
+            // Skip Party validation for types where it's not applicable
+            const isOptionalParty = 
+                ['Claim', 'Cash Advance'].includes(rows[i].claimCategory) || 
+                ['transfer', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(rows[i].type);
+
             if (!isOptionalParty && !rows[i].customerId) {
                 toast.error(`Please select a Party for row ${i + 1}`);
                 return;
             }
             
             // Validate Claim No for transfer
-            if (rows[i].type === 'transfer' && !rows[i].linkedClaimId) {
+            if (rows[i].type === 'Transfer to PC Book' && !rows[i].linkedClaimId) {
                 toast.error(`Please select a Claim No. for transfer in row ${i + 1}`);
                 return;
             }
@@ -714,10 +803,7 @@ const AddCashBook = () => {
                 const amtStr = String(row.amount || 0).replace(/,/g, '');
                 let finalAmount = Math.abs(parseFloat(amtStr || 0));
                 
-                if (row.type === 'transfer') {
-                    // NEGATIVE for Cash Book credit/deduction
-                    finalAmount = -Math.abs(parseFloat(amtStr || 0));
-                } else if (['Payment', 'Round plus', 'Deposit'].includes(row.type)) {
+                if (['Payment', 'Round plus', 'Deposit', 'Transfer to PC Book', 'Deposit to Bank'].includes(row.type)) {
                     finalAmount = -finalAmount;
                 }
 
@@ -725,6 +811,8 @@ const AddCashBook = () => {
                     receipt_id: row.rowId || 0,
                     customer_id: parseInt(row.customerId || 0),
                     cash_amount: finalAmount,
+                    bank_amount: row.type === 'Deposit to Bank' ? Math.abs(parseFloat(amtStr || 0)) : 0,
+                    deposit_bank_id: row.type === 'Deposit to Bank' ? String(row.customerId || "0") : "0",
                     currencyid: selectedCurrency?.value || 3,
                     receipt_date: format(row.date, "yyyy-MM-dd"),
                     reference_no: row.referenceNo,
@@ -758,7 +846,7 @@ const AddCashBook = () => {
 
             // If posting and there are transfer rows, create petty cash records (debit) so PCBook shows them
             if (isPosted) {
-                const transferRows = rows.filter(r => r.type === 'transfer');
+                const transferRows = rows.filter(r => r.type === 'Transfer to PC Book');
                 for (const tr of transferRows) {
                     try {
                         // Build petty cash header payload. Keep minimal required fields.
@@ -810,7 +898,7 @@ const AddCashBook = () => {
                             OrgId: 1,
                             BranchId: 1,
                             IsActive: true,
-                            category_id: 6, // Cash Book Transfer category
+                            category_id: 1, // Change to 1 for Debit (Receipt) in PC
                             userid: 505,
                             CreatedIP: "127.0.0.1",
                             ModifiedIP: "127.0.0.1"
@@ -866,6 +954,65 @@ const AddCashBook = () => {
             loadEntryList();
         } catch (err) {
             toast.error("Final post failed");
+        }
+    };
+
+    const handleCombineVouchers = async () => {
+        if (selectedVouchers.length < 2) {
+            toast.warning("Please select at least two vouchers to combine.");
+            return;
+        }
+
+        // Basic consistency check: Same Type, Party, Currency
+        const first = selectedVouchers[0];
+        const mismatch = selectedVouchers.some(v =>
+            v.customer_id !== first.customer_id ||
+            v.transaction_type !== first.transaction_type ||
+            v.currencyid !== first.currencyid
+        );
+
+        if (mismatch) {
+            toast.error("Combined vouchers must have the same Type, Party, and Currency.");
+            return;
+        }
+
+        // Status checks
+        const invalidStatus = selectedVouchers.some(v => {
+            if (v.transaction_type === 'Receipt') {
+                return v.verificationStatus !== "Completed";
+            } else {
+                return v.is_posted === 1;
+            }
+        });
+
+        if (invalidStatus) {
+            toast.error("Receipts must be Verified. Other types must be in 'Saved' status (not posted).");
+            return;
+        }
+
+        try {
+            const voucherNums = selectedVouchers.map(v => v.receiptIdStr).join(", ");
+            const reference = `combined - ${voucherNums}`;
+            const user = getUserDetails();
+
+            const payload = {
+                receipt_ids: selectedVouchers.map(v => v.receipt_id),
+                new_reference: reference,
+                userId: user?.u_id || 505,
+                orgId: 1,
+                branchId: 1,
+                userIp: "127.0.0.1"
+            };
+
+            const res = await axios.post(`${PYTHON_API_URL}/AR/cash/combine-vouchers`, payload);
+            if (res.data?.status === "success") {
+                toast.success("Vouchers combined successfully!");
+                setSelectedVouchers([]);
+                loadEntryList();
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error(err.response?.data?.detail || "Failed to combine vouchers.");
         }
     };
 
@@ -1092,36 +1239,46 @@ const AddCashBook = () => {
 
 
     const printBodyTemplate = (rowData) => {
+        const isReceipt = rowData.transaction_type === 'Receipt';
+        const isPrintable = isReceipt 
+            ? rowData.verificationStatus === 'Completed' 
+            : rowData.is_posted === 1;
+
         return (
             <div className="d-flex justify-content-center">
                 <i
-                    className="bx bx-printer text-secondary cursor-pointer font-size-22"
-                    onClick={() => handlePrintPreview(rowData)}
-                    title="Print"
-                    style={{ cursor: 'pointer' }}
+                    className={`bx bx-printer font-size-22 ${isPrintable ? 'text-secondary cursor-pointer' : 'text-muted opacity-50'}`}
+                    onClick={() => isPrintable && handlePrintPreview(rowData)}
+                    title={isPrintable ? "Print" : (isReceipt ? "Pending Verification" : "Pending Posting")}
+                    style={{ cursor: isPrintable ? 'pointer' : 'not-allowed' }}
                 ></i>
             </div>
         );
     };
 
     const postBodyTemplate = (rowData) => {
-        const isPaymentSaved = rowData.transaction_type === 'Payment' && rowData.is_posted === 0;
-        const isReceiptReady = rowData.is_posted === 1 && rowData.verificationStatus === 'Completed' && rowData.is_submitted !== 1;
-        const isActionable = isPaymentSaved || isReceiptReady;
+        const isReceipt = rowData.transaction_type === 'Receipt';
+        const isSaved = rowData.is_posted === 0;
+        
+        const isReceiptReady = isReceipt && rowData.is_posted === 1 && rowData.verificationStatus === 'Completed' && rowData.is_submitted !== 1;
+        const isOtherSaved = !isReceipt && isSaved;
+        const isCombinedSaved = rowData.is_combined && isSaved;
+
+        const isActionable = isOtherSaved || isReceiptReady || isCombinedSaved;
 
         const handleAction = () => {
             if (!isActionable) return;
-            if (isPaymentSaved) {
-                handleSubmitRow(rowData.receipt_id);
-            } else {
+            // Combined entries always use handleFinalizePost which is now group-aware
+            if (rowData.is_combined || isReceiptReady) {
                 handleFinalizePost(rowData.receipt_id);
+            } else {
+                handleSubmitRow(rowData.receipt_id);
             }
         };
 
         const getTooltip = () => {
-            if (rowData.is_submitted === 1) return "Already Posted";
-            if (isPaymentSaved) return "Post to Cash Book";
-            if (isReceiptReady) return "Post to Cash Book";
+            if (rowData.is_submitted === 1 || (rowData.is_posted === 1 && rowData.transaction_type !== 'Receipt')) return "Already Posted";
+            if (isActionable) return "Post to Cash Book";
             return "Pending Verification (P+C required)";
         };
 
@@ -1138,13 +1295,20 @@ const AddCashBook = () => {
     };
 
     const actionBodyTemplate = (rowData) => {
+        const user = getUserDetails();
+        const isSuperAdmin = user?.u_id === 158;
+        const isPosted = rowData.transaction_type === 'Receipt' ? (rowData.is_submitted === 1) : (rowData.is_posted === 1);
+
+        // Disable edit for combined entries or posted entries
+        const canEdit = (!isPosted && !rowData.is_combined) || isSuperAdmin;
+
         return (
             <div className="d-flex justify-content-center">
                 <i
-                    className="mdi mdi-square-edit-outline"
-                    style={{ fontSize: '1.5rem', cursor: 'pointer', color: '#495057' }}
-                    onClick={() => openEditModal(rowData)}
-                    title="Edit"
+                    className={`mdi mdi-square-edit-outline ${canEdit ? '' : 'text-muted opacity-50'}`}
+                    style={{ fontSize: '1.5rem', cursor: canEdit ? 'pointer' : 'not-allowed', color: canEdit ? '#495057' : undefined }}
+                    onClick={() => canEdit && openEditModal(rowData)}
+                    title={canEdit ? "Edit" : "Only Super Admin can edit posted entries"}
                 ></i>
             </div>
         );
@@ -1194,9 +1358,16 @@ const AddCashBook = () => {
                     </Col>
 
                     <Col lg="6" className="text-end">
-                        <button type="button" className="btn btn-success" onClick={openNewModal}>
-                            <i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New
-                        </button>
+                        <div className="d-flex gap-2 justify-content-end align-items-center">
+                            {selectedVouchers.length >= 2 && (
+                                <button type="button" className="btn btn-primary btn-label" onClick={handleCombineVouchers}>
+                                    <i className="bx bx-git-merge label-icon font-size-16 align-middle me-2"></i> Combine ({selectedVouchers.length})
+                                </button>
+                            )}
+                            <button type="button" className="btn btn-success" onClick={openNewModal}>
+                                <i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New
+                            </button>
+                        </div>
                     </Col>
                 </Row>
 
@@ -1218,11 +1389,39 @@ const AddCashBook = () => {
                             filter
                             header={header}
                             emptyMessage="No records found."
+                            selection={selectedVouchers}
+                            onSelectionChange={(e) => setSelectedVouchers(e.value)}
+                            dataKey="receipt_id"
+                            rowClick={false}
+                            selectionMode="checkbox"
                         >
+                            <Column selectionMode="multiple" headerStyle={{ width: '3em' }}></Column>
                             <Column field="displayDate" sortField="date" header="Date" sortable filter filterPlaceholder="Search Date" style={{ width: '10%' }} />
                             <Column field="transaction_type" header="Type" sortable filter filterPlaceholder="Search Type" style={{ width: '10%' }} />
-                            <Column field="receipt_id" header="Voucher Number" sortable filter filterPlaceholder="Search Voucher" style={{ width: '10%' }} />
-                            <Column field="customerName" header="Party" sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }} />
+                            <Column 
+                                field="receiptIdStr" 
+                                header="Voucher Number" 
+                                sortable 
+                                filter 
+                                filterPlaceholder="Search Voucher" 
+                                body={(rowData) => (
+                                    <span title={rowData.reference_no || ""}>
+                                        {rowData.is_combined && rowData.custom_voucher_no ? rowData.custom_voucher_no : rowData.receiptIdStr}
+                                    </span>
+                                )}
+                                style={{ width: '10%' }} 
+                            />
+                            <Column 
+                                header="Party" 
+                                body={(rowData) => {
+                                    if (rowData.transaction_type === 'Deposit to Bank') {
+                                        const bank = bankList.find(b => parseInt(b.value) === parseInt(rowData.customerId || rowData.customer_id));
+                                        return bank ? bank.label : (rowData.customerName || "-");
+                                    }
+                                    return (rowData.customerName === "Unknown Customer" || rowData.customerName === "unknown customer") ? "-" : (rowData.customerName || "-");
+                                }}
+                                sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }} 
+                            />
                             <Column field="reference_no" header="Description" sortable filter filterPlaceholder="Search Desc" style={{ width: '10%' }} />
                             <Column field="cash_amount" header="Amount" sortable className="text-end" body={(d) => {
                                 const val = parseFloat(d.cash_amount || 0);
@@ -1298,14 +1497,16 @@ const AddCashBook = () => {
                                                 value={row.type}
                                                 onChange={(e) => handleRowChange(index, 'type', e.target.value)}
                                                 style={{ fontSize: '12px' }}
+                                                disabled={row.isPosted}
                                             >
                                                 <option value="Receipt">Receipt</option>
                                                 <option value="Payment">Payment</option>
-                                                <option value="transfer">transfer</option>
+                                                <option value="Transfer to PC Book">Transfer to PC Book</option>
                                                 <option value="Other Income">Other Income</option>
                                                 <option value="Round plus">Round plus</option>
                                                 <option value="Round minus">Round minus</option>
                                                 <option value="Deposit">Deposit</option>
+                                                <option value="Deposit to Bank">Deposit to Bank</option>
                                             </select>
                                         </td>
                                         <td>
@@ -1314,7 +1515,8 @@ const AddCashBook = () => {
                                                 value={row.date}
                                                 onChange={(date) => handleRowChange(index, 'date', date[0])}
                                                 options={{ dateFormat: "d-M-Y" }}
-                                                style={{ fontSize: '12px' }}
+                                                style={{ fontSize: '12px', backgroundColor: row.isPosted ? '#e9ecef' : 'white' }}
+                                                disabled={row.isPosted}
                                             />
                                         </td>
                                         {/* Claim Category — shown for Payment and transfer */}
@@ -1324,40 +1526,50 @@ const AddCashBook = () => {
                                                 value={CLAIM_CATEGORIES.find(c => c.value === row.claimCategory) || null}
                                                 onChange={(opt) => handleRowChange(index, 'claimCategory', opt?.value || '')}
                                                 styles={customSelectStyles}
-                                                isDisabled={!['Payment', 'transfer'].includes(row.type)}
+                                                isDisabled={row.type !== 'Payment'}
                                                 menuPortalTarget={document.body}
-                                                placeholder={['Payment', 'transfer'].includes(row.type) ? "Select..." : ""}
+                                                placeholder={row.type === 'Payment' ? "Select..." : (row.type === 'Transfer to PC Book' ? "Claim" : "")}
                                             />
                                         </td>
                                         <td>
                                             <Select
                                                 options={getOptionsForType(row.type, row.claimCategory)}
                                                 value={
-                                                    (row.type === 'transfer' || (row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory)))
+                                                    (['Transfer to PC Book', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(row.type) || 
+                                                     (row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory)))
                                                     ? null 
                                                     : getOptionsForType(row.type, row.claimCategory).find(c => c.value === row.customerId) || null
                                                 }
                                                 onChange={(opt) => handleRowChange(index, 'customerId', opt?.value)}
                                                 styles={customSelectStyles}
-                                                isDisabled={row.type === 'transfer' || (row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory))}
+                                                isDisabled={
+                                                    row.isPosted || 
+                                                    ['Transfer to PC Book', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(row.type) || 
+                                                    (row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory))
+                                                }
                                                 menuPortalTarget={document.body}
-                                                placeholder={row.type === 'transfer' ? "N/A" : (['Payment', 'Deposit'].includes(row.type) ? "Select Supplier..." : "Select Customer...")}
+                                                placeholder="Select..."
                                             />
                                         </td>
                                         {/* Claim No — enabled for Payment with category or transfer with Claim category */}
                                         <td>
                                             <Select
                                                 options={getFilteredClaims(row)}
-                                                value={getFilteredClaims(row).find(c => c.value === row.linkedClaimId) || null}
+                                                value={
+                                                    getFilteredClaims(row).find(c => c.value === row.linkedClaimId) || 
+                                                    getFilteredClaims(row).find(c => row.referenceNo && c.label.includes(row.referenceNo.split(' - ')[0])) ||
+                                                    null
+                                                }
                                                 onChange={(opt) => handleRowChange(index, 'linkedClaimId', opt?.value)}
                                                 styles={customSelectStyles}
                                                 isDisabled={
+                                                    ['Other Income', 'Round minus', 'Round plus', 'Deposit', 'Deposit to Bank'].includes(row.type) ||
                                                     (row.type === 'Payment' && !row.claimCategory) ||
                                                     (row.type === 'Payment' && row.claimCategory === 'Supplier Payment' && getFilteredClaims(row).length === 0) ||
-                                                    (row.type === 'transfer' && row.claimCategory !== 'Claim')
+                                                    (row.type === 'Transfer to PC Book' && row.claimCategory !== 'Claim')
                                                 }
                                                 menuPortalTarget={document.body}
-                                                placeholder={(['Payment', 'transfer'].includes(row.type) && row.claimCategory) ? (getFilteredClaims(row).length > 0 ? "Select Claim..." : "No Claims Found") : ""}
+                                                placeholder={(['Payment', 'Transfer to PC Book'].includes(row.type) && row.claimCategory) ? (getFilteredClaims(row).length > 0 ? "Select Claim..." : "No Claims Found") : ""}
                                             />
                                         </td>
                                         <td>
@@ -1374,7 +1586,7 @@ const AddCashBook = () => {
                                                 styles={customSelectStyles}
                                                 menuPortalTarget={document.body}
                                                 placeholder="Select..."
-                                                isDisabled={!['Receipt', 'Other Income', 'Round plus'].includes(row.type)}
+                                                isDisabled={!['Receipt'].includes(row.type)}
                                             />
                                         </td>
                                         <td className="text-center">
@@ -1500,7 +1712,7 @@ const AddCashBook = () => {
                                 paddingBottom: '6px', 
                                 marginBottom: '12px' 
                             }}>
-                                <div className="logo" style={{ width: printRecord?.transaction_type === 'Payment' ? '90px' : '70px', marginRight: '15px', flexShrink: 0 }}>
+                                <div className="logo" style={{ width: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '90px' : '70px', marginRight: '15px', flexShrink: 0 }}>
                                     <img src={logo} alt="BTG Logo" style={{ width: '100%' }} />
                                 </div>
                                 <div className="company-details" style={{ flexGrow: 1 }}>
@@ -1512,34 +1724,34 @@ const AddCashBook = () => {
                                         textTransform: 'uppercase', 
                                         letterSpacing: '0.5px' 
                                     }}>PT. BATAM TEKNOLOGI GAS</h2>
-                                    <p style={{ margin: '1px 0', fontSize: '12px', color: printRecord?.transaction_type === 'Payment' ? '#000' : '#333' }}>Jalan Brigjen Katamso KM. 3, Tanjung Uncang, Batam - Indonesia</p>
-                                    <p style={{ margin: '1px 0', fontSize: '12px', color: printRecord?.transaction_type === 'Payment' ? '#000' : '#333' }}>Telp: (+62) 778 462959, 391918</p>
-                                    <p style={{ margin: '1px 0', fontSize: '12px', color: printRecord?.transaction_type === 'Payment' ? '#000' : '#333' }}>Website: www.ptbtg.com | E-mail: ptbtg@ptbtg.com</p>
+                                    <p style={{ margin: '1px 0', fontSize: '12px', color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#333' }}>Jalan Brigjen Katamso KM. 3, Tanjung Uncang, Batam - Indonesia</p>
+                                    <p style={{ margin: '1px 0', fontSize: '12px', color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#333' }}>Telp: (+62) 778 462959, 391918</p>
+                                    <p style={{ margin: '1px 0', fontSize: '12px', color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#333' }}>Website: www.ptbtg.com | E-mail: ptbtg@ptbtg.com</p>
                                 </div>
-                                {! (printRecord?.transaction_type === 'Payment') && (
+                                {! (['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type)) && (
                                     <div style={{ position: 'absolute', top: '18px', right: '22px', textAlign: 'right' }}>
                                         <div style={{ fontSize: '14px', color: '#d92525', fontWeight: 'bold', fontFamily: 'monospace' }}>
-                                            No. : {printRecord?.receipt_id}
+                                            No. : {formatVoucherNumber(printRecord?.receipt_id, printRecord?.transaction_type)}
                                         </div>
                                     </div>
                                 )}
                             </div>
-
+                            
                             {/* Title */}
                             <div className="receipt-title" style={{ 
                                 textAlign: 'center', 
-                                fontSize: printRecord?.transaction_type === 'Payment' ? '18px' : '15px', 
+                                fontSize: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '18px' : '15px', 
                                 fontWeight: 'bold', 
-                                textDecoration: printRecord?.transaction_type === 'Payment' ? 'none' : 'underline double', 
+                                textDecoration: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'none' : 'underline double', 
                                 marginBottom: '18px', 
-                                color: printRecord?.transaction_type === 'Payment' ? '#000' : '#1a2c5b', 
-                                letterSpacing: printRecord?.transaction_type === 'Payment' ? '2px' : '1.5px',
-                                textTransform: printRecord?.transaction_type === 'Payment' ? 'uppercase' : 'none'
+                                color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#1a2c5b', 
+                                letterSpacing: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '2px' : '1.5px',
+                                textTransform: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'uppercase' : 'none'
                             }}>
-                                {printRecord?.transaction_type === 'Payment' ? 'PAYMENT VOUCHER' : 'RECEIPT VOUCHER'}
+                                {['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'PAYMENT VOUCHER' : 'RECEIPT VOUCHER'}
                             </div>
 
-                            {printRecord?.transaction_type === 'Payment' ? (
+                            {['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? (
                                 <>
                                     {/* Payment Voucher Header Fields - Matching PPP.js Table Style */}
                                     <div style={{ width: "100%", marginBottom: "20px" }}>
@@ -1552,7 +1764,7 @@ const AddCashBook = () => {
                                                     
                                                     <td style={{ width: "60px", textAlign: "left", padding: "4px 2px", fontWeight: "bold", border: "none" }}>PV #</td>
                                                     <td style={{ width: "10px", padding: "4px 2px", border: "none" }}>:</td>
-                                                    <td style={{ width: "120px", padding: "4px 2px", verticalAlign: "top", border: "none" }}>{printRecord?.receipt_id}</td>
+                                                    <td style={{ width: "120px", padding: "4px 2px", verticalAlign: "top", border: "none" }}>{formatVoucherNumber(printRecord?.receipt_id, printRecord?.transaction_type)}</td>
                                                 </tr>
                                                 <tr>
                                                     <td style={{ textAlign: "left", padding: "4px 2px", fontWeight: "bold", border: "none" }}>Payment Method</td>

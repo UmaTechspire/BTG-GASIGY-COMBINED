@@ -129,12 +129,25 @@ const AddInvoiceReceipt = () => {
               schema.required("Invoice Date is required").typeError("Invalid date"),
             otherwise: (schema) => schema.nullable(),
           }),
-          irnDate: Yup.date().nullable().when("grnId", {
-            is: (grnId) => selectedItems.includes(grnId),
-            then: (schema) =>
-              schema.required("IRN Date is required").typeError("Invalid date"),
-            otherwise: (schema) => schema.nullable(),
-          }),
+          irnDate: Yup.date()
+            .nullable()
+            .when("grnId", {
+              is: (grnId) => selectedItems.includes(grnId),
+              then: (schema) =>
+                schema
+                  .required("IRN Date is required")
+                  .typeError("Invalid date")
+                  .test("min-grn-date", "IRN Date cannot be earlier than GRN Date", function (value) {
+                    const { grnDate } = this.parent;
+                    if (!grnDate || !value) return true;
+                    const irnDt = new Date(value);
+                    const grnDt = new Date(grnDate);
+                    irnDt.setHours(0, 0, 0, 0);
+                    grnDt.setHours(0, 0, 0, 0);
+                    return irnDt >= grnDt;
+                  }),
+              otherwise: (schema) => schema.nullable(),
+            }),
           modeOfPaymentId: Yup.number()
             .nullable()
             .when("grnId", {
@@ -948,6 +961,26 @@ const AddInvoiceReceipt = () => {
   const handleIRNDateChange = async (date, index, setFieldValue, values) => {
     if (!date) return;
     const item = values.items[index];
+
+    // Validate IRN Date against GRN Date
+    if (item.grnDate && date) {
+      const grnDt = new Date(item.grnDate);
+      const irnDt = new Date(date);
+      grnDt.setHours(0, 0, 0, 0);
+      irnDt.setHours(0, 0, 0, 0);
+
+      if (irnDt < grnDt) {
+        Swal.fire({
+          icon: "warning",
+          title: "Invalid Date",
+          text: "IRN Date cannot be earlier than the GRN Date.",
+          confirmButtonColor: "#3e6e9e"
+        });
+        setFieldValue(`items[${index}].irnDate`, new Date(item.grnDate));
+        return;
+      }
+    }
+
     const supplierId = item.supplierId;
 
     try {
@@ -1523,6 +1556,7 @@ const AddInvoiceReceipt = () => {
                                       altInput: true,
                                       altFormat: "d-M-Y",
                                       dateFormat: "Y-m-d",
+                                      minDate: item.grnDate ? new Date(item.grnDate) : null,
                                     }}
                                   />
                                   <ErrorMessage

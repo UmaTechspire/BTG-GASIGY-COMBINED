@@ -256,10 +256,10 @@ async def finalize_receipt_and_update_ref(db: AsyncSession, receipt_id: int):
             return False
 
         # 2. Get Linked Invoices from the allocation table (Raw SQL for robustness)
-        get_inv_sql = text("""
+        get_inv_sql = text(f"""
             SELECT DISTINCT ar.invoice_no 
-            FROM btggasify_finance_live.tbl_receipt_ag_ar ra
-            JOIN btggasify_finance_live.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id
+            FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra
+            JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id
             WHERE ra.receipt_id = :rid AND ra.is_active = 1
         """)
         inv_res = await db.execute(get_inv_sql, {"rid": receipt_id})
@@ -280,9 +280,9 @@ async def finalize_receipt_and_update_ref(db: AsyncSession, receipt_id: int):
         final_ref = record.reference_no
         print(f"DEBUG Step 3: rid={receipt_id}, final_ref='{final_ref}'")
         
-        update_sql = text("""
-            UPDATE btggasify_finance_live.tbl_ar_receipt 
-            SET reference_no = :ref, is_submitted = 1, pending_verification = 0, updated_date = NOW()
+        update_sql = text(f"""
+            UPDATE {DB_NAME_FINANCE}.tbl_ar_receipt 
+            SET reference_no = :ref, is_submitted = 1, is_posted = 1, pending_verification = 0, updated_date = NOW()
             WHERE receipt_id = :rid
         """)
         await db.execute(update_sql, {"ref": final_ref, "rid": receipt_id})
@@ -681,8 +681,17 @@ async def combine_receipts(db: AsyncSession, request: schemas.CombineVouchersReq
         db.add(dummy_receipt)
         await db.flush()
         
-        # Format the auto-generated receipt number (no prefix)
-        auto_voucher_no = str(dummy_receipt.receipt_id)
+        # Format the auto-generated receipt number with the correct prefix
+        t_type = (originals[0].transaction_type or 'Receipt').lower()
+        prefix = ""
+        if 'other income' in t_type:
+            prefix = "RCV - "
+        elif 'receipt' in t_type or 'rounding' in t_type:
+            prefix = "RV - "
+        elif 'transfer' in t_type:
+            prefix = "CV - "
+        
+        auto_voucher_no = f"{prefix}{dummy_receipt.receipt_id}"
 
         # 4. Update all records with the group_id and auto_voucher_no
         for r in originals:

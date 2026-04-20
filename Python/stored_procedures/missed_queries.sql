@@ -86,9 +86,11 @@ BEGIN
         MAX(b.BankName) as Account,
         CASE 
             WHEN LOWER(r.transaction_type) = 'bank interest' THEN 'Bank Interest'
-            WHEN LOWER(r.transaction_type) = 'bank transfer' THEN 'Bank Transfer'
             WHEN LOWER(r.transaction_type) = 'cash deposit' THEN 'Cash Deposit'
             WHEN MAX(r.cash_amount) < 0 AND MAX(r.bank_amount) = 0 THEN 'Petty Cash / Cash Holding'
+            WHEN LOWER(r.transaction_type) = 'deposit to bank' THEN 'Cash Book'
+            WHEN LOWER(r.transaction_type) = 'bank transfer' AND MAX(r.cash_amount) > 0 THEN 'Cash Book'
+            WHEN LOWER(r.transaction_type) = 'bank transfer' THEN COALESCE(MAX(rb.BankName), 'Other Bank')
             WHEN MAX(r.bank_amount) < 0 AND MAX(r.customer_id) != 0 
                 THEN COALESCE(MAX(s.SupplierName), 'Unknown Supplier')
             WHEN MAX(r.customer_id) = 0 AND r.reference_no LIKE 'CLM%' 
