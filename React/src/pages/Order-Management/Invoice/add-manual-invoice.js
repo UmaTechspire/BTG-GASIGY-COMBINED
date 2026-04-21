@@ -692,8 +692,8 @@ const AddManualInvoice = () => {
           ConvertedCurrencyId: item.convertedCurrencyId || item.ConvertedCurrencyId || item.Currencyid || 0,
           isImportedDO: !!item.ref_do_id,
           Note: item.Note || "",
-          
-          // 🟢 Commission Mapping
+
+          // 🟢 Commission Mapping: Rate -> Selling Price, Amount -> Selling Total
           sellingPrice: rateSum > 0 ? rateSum : (item.sellingPrice || item.SellingPrice || 0),
           sellingTotal: amountSum > 0 ? amountSum : (item.sellingTotal || item.SellingTotal || 0),
           commissions: comms
@@ -857,11 +857,11 @@ const AddManualInvoice = () => {
   const handleUnitPriceChange = async (index, uprice) => {
     const updatedDetails = [...manualinvoiceDetails];
     const qty = parseFloat(updatedDetails[index].pickedQty) || 0;
-    
+
     updatedDetails[index].UnitPrice = uprice;
     updatedDetails[index].TotalPrice = parseFloat((parseFloat(uprice) * qty).toFixed(2));
     updatedDetails[index].ConvertedPrice = updatedDetails[index].TotalPrice;
-    
+
     setmanualinvoiceDetails(updatedDetails);
     await GetCurrencyval(index, updatedDetails[index].ConvertedCurrencyId);
   };
@@ -869,11 +869,11 @@ const AddManualInvoice = () => {
   const handleQtyUpdate = async (index, value) => {
     const updatedDetails = [...manualinvoiceDetails];
     if (!updatedDetails[index]) return;
-    
+
     const qty = parseFloat(value) || 0;
     const unitPrice = parseFloat(updatedDetails[index].UnitPrice) || 0;
     const sellingPrice = parseFloat(updatedDetails[index].sellingPrice) || 0;
-    
+
     updatedDetails[index] = {
       ...updatedDetails[index],
       pickedQty: value,
@@ -892,7 +892,7 @@ const AddManualInvoice = () => {
     const sellingPrice = parseFloat(value) || 0;
     const qty = parseFloat(updatedDetails[index].pickedQty) || 0;
     updatedDetails[index].sellingTotal = parseFloat((sellingPrice * qty).toFixed(2));
-    
+
     setmanualinvoiceDetails(updatedDetails);
   };
 
@@ -904,10 +904,10 @@ const AddManualInvoice = () => {
     // We could recalculate UnitPrice here, but user said "explained functionalities later"
     // For now just keep the value.
     setmanualinvoiceDetails(updatedDetails);
-    
+
     // Also update ConvertedPrice (IDR) if possible
     if (updatedDetails[index].Exchangerate) {
-        updatedDetails[index].ConvertedPrice = parseFloat((parseFloat(value) * parseFloat(updatedDetails[index].Exchangerate)).toFixed(2));
+      updatedDetails[index].ConvertedPrice = parseFloat((parseFloat(value) * parseFloat(updatedDetails[index].Exchangerate)).toFixed(2));
     }
   };
 
@@ -930,11 +930,11 @@ const AddManualInvoice = () => {
   const handleCommissionUpdate = (commIndex, field, value) => {
     const updated = [...tempCommissions];
     updated[commIndex] = { ...updated[commIndex], [field]: value };
-    
+
     const rate = parseFloat(updated[commIndex].rate) || 0;
     const qty = parseFloat(updated[commIndex].qty) || 0;
     updated[commIndex].amount = parseFloat((rate * qty).toFixed(2));
-    
+
     setTempCommissions(updated);
   };
 
@@ -951,15 +951,14 @@ const AddManualInvoice = () => {
     const row = updatedDetails[activeCommIndex];
     if (!row) return;
 
-    // Calculate sum of all commission amounts in the modal
-    const totalCommAmt = tempCommissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
-    
     // Update sellingTotal and sellingPrice based on the modal sum
-    const qty = parseFloat(row.pickedQty) || 1;
+    const totalCommAmt = tempCommissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+    const totalRateSum = tempCommissions.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
+
     row.sellingTotal = parseFloat(totalCommAmt.toFixed(2));
-    row.sellingPrice = parseFloat((totalCommAmt / qty).toFixed(2));
+    row.sellingPrice = parseFloat(totalRateSum.toFixed(2));
     row.commissions = tempCommissions;
-    
+
     setmanualinvoiceDetails(updatedDetails);
     setIsCommModalOpen(false);
   };
@@ -998,20 +997,19 @@ const AddManualInvoice = () => {
         let commissions = [];
 
         if (invoiceHeader.customerId && invoiceHeader.salesInvoiceDate) {
-           const commData = await GetSalesCommission(invoiceHeader.customerId, selectedGas.GasCodeId, invoiceHeader.salesInvoiceDate);
-           if (commData && commData.found) {
-               commissions = commData.commissions.map(c => ({
-                   contactName: c.contactName,
-                   rate: c.rate,
-                   qty: c.qty,
-                   amount: parseFloat((c.rate * c.qty).toFixed(2))
-               }));
-               
-               // 🟢 Source Selling Price/Total from the sum of commissions
-               sellingTotal = commissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
-               const qty = 1; // Default initial qty
-               sellingPrice = parseFloat((sellingTotal / qty).toFixed(2));
-           }
+          const commData = await GetSalesCommission(invoiceHeader.customerId, selectedGas.GasCodeId, invoiceHeader.salesInvoiceDate);
+          if (commData && commData.found) {
+            commissions = commData.commissions.map(c => ({
+              contactName: c.contactName,
+              rate: c.rate,
+              qty: c.qty,
+              amount: parseFloat((c.rate * c.qty).toFixed(2))
+            }));
+
+            // 🟢 Source Selling Price from sum of rates, Selling Total from sum of amounts
+            sellingPrice = commissions.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
+            sellingTotal = commissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+          }
         }
 
         updatedDetails[index] = {
@@ -1106,11 +1104,11 @@ const AddManualInvoice = () => {
 
                           <Col md="12" className="mb-3">
                             <div className="d-flex justify-content-end align-items-center gap-2">
-                                {access.canSave && (
-                                  <Button color="info" onClick={(e) => { openpopup(e, 0) }} disabled={isSubmitting} >
-                                    {id > 0 ? "Update" : "Save"}
-                                  </Button>
-                                )}
+                              {access.canSave && (
+                                <Button color="info" onClick={(e) => { openpopup(e, 0) }} disabled={isSubmitting} >
+                                  {id > 0 ? "Update" : "Save"}
+                                </Button>
+                              )}
 
                               {access.canPost && (
                                 <Button color="success" onClick={(e) => { openpopup(e, 1) }}
@@ -1426,12 +1424,12 @@ const AddManualInvoice = () => {
 
                                                 {/* Total Price Column */}
                                                 <td>
-                                                  <Input type="text" name="TotalPrice" className="text-end" 
+                                                  <Input type="text" name="TotalPrice" className="text-end"
                                                     value={formatInputNumber(manualinvoiceDetails[index]?.TotalPrice || "")}
                                                     onChange={e => {
-                                                        const raw = e.target.value.replace(/[^0-9.]/g, "");
-                                                        if ((raw.match(/\./g) || []).length > 1) return;
-                                                        handleTotalPriceChange(index, raw);
+                                                      const raw = e.target.value.replace(/[^0-9.]/g, "");
+                                                      if ((raw.match(/\./g) || []).length > 1) return;
+                                                      handleTotalPriceChange(index, raw);
                                                     }}
                                                   />
                                                 </td>
@@ -1458,8 +1456,8 @@ const AddManualInvoice = () => {
                                                     onChange={e => handleSellingTotalChange(index, e.target.value)}
                                                     className="text-end"
                                                     style={{
-                                                       color: (parseFloat(manualinvoiceDetails[index]?.sellingTotal || 0) !== parseFloat(manualinvoiceDetails[index]?.TotalPrice || 0)) ? "firebrick" : "inherit",
-                                                       fontWeight: (parseFloat(manualinvoiceDetails[index]?.sellingTotal || 0) !== parseFloat(manualinvoiceDetails[index]?.TotalPrice || 0)) ? "bold" : "normal"
+                                                      color: (parseFloat(manualinvoiceDetails[index]?.sellingTotal || 0) !== parseFloat(manualinvoiceDetails[index]?.TotalPrice || 0)) ? "firebrick" : "inherit",
+                                                      fontWeight: (parseFloat(manualinvoiceDetails[index]?.sellingTotal || 0) !== parseFloat(manualinvoiceDetails[index]?.TotalPrice || 0)) ? "bold" : "normal"
                                                     }}
                                                   />
                                                 </td>
@@ -1495,28 +1493,28 @@ const AddManualInvoice = () => {
                                           })}
                                         </tbody>
                                         {/* Footer remains unchanged as colSpan covers the rearranged columns */}
-                                      <tfoot>
-                                        <tr className="fw-bold">
-                                          <td colSpan="7" className="text-end">Total</td>
-                                          <td className="text-end">
-                                            {new Intl.NumberFormat("en-US", {
-                                              style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
-                                            }).format(
-                                              manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.TotalPrice) || 0), 0)
-                                            )}
-                                          </td>
-                                          <td></td>
-                                          <td className="text-end">
-                                            {new Intl.NumberFormat("en-US", {
-                                              style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
-                                            }).format(
-                                              manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.sellingTotal) || 0), 0)
-                                            )}
-                                          </td>
-                                          <td className="text-end">
-                                            {new Intl.NumberFormat("en-US", {
-                                              style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
-                                            }).format(
+                                        <tfoot>
+                                          <tr className="fw-bold">
+                                            <td colSpan="7" className="text-end">Total</td>
+                                            <td className="text-end">
+                                              {new Intl.NumberFormat("en-US", {
+                                                style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
+                                              }).format(
+                                                manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.TotalPrice) || 0), 0)
+                                              )}
+                                            </td>
+                                            <td></td>
+                                            <td className="text-end">
+                                              {new Intl.NumberFormat("en-US", {
+                                                style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
+                                              }).format(
+                                                manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.sellingTotal) || 0), 0)
+                                              )}
+                                            </td>
+                                            <td className="text-end">
+                                              {new Intl.NumberFormat("en-US", {
+                                                style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,
+                                              }).format(
                                                 manualinvoiceDetails.reduce((sum, item) => sum + (parseFloat(item.ConvertedPrice) || 0), 0)
                                               )}
                                             </td>
@@ -1650,7 +1648,7 @@ const AddManualInvoice = () => {
             </Table>
           </div>
         </ModalBody>
-         <ModalFooter>
+        <ModalFooter>
           <Button color="secondary" onClick={() => setIsCommModalOpen(false)}>Close</Button>
         </ModalFooter>
       </Modal>
