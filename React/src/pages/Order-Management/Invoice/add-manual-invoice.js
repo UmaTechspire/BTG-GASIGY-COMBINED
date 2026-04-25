@@ -640,7 +640,12 @@ const AddManualInvoice = () => {
       }
 
       const mappedItems = rawDetails.map(item => {
-        const comms = item.commissions || [];
+        const currentQty = item.PickedQty ?? item.Qty ?? item.qty ?? 1;
+        const comms = (item.commissions || []).map(c => ({
+          ...c,
+          qty: currentQty,
+          amount: parseFloat(((parseFloat(c.rate) || 0) * currentQty).toFixed(2))
+        }));
         const rateSum = comms.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
         const amountSum = comms.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
 
@@ -874,12 +879,26 @@ const AddManualInvoice = () => {
     const unitPrice = parseFloat(updatedDetails[index].UnitPrice) || 0;
     const sellingPrice = parseFloat(updatedDetails[index].sellingPrice) || 0;
 
+    console.log(`Syncing Qty for row ${index}: ${qty}`);
+
+    // 🟢 Deep synchronize nested commissions with the new quantity
+    const updatedComms = (updatedDetails[index].commissions || []).map(c => {
+      const rate = parseFloat(c.rate) || 0;
+      return {
+        ...c,
+        qty: qty,
+        amount: parseFloat((qty * rate).toFixed(2))
+      };
+    });
+
     updatedDetails[index] = {
       ...updatedDetails[index],
       pickedQty: value,
       TotalPrice: parseFloat((qty * unitPrice).toFixed(2)),
-      sellingTotal: parseFloat((qty * sellingPrice).toFixed(2))
+      sellingTotal: parseFloat((qty * sellingPrice).toFixed(2)),
+      commissions: updatedComms
     };
+
     setmanualinvoiceDetails(updatedDetails);
     await GetCurrencyval(index, updatedDetails[index].ConvertedCurrencyId);
   };
@@ -921,7 +940,18 @@ const AddManualInvoice = () => {
 
   const openCommModal = async (index) => {
     setActiveCommIndex(index);
-    setTempCommissions(manualinvoiceDetails[index].commissions || []);
+
+    // 🟢 Force synchronize commission qty with the current main grid qty
+    const itemQty = parseFloat(manualinvoiceDetails[index].pickedQty) || 0;
+    console.log(`Opening Comm Modal for row ${index}. Current Item Qty: ${itemQty}`);
+
+    const updatedComms = (manualinvoiceDetails[index].commissions || []).map(c => ({
+      ...c,
+      qty: itemQty,
+      amount: parseFloat((itemQty * (parseFloat(c.rate) || 0)).toFixed(2))
+    }));
+
+    setTempCommissions(updatedComms);
     setIsCommModalOpen(true);
   };
 
@@ -999,11 +1029,12 @@ const AddManualInvoice = () => {
         if (invoiceHeader.customerId && invoiceHeader.salesInvoiceDate) {
           const commData = await GetSalesCommission(invoiceHeader.customerId, selectedGas.GasCodeId, invoiceHeader.salesInvoiceDate);
           if (commData && commData.found) {
+            const currentGridQty = parseFloat(updatedDetails[index].pickedQty) || 1;
             commissions = commData.commissions.map(c => ({
               contactName: c.contactName,
               rate: c.rate,
-              qty: c.qty,
-              amount: parseFloat((c.rate * c.qty).toFixed(2))
+              qty: currentGridQty,
+              amount: parseFloat((parseFloat(c.rate) * currentGridQty).toFixed(2))
             }));
 
             // 🟢 Source Selling Price from sum of rates, Selling Total from sum of amounts
@@ -1053,6 +1084,13 @@ const AddManualInvoice = () => {
     const loadCurrencyList = async () => {
       const data = await GetCurrency(1, 0);
       setCurrencyList(data);
+      // 🟢 Set IDR as default for new invoices
+      if (!id && data && data.length > 0) {
+        const idr = data.find(c => (c.Currency || c.currency) === "IDR");
+        if (idr) {
+          handleCurrencyChange(null, idr.currencyid);
+        }
+      }
     };
     loadCurrencyList();
 

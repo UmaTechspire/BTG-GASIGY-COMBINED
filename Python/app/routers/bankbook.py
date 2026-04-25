@@ -52,7 +52,7 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
         final_list = [dict(row) for row in raw_data]
             
         # Sort by date descending, then ID descending
-        final_list.sort(key=lambda x: (str(x.get('date', '')), -int(x.get('receipt_id', 0))), reverse=True)
+        final_list.sort(key=lambda x: (str(x.get('date', '')), int(x.get('receipt_id', 0))), reverse=True)
         
         return {"status": "success", "data": final_list}
         

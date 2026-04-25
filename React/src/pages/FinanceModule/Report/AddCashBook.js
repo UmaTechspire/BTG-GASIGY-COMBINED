@@ -189,6 +189,7 @@ const AddCashBook = () => {
     const [rows, setRows] = useState([]);
     const [totals, setTotals] = useState({ receipt: 0, payment: 0 });
     const [editMode, setEditMode] = useState(false);
+    const [editingId, setEditingId] = useState(null);
     const [selectedVouchers, setSelectedVouchers] = useState([]);
 
     // --- CURRENCY STATES ---
@@ -720,6 +721,7 @@ const AddCashBook = () => {
 
     const openNewModal = () => {
         setEditMode(false);
+        setEditingId(null);
         const idr = currencyList.find(c => c.label === "IDR");
         setSelectedCurrency(idr || null);
         setTotals({ receipt: 0, payment: 0 });
@@ -739,6 +741,7 @@ const AddCashBook = () => {
         }
 
         setEditMode(true);
+        setEditingId(rowData.receipt_id);
         const amount = parseFloat(rowData.cash_amount);
         const type = amount < 0 ? "Payment" : "Receipt";
 
@@ -836,7 +839,7 @@ const AddCashBook = () => {
             };
 
             if (editMode) {
-                const idToUpdate = rows[0].rowId;
+                const idToUpdate = editingId || rows[0]?.rowId;
                 const endpoint = `${PYTHON_API_URL}/AR/cash/update/${idToUpdate}`;
                 await axios.put(endpoint, payload);
             } else {
@@ -921,6 +924,7 @@ const AddCashBook = () => {
             setRows([getInitialRow()]);
             setTotals({ receipt: 0, payment: 0 });
             setEditMode(false);
+            setEditingId(null);
             // We keep the selectedCurrency as the user might want to enter multiple records for the same currency
 
             loadEntryList();

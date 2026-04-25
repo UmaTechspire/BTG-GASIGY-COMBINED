@@ -213,8 +213,8 @@ async def update_customer_and_verify(
     # 3. PROCESS ALLOCATIONS (Idempotent)
     linked_invoices = await _process_receipt_allocations(db, record, data)
 
-    # 4. Update Reference with Reply Message only (DEFER Invoices to Step 3)
-    await _update_receipt_reference(record, data.reply_message, [])
+    # 4. Update Description / Reference
+    await _update_receipt_reference(record, data.reply_message, linked_invoices)
 
     record.pending_verification = False
     record.modified_on = datetime.now()
@@ -499,8 +499,8 @@ async def save_verification_draft(db: AsyncSession, receipt_id: int, data: schem
     # 3. PROCESS ALLOCATIONS (NEW for Save Draft)
     linked_invoices = await _process_receipt_allocations(db, record, data)
 
-    # 4. Update Reference (Defer invoices until Step 3)
-    await _update_receipt_reference(record, data.reply_message, [])
+    # 4. Update Description / Reference
+    await _update_receipt_reference(record, data.reply_message, linked_invoices)
     
     record.modified_on = datetime.now()
     

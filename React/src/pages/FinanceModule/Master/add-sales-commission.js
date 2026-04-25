@@ -15,7 +15,7 @@ import * as Yup from "yup";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import {
-    SaveSalesCommission, GetAllSalesCommissionListing, GetSalesCommissionById,
+    SaveSalesCommission, CreateSalesCommission, UpdateSalesCommission, GetAllSalesCommissionListing, GetSalesCommissionById,
     UpdateSalesCommissionStatus, fetchGasList, GetCustomerFilter
 } from "../../../common/data/mastersapi";
 import { toast } from "react-toastify";
@@ -59,37 +59,25 @@ const AddSalesCommission = () => {
     const [customerList, setCustomerList] = useState([]);
     const [gasList, setGasList] = useState([]);
 
-    const CommissionWatcher = ({ values }) => {
-        const { customerId, gasId } = values;
+    const handleComboChange = async (cId, gId) => {
+        if (cId && gId && !editMode) {
+            try {
+                console.log(`Checking existing commission for Customer: ${cId}, Gas: ${gId}`);
+                const result = await GetAllSalesCommissionListing({ customerId: cId, gasId: gId });
 
-        useEffect(() => {
-            // Only trigger check if we are in "New" mode and both fields are selected
-            if (customerId && gasId && !editMode) {
-                const checkExisting = async () => {
-                    try {
-                        console.log(`Checking existing commission for Customer: ${customerId}, Gas: ${gasId}`);
-                        const result = await GetAllSalesCommissionListing({ customerId, gasId });
-
-                        if (result.status && result.data && result.data.length > 0) {
-                            // Find the header ID for this combination
-                            // The listing might return multiple rows (one per detail), we just need the first one's headerId
-                            const existing = result.data[0];
-                            const hId = existing.headerId || existing.HeaderId || existing.id;
-
-                            if (hId) {
-                                console.log("Matching record found! Switching to Edit Mode for HeaderId:", hId);
-                                handleEdit(hId);
-                            }
-                        }
-                    } catch (error) {
-                        console.error("Auto-load check failed:", error);
+                if (result.status && result.data && result.data.length > 0) {
+                    const existing = result.data[0];
+                    const hId = existing.headerId || existing.HeaderId || existing.id;
+                    if (hId) {
+                        console.log("Matching record found! Switching to Edit Mode for HeaderId:", hId);
+                        handleEdit(hId);
+                        toast.info("Existing commission record found. Switching to Update mode.");
                     }
-                };
-                checkExisting();
+                }
+            } catch (error) {
+                console.error("Auto-load check failed:", error);
             }
-        }, [customerId, gasId, editMode]);
-
-        return null;
+        }
     };
 
     const initialValues = {
@@ -240,16 +228,14 @@ const AddSalesCommission = () => {
         const cId = parseInt(values.customerId, 10);
         const gId = parseInt(values.gasId, 10);
 
-        console.log("Saving form values:", values);
+        console.log("Submitting form. Mode:", editMode ? "Update" : "Save");
         console.log("Calculated CustomerId:", cId, "Calculated GasId:", gId);
 
         if (!cId || cId <= 0) {
-            alert(`Error: Customer ID is 0 or invalid (${values.customerId}). Check console for mapping logs.`);
             toast.error("Please select a valid Customer.");
             return;
         }
         if (!gId || gId <= 0) {
-            alert(`Error: Gas ID is 0 or invalid (${values.gasId}). Check console for mapping logs.`);
             toast.error("Please select a valid Gas.");
             return;
         }
@@ -265,7 +251,7 @@ const AddSalesCommission = () => {
                 SellingPrice: parseFloat(values.sellingPrice) || 0,
                 EffectiveFrom: new Date(values.effectiveFrom).toISOString(),
                 IsActive: 1,
-                DetailCount: 0, // Backend property
+                DetailCount: 0,
                 CreatedBy: currentUserId,
                 LastModifiedBy: currentUserId
             },
@@ -279,23 +265,31 @@ const AddSalesCommission = () => {
                 }))
         };
 
-        console.log("Submitting Sales Commission Payload:", payload);
+        console.log("Payload:", payload);
 
         try {
             setIsSubmitting(true);
-            const response = await SaveSalesCommission(payload);
+            let response;
+
+            if (editMode) {
+                response = await UpdateSalesCommission(payload);
+            } else {
+                response = await CreateSalesCommission(payload);
+            }
+
             if (response.status) {
                 setIsModalOpen(false);
-                setSuccessMsg(response.message || "Sales Commission saved successfully!");
-                toast.success(response.message || "Saved successfully!");
+                setEditMode(false); // Reset mode after success
+                setSuccessMsg(response.message || (editMode ? "Updated successfully!" : "Saved successfully!"));
+                toast.success(response.message || (editMode ? "Updated successfully!" : "Saved successfully!"));
                 getAllCommissions();
             } else {
-                setErrorMsg(response.message || "Failed to save.");
-                toast.error(response.message || "Failed to save.");
+                setErrorMsg(response.message || "Operation failed.");
+                toast.error(response.message || "Operation failed.");
             }
         } catch (error) {
-            console.error("Error saving commission:", error);
-            toast.error("An error occurred while saving.");
+            console.error("Error during submission:", error);
+            toast.error("An error occurred.");
         } finally {
             setIsSubmitting(false);
         }
@@ -558,7 +552,13 @@ const AddSalesCommission = () => {
                                                 <Select
                                                     options={customerList}
                                                     value={customerList.find(c => String(c.value) === String(values.customerId)) || null}
-                                                    onChange={selected => setFieldValue("customerId", selected ? selected.value : "")}
+                                                    onChange={selected => {
+                                                        const val = selected ? selected.value : "";
+                                                        setFieldValue("customerId", val);
+                                                        if (val && values.gasId) {
+                                                            handleComboChange(val, values.gasId);
+                                                        }
+                                                    }}
                                                     placeholder="Select Customer"
                                                     isClearable
                                                     isSearchable
@@ -573,7 +573,13 @@ const AddSalesCommission = () => {
                                                 <Select
                                                     options={gasList}
                                                     value={gasList.find(g => String(g.value) === String(values.gasId)) || null}
-                                                    onChange={selected => setFieldValue("gasId", selected ? selected.value : "")}
+                                                    onChange={selected => {
+                                                        const val = selected ? selected.value : "";
+                                                        setFieldValue("gasId", val);
+                                                        if (values.customerId && val) {
+                                                            handleComboChange(values.customerId, val);
+                                                        }
+                                                    }}
                                                     placeholder="Select Gas"
                                                     isClearable
                                                     isSearchable
@@ -693,11 +699,17 @@ const AddSalesCommission = () => {
 
 
                                     <div className="text-end mt-4">
-                                        <CommissionWatcher values={values} />
-                                        <StrapButton type="submit" color="primary" className="fw-bold px-4 py-2 me-2" style={{ backgroundColor: "#2196f3", borderColor: "#2196f3" }} disabled={isSubmitting}>
-                                            <i className="bx bx-save font-size-18 align-middle me-2"></i>
-                                            {isSubmitting ? editMode ? "Updating..." : "Saving..." : editMode ? "Update" : "Save"}
-                                        </StrapButton>
+                                        {!editMode ? (
+                                            <StrapButton type="submit" color="primary" className="fw-bold px-4 py-2 me-2" style={{ backgroundColor: "#2196f3", borderColor: "#2196f3" }} disabled={isSubmitting}>
+                                                <i className="bx bx-save font-size-18 align-middle me-2"></i>
+                                                {isSubmitting ? "Saving..." : "Save"}
+                                            </StrapButton>
+                                        ) : (
+                                            <StrapButton type="submit" color="warning" className="fw-bold px-4 py-2 me-2" style={{ backgroundColor: "#f39c12", borderColor: "#f39c12", color: "white" }} disabled={isSubmitting}>
+                                                <i className="bx bx-edit font-size-18 align-middle me-2"></i>
+                                                {isSubmitting ? "Updating..." : "Update"}
+                                            </StrapButton>
+                                        )}
                                         <StrapButton type="button" color="danger" className="fw-bold px-4 py-2" style={{ backgroundColor: "#e74c3c", borderColor: "#e74c3c" }} onClick={toggleModal}>
                                             <i className="bx bx-x-circle font-size-18 align-middle me-2"></i> Cancel
                                         </StrapButton>

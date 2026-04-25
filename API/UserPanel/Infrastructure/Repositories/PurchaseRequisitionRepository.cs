@@ -411,6 +411,7 @@ VALUES (
         UPDATE tbl_PurchaseRequisition_Header
         SET 
             PRTypeId = @PRTypeId,
+            PRDate = @PRDate,
             SupplierId = @SupplierId,
             RequestorId = @RequestorId,
             DeptId = @DeptId,

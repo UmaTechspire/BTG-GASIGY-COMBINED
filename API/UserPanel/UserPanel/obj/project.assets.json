@@ -6541,11 +6541,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
+      "projectUniqueName": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
       "projectName": "UserPanel",
-      "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
+      "projectPath": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
       "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
-      "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\obj\\",
+      "outputPath": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -6560,11 +6560,11 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
-              "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj"
+            "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
+              "projectPath": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj"
             },
-            "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
-              "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj"
+            "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
+              "projectPath": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj"
             }
           }
         }
@@ -6642,5 +6642,17 @@
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
       }
     }
-  }
+  },
+  "logs": [
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "Package 'log4net' 3.0.3 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-4f7c-pmjv-c25w",
+      "libraryId": "log4net",
+      "targetGraphs": [
+        "net9.0"
+      ]
+    }
+  ]
 }

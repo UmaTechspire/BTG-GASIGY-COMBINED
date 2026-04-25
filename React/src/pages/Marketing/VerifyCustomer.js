@@ -62,14 +62,15 @@ const numberToWords = (amount) => {
   return str.trim();
 };
 
-// --- HELPER: Date Formatter (dd-mm-yyyy) ---
+// --- HELPER: Date Formatter (dd-MMM-yyyy) ---
 const formatDate = (dateInput) => {
   if (!dateInput || dateInput === "N/A") return "";
   const d = new Date(dateInput);
   if (isNaN(d.getTime())) return dateInput;
 
   const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const month = monthNames[d.getMonth()];
   const year = d.getFullYear();
 
   return `${day}-${month}-${year}`;
@@ -193,21 +194,33 @@ const VerifyCustomer = () => {
 
       let invoiceList = [];
       if (res.data && res.data.status === "success") {
-        invoiceList = res.data.data.map(inv => ({
-          id: inv.invoice_id,
-          invNo: inv.invoice_no,
-          date: inv.invoice_date,
-          balanceDue: parseFloat(inv.balance_due),
-          paymentType: inv.allocated_here > 0 ? "Partial" : "",
-          amount: inv.allocated_here > 0 ? parseFloat(inv.allocated_here) : "",
-          selected: inv.is_pre_selected || false
-        }));
+        invoiceList = res.data.data.map(inv => {
+          const balance = parseFloat(inv.balance_due) || 0;
+          const allocated = parseFloat(inv.allocated_here) || 0;
+          let pType = "";
+          if (allocated > 0) {
+            pType = Math.abs(allocated - balance) < 0.01 ? "Full" : "Partial";
+          }
+          return {
+            id: inv.invoice_id,
+            invNo: inv.invoice_no,
+            date: inv.invoice_date,
+            balanceDue: balance,
+            paymentType: pType,
+            amount: allocated > 0 ? allocated : "",
+            selected: inv.is_pre_selected || false
+          };
+        });
       }
+
+      // 🟢 Calculate already allocated sum from draft to properly initialize advance
+      const preAllocatedSum = invoiceList.filter(inv => inv.selected).reduce((sum, inv) => sum + (parseFloat(inv.amount) || 0), 0);
+      const calculatedAdvance = Math.max(0, initialAdvance - preAllocatedSum + initialBankCharges + initialTaxDeduction);
 
       setVerificationData({
         taxDeduction: initialTaxDeduction,
         bankCharges: initialBankCharges,
-        advancePayment: initialAdvance,
+        advancePayment: calculatedAdvance,
         exchangeRate: initialExchangeRate,
         replyMessage: "",
         invoices: invoiceList
@@ -291,7 +304,7 @@ const VerifyCustomer = () => {
     else if (field === "amount") {
       updated[index].amount = parseNumber(value);
     }
-    setVerificationData({ ...verificationData, invoices: updated });
+    setVerificationData(prev => ({ ...prev, invoices: updated }));
   };
 
   const isAllSelected = verificationData.invoices.length > 0 && verificationData.invoices.every(inv => inv.selected);
@@ -304,7 +317,7 @@ const VerifyCustomer = () => {
       paymentType: checked ? "Full" : "",
       amount: checked ? inv.balanceDue : ""
     }));
-    setVerificationData({ ...verificationData, invoices: updated });
+    setVerificationData(prev => ({ ...prev, invoices: updated }));
   };
 
   const totalAllocated = verificationData.invoices.filter(inv => inv.selected).reduce((sum, inv) => sum + (parseFloat(inv.amount) || 0), 0);
@@ -339,7 +352,7 @@ const VerifyCustomer = () => {
     try {
       const payload = getPayload();
       await axios.put(`${PYTHON_API_URL}/AR/save-draft/${selectedRecord.receipt_id}`, payload);
-      toast.info("Draft Saved successfully.");
+      toast.info("Updated successfully.");
       setRows(prevRows => prevRows.map(row =>
         row.receipt_id === selectedRecord.receipt_id
           ? { ...row, bank_charges: payload.bank_charges, tax_rate: payload.tax_deduction }
@@ -377,7 +390,7 @@ const VerifyCustomer = () => {
       });
       toast.success("Reply Sent!");
       setReplyModal(false);
-      setVerificationData({ ...verificationData, replyMessage: "" });
+      setVerificationData(prev => ({ ...prev, replyMessage: "" }));
     } catch (err) { toast.error("Failed to send reply."); }
   };
 
@@ -460,17 +473,17 @@ const VerifyCustomer = () => {
     const isVerified = rowData.pending_verification === 0 || rowData.pending_verification === false;
 
     return (
-      <div className="d-flex justify-content-center gap-3 align-items-center">
+      <div className="d-flex justify-content-center gap-2 align-items-center">
         <i 
           className={isVerified ? "mdi mdi-square-edit-outline text-muted" : "bx bx-check-circle text-primary"} 
-          style={{ cursor: "pointer", fontSize: isVerified ? "1.5rem" : "22px" }} 
+          style={{ cursor: "pointer", fontSize: "22px", lineHeight: '1' }} 
           title={isVerified ? "Edit/View" : "Verify"} 
           onClick={() => handleVerifyOpen(rowData)}
         ></i>
         <div style={{ position: 'relative', display: 'inline-block' }}>
           <i 
-            className={`bx ${rowData.unread_count > 0 ? 'bx-chat text-danger' : 'bx-chat text-muted'} font-size-22`} 
-            style={{ cursor: "pointer" }} 
+            className={`bx ${rowData.unread_count > 0 ? 'bx-chat text-danger' : 'bx-chat text-muted'}`} 
+            style={{ cursor: "pointer", fontSize: "22px", lineHeight: '1' }} 
             title={rowData.unread_count > 0 ? `Reply (${rowData.unread_count} unread)` : "Reply"} 
             onClick={() => handleReplyOpen(rowData)}
           ></i>
@@ -517,7 +530,6 @@ const VerifyCustomer = () => {
           </div>
         </div>
 
-        <div className="table-responsive">
           <DataTable
             value={rows}
             paginator
@@ -525,21 +537,20 @@ const VerifyCustomer = () => {
             globalFilter={globalFilter}
             className="blue-bg"
             showGridlines
-            responsiveLayout="scroll"
+            dataKey="receipt_id"
             emptyMessage="No pending verifications found."
           >
-            <Column field="receiptDate" header="Receipt Date" sortable body={(r) => formatDate(r.receiptDate)}></Column>
-            <Column field="customerNameDisplay" header="Customer"></Column>
-            <Column field="receiptAmount" header="Receipt" body={(r) => (r.receiptAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-end"></Column>
-            <Column field="currencyCode" header="Currency" className="text-center"></Column>
-            <Column field="entryType" header="Type" className="text-center" body={(r) => (
-              <span className={`badge ${r.entryType === "Cashbook" ? "bg-info" : "bg-success"}`} style={{ fontSize: '12px', padding: '5px 10px' }}>
+            <Column field="receiptDate" header="Receipt Date" sortable body={(r) => formatDate(r.receiptDate)} style={{ width: '130px', whiteSpace: 'nowrap' }} className="text-center align-middle"></Column>
+            <Column field="customerNameDisplay" header="Customer" sortable style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: '200px' }} className="align-middle"></Column>
+            <Column field="receiptAmount" header="Receipt" sortable body={(r) => (r.receiptAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="text-end align-middle" style={{ width: '150px', whiteSpace: 'nowrap' }}></Column>
+            <Column field="currencyCode" header="Currency" className="text-center align-middle" style={{ width: '100px' }}></Column>
+            <Column field="entryType" header="Type" className="text-center align-middle" style={{ width: '120px' }} body={(r) => (
+              <span className={`badge ${r.entryType === "Cashbook" ? "bg-info" : "bg-success"}`} style={{ fontSize: '11px', padding: '4px 8px', display: 'inline-block' }}>
                 {r.entryType}
               </span>
             )}></Column>
-            <Column header="Action" body={actionBodyTemplate} className="text-center"></Column>
+            <Column header="Action" body={actionBodyTemplate} className="text-center align-middle" style={{ width: '100px' }}></Column>
           </DataTable>
-        </div>
 
         <Modal isOpen={verifyModal} toggle={() => setVerifyModal(false)} size="xl" centered>
           <ModalHeader toggle={() => setVerifyModal(false)}>
@@ -552,7 +563,7 @@ const VerifyCustomer = () => {
               <Col md={4}>
                 <FormGroup className="mb-0 d-flex align-items-center justify-content-end">
                   <Label className="me-2 mb-0 fw-bold">Exchange Rate:</Label>
-                  <Input type="number" style={{ width: '100px' }} value={verificationData.exchangeRate} disabled={selectedRecord?.currencyCode === "IDR" || ((selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified)} onChange={(e) => setVerificationData({ ...verificationData, exchangeRate: e.target.value })} />
+                  <Input type="number" style={{ width: '100px' }} value={verificationData.exchangeRate} disabled={selectedRecord?.currencyCode === "IDR" || ((selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified)} onChange={(e) => setVerificationData(prev => ({ ...prev, exchangeRate: e.target.value }))} />
                 </FormGroup>
               </Col>
             </Row>
@@ -597,9 +608,9 @@ const VerifyCustomer = () => {
             )}
             <Row className="mt-4 pt-3 border-top align-items-end">
               <Col md={2}><Label className="fw-bold mb-1 small text-muted">Allocated</Label><Input type="text" className="fw-bold bg-white" value={totalAllocated.toLocaleString()} readOnly /></Col>
-              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Bank Charges</Label><Input type="text" value={verificationData.bankCharges === 0 ? "" : formatNumber(verificationData.bankCharges)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData({ ...verificationData, bankCharges: parseNumber(e.target.value) })} /></Col>
-              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Tax Deduction</Label><Input type="text" value={verificationData.taxDeduction === 0 ? "" : formatNumber(verificationData.taxDeduction)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData({ ...verificationData, taxDeduction: parseNumber(e.target.value) })} /></Col>
-              <Col md={3}><Label className="fw-bold mb-1 small text-success">Advance Payment</Label><Input type="text" className="fw-bold text-success" value={verificationData.advancePayment === 0 ? "" : formatNumber(verificationData.advancePayment)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData({ ...verificationData, advancePayment: parseNumber(e.target.value) })} placeholder="Enter advance..." /></Col>
+              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Bank Charges</Label><Input type="text" value={verificationData.bankCharges === 0 ? "" : formatNumber(verificationData.bankCharges)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData(prev => ({ ...prev, bankCharges: parseNumber(e.target.value) }))} /></Col>
+              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Tax Deduction</Label><Input type="text" value={verificationData.taxDeduction === 0 ? "" : formatNumber(verificationData.taxDeduction)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData(prev => ({ ...prev, taxDeduction: parseNumber(e.target.value) }))} /></Col>
+              <Col md={3}><Label className="fw-bold mb-1 small text-success">Advance Payment</Label><Input type="text" className="fw-bold text-success" value={verificationData.advancePayment === 0 ? "" : formatNumber(verificationData.advancePayment)} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={(e) => setVerificationData(prev => ({ ...prev, advancePayment: parseNumber(e.target.value) }))} placeholder="Enter advance..." /></Col>
               <Col md={3}><Label className={`fw-bold mb-1 small ${isValid ? "text-success" : "text-danger"}`}>Total Utilized</Label><div className="input-group"><Input type="text" className={`fw-bold ${isValid ? "is-valid" : "is-invalid"}`} value={formatNumber(utilizedAmount)} readOnly />{!isValid && <span className="input-group-text text-danger bg-light" style={{ fontSize: '0.8rem' }}>Diff: {formatNumber(variance)}</span>}</div></Col>
             </Row>
             <div className="d-flex justify-content-end gap-2 mt-4">
@@ -607,7 +618,7 @@ const VerifyCustomer = () => {
                 <Button color="success" className="text-white" onClick={() => setIsEditingVerified(true)}>Edit</Button>
               )}
               {(!(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) || isEditingVerified) && (
-                <Button color="primary" onClick={handleSaveDraft} disabled={savingDraft || loadingInvoices} style={{ width: '120px' }}>{savingDraft ? <Spinner size="sm" /> : "Save"}</Button>
+                <Button color="primary" onClick={handleSaveDraft} disabled={savingDraft || loadingInvoices} style={{ width: '120px' }}>{savingDraft ? <Spinner size="sm" /> : "Update"}</Button>
               )}
               {(!(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false)) && (
                 <Button color="success" onClick={handlePostVerification} disabled={!isValid || loadingInvoices} style={{ width: '140px' }}>Verify</Button>
@@ -644,7 +655,7 @@ const VerifyCustomer = () => {
             </div>
             <FormGroup className="mb-0">
               <Label className="fw-bold">New Message:</Label>
-              <Input type="textarea" rows="3" placeholder="Enter your reply to Finance..." value={verificationData.replyMessage} onChange={(e) => setVerificationData({ ...verificationData, replyMessage: e.target.value })} />
+              <Input type="textarea" rows="3" placeholder="Enter your reply to Finance..." value={verificationData.replyMessage} onChange={(e) => setVerificationData(prev => ({ ...prev, replyMessage: e.target.value }))} />
             </FormGroup>
           </ModalBody>
           <ModalFooter>

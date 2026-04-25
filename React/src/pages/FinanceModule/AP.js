@@ -122,6 +122,12 @@ const AP = () => {
             min-width: 120px;
             color: #333;
         }
+        .p-datatable .p-datatable-tbody > tr > td {
+            padding: 12px 16px !important;
+        }
+        .p-datatable .p-datatable-thead > tr > th {
+            padding: 12px 16px !important;
+        }
     `;
 
     // --- 1. Load Dropdowns & PO List ---
@@ -190,7 +196,12 @@ const AP = () => {
     const formatDate = (date) => {
         if (!date) return "-";
         const d = new Date(date);
-        return isNaN(d.getTime()) ? "-" : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
+        if (isNaN(d.getTime())) return "-";
+        const day = String(d.getDate()).padStart(2, '0');
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const month = months[d.getMonth()];
+        const year = d.getFullYear();
+        return <span style={{ whiteSpace: 'nowrap' }}>{`${day}-${month}-${year}`}</span>;
     };
 
     // --- 2. Fetch Grid Data ---
@@ -389,9 +400,13 @@ const AP = () => {
                 if (apLedgerResponse?.status && Array.isArray(apLedgerResponse.data)) {
                     apLedgerResponse.data.forEach(item => {
                         mergedList.push({
-                            Date: item.grn_date || item.po_date || item.ref_date,
-                            Reference: item.ref_no,
-                            ReferenceDate: item.ref_date,
+                            Date: item.grn_date || item.po_date || item.claim_date || item.irn_date,
+                            Reference: item.claim_no || item.irn_no || item.po_no,
+                            claim_no: item.claim_no,
+                            claim_date: item.claim_date,
+                            ClaimId: item.claim_id,
+                            irn_no: item.irn_no,
+                            irn_date: item.irn_date,
                             IRNAmount: Number(item.irn_amount || 0),
                             ClaimAmount: Number(item.claim_amount || 0),
                             grn_no: item.grn_no,
@@ -407,6 +422,8 @@ const AP = () => {
                         });
                     });
                 }
+                
+                console.log("AP Ledger Merged List Sample:", mergedList.slice(0, 5));
 
                 // fallback: Process additional unlinked payments/claims that might not be in the GRN chain
                 // (Optional: Keep original logic if there are non-GRN claims, but users usually want matched data here)
@@ -471,6 +488,52 @@ const AP = () => {
                     {item.grn_date && (
                         <small className="text-muted mt-1">
                             {formatDate(item.grn_date)}
+                        </small>
+                    )}
+                </div>
+            );
+        }
+        return "-";
+    };
+
+    const displayClaimNumber = (item) => {
+        if (item.claim_no && item.claim_no !== "") {
+            return (
+                <div className="d-flex flex-column">
+                    <span
+                        className="fw-bold cursor-pointer text-primary"
+                        style={{ textDecoration: 'underline' }}
+                        onClick={() => handleClaimClick(item)}
+                        title="View Claim Details"
+                    >
+                        {item.claim_no}
+                    </span>
+                    {item.claim_date && (
+                        <small className="text-muted mt-1">
+                            {formatDate(item.claim_date)}
+                        </small>
+                    )}
+                </div>
+            );
+        }
+        return "-";
+    };
+
+    const displayIRNNumber = (item) => {
+        if (item.irn_no && item.irn_no !== "") {
+            return (
+                <div className="d-flex flex-column">
+                    <span
+                        className="fw-bold cursor-pointer text-primary"
+                        style={{ textDecoration: 'underline' }}
+                        onClick={() => handleIRNClick(item.POId || item.poid, item)}
+                        title="View IRN Details"
+                    >
+                        {item.irn_no}
+                    </span>
+                    {item.irn_date && (
+                        <small className="text-muted mt-1">
+                            {formatDate(item.irn_date)}
                         </small>
                     )}
                 </div>
@@ -672,6 +735,7 @@ const AP = () => {
 
         console.log("👉 handleClaimClick for row:", rowData);
         const reference = rowData.Reference;
+        const pureClaimNo = reference ? reference.split(" - ")[0].trim() : "";
         let claimId = rowData.ClaimId || rowData.ClaimID || rowData.id;
 
         setShowClaimDetailModal(true);
@@ -682,7 +746,6 @@ const AP = () => {
             // Find matching application number or claim number ONLY IF id is missing
             if (!claimId) {
                 console.log("⚠️ ClaimId missing in row, performing search...");
-                const pureClaimNo = reference.split(" - ")[0].trim();
                 const listRes = await GetAllClaimAndPayment(0, 0, branchId, orgId, userId);
 
                 if (listRes?.status && listRes.data) {
@@ -1033,17 +1096,16 @@ const AP = () => {
                             <TabPane tabId="3">
                                 <DataTable
                                     value={ledgerData}
-                                    paginator
-                                    rows={20}
                                     loading={loading}
+                                    rows={10}
+                                    paginator
                                     globalFilter={globalFilterLedger}
-                                    globalFilterFields={["Reference", "po_no", "grn_no"]}
+                                    globalFilterFields={["claim_no", "irn_no", "po_no", "grn_no"]}
                                     header={renderHeader("Ledger")}
                                     responsiveLayout="scroll"
                                     emptyMessage="No Data Found"
                                     className="blue-bg"
                                     showGridlines
-                                    size="small"
                                 >
                                     <Column field="po_no" header="PO No / DATE" body={displayPONumber} sortable />
                                     <Column field="po_amount" header="PO Amt" body={(item) => {
@@ -1052,19 +1114,8 @@ const AP = () => {
                                         return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
                                     }} className="text-end" sortable />
                                     <Column field="grn_no" header="GRN No. / DATE" body={displayGRNNumber} sortable />
-                                    <Column field="Reference" header="Ref No." body={(rowData) => {
-                                        const ref = rowData.Reference;
-                                        if (!ref || ref === "" || ref === "-") return "-";
-
-                                        if (ref.startsWith("CLM")) {
-                                            return <span className="text-primary cursor-pointer fw-bold" onClick={() => handleClaimClick(rowData)}>{ref}</span>;
-                                        }
-                                        if (ref.startsWith("IRN") || ref.startsWith("SPC")) {
-                                            return <span className="text-primary cursor-pointer fw-bold" onClick={() => handleIRNClick(rowData.POId || rowData.poid, rowData)}>{ref}</span>;
-                                        }
-                                        return <span>{ref}</span>;
-                                    }} sortable />
-                                    <Column field="ReferenceDate" header="Ref Date" body={(item) => formatDate(item.ReferenceDate)} sortable />
+                                    <Column field="claim_no" header="Claim No. / DATE" body={displayClaimNumber} sortable />
+                                    <Column field="irn_no" header="IRN No. / DATE" body={displayIRNNumber} sortable />
                                     <Column field="IRNAmount" header="IRN Amount" body={(item) => {
                                         let val = item.IRNAmount || 0;
                                         if (Math.abs(val) < 0.001) val = 0;

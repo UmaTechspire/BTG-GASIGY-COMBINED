@@ -280,3 +280,33 @@ async def get_debit_note_by_id(id: int):
     except Exception as e:
         print(f"Error fetching debit note: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# 10. Delete Credit Note
+@router.delete("/delete-credit-note/{id}")
+async def delete_credit_note(id: int, db: Session = Depends(get_db)):
+    try:
+        # Delete from credit_invoice first (child)
+        await db.execute(text(f"DELETE FROM {DB_NAME_FINANCE}.credit_invoice WHERE CreditNoteId = :id"), {"id": id})
+        # Delete from Credit_Notes (parent)
+        await db.execute(text(f"DELETE FROM {DB_NAME_FINANCE}.Credit_Notes WHERE CreditNoteId = :id"), {"id": id})
+        await db.commit()
+        return {"status": "success", "message": "Credit Note deleted successfully"}
+    except Exception as e:
+        await db.rollback()
+        print(f"Error deleting credit note: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 11. Delete Debit Note
+@router.delete("/delete-debit-note/{id}")
+async def delete_debit_note(id: int, db: Session = Depends(get_db)):
+    try:
+        # Delete from debit_invoice first (child)
+        await db.execute(text(f"DELETE FROM {DB_NAME_FINANCE}.debit_invoice WHERE DebitNoteId = :id"), {"id": id})
+        # Delete from Debit_Notes (parent)
+        await db.execute(text(f"DELETE FROM {DB_NAME_FINANCE}.Debit_Notes WHERE DebitNoteId = :id"), {"id": id})
+        await db.commit()
+        return {"status": "success", "message": "Debit Note deleted successfully"}
+    except Exception as e:
+        await db.rollback()
+        print(f"Error deleting debit note: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

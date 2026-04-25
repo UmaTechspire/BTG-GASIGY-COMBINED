@@ -162,6 +162,7 @@ const AddBankBook = () => {
     const [rows, setRows] = useState([]);
     const [totals, setTotals] = useState({ receipt: 0, payment: 0 });
     const [editMode, setEditMode] = useState(false);
+    const [editingId, setEditingId] = useState(null);
 
     // --- CURRENCY STATES ---
     const [currencyList, setCurrencyList] = useState([]);
@@ -442,6 +443,7 @@ const AddBankBook = () => {
 
     const openNewModal = () => {
         setEditMode(false);
+        setEditingId(null);
         setSelectedBank(null);
         setSelectedCurrency(null);
         setTotals({ receipt: 0, payment: 0 });
@@ -476,6 +478,7 @@ const AddBankBook = () => {
         }
 
         setEditMode(true);
+        setEditingId(rowData.receipt_id);
         const bank = bankList.find(b => b.value === parseInt(rowData.deposit_bank_id));
         setSelectedBank(bank || null);
 
@@ -579,7 +582,7 @@ const AddBankBook = () => {
             };
 
             if (editMode) {
-                const idToUpdate = rows[0].rowId;
+                const idToUpdate = editingId || rows[0]?.rowId;
                 // Step 1: Always save the data fields
                 await axios.put(`${PYTHON_API_URL}/AR/update/${idToUpdate}`, payload);
 
@@ -600,6 +603,8 @@ const AddBankBook = () => {
             }
 
             toast.success(`${rows.length} ${isPosted ? 'Posted' : 'Saved'} Successfully`);
+            setEditMode(false);
+            setEditingId(null);
             setIsModalOpen(false);
             loadEntryList();
         } catch (err) {
@@ -1165,9 +1170,11 @@ const AddBankBook = () => {
                             dataKey="receipt_id"
                             rowClick={false}
                             selectionMode="checkbox"
+                            sortField="date"
+                            sortOrder={-1}
                         >
                             <Column selectionMode="multiple" headerStyle={{ width: '3em' }}></Column>
-                            <Column field="displayDate" header="Date" sortable filter style={{ width: '8%' }} />
+                            <Column field="displayDate" sortField="date" filterField="displayDate" header="Date" sortable filter style={{ width: '8%' }} />
                             <Column field="bankName" header="Bank Name" sortable filter style={{ width: '12%' }} />
                             <Column field="customerName" header="Party" sortable filter style={{ width: '20%' }} />
                             <Column

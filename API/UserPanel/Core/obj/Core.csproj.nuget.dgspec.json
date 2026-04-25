@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {}
+    "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {}
   },
   "projects": {
-    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
+    "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
+        "projectUniqueName": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
         "projectName": "Core",
-        "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
+        "projectPath": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
         "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
-        "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\obj\\",
+        "outputPath": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"

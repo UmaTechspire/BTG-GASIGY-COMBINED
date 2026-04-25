@@ -43,6 +43,26 @@ export const SaveSalesCommission = async (payload) => {
     }
 };
 
+export const CreateSalesCommission = async (payload) => {
+    try {
+        const response = await post("/SalesCommission/create", payload);
+        return response;
+    } catch (error) {
+        console.error("Error creating sales commission:", error);
+        throw error;
+    }
+};
+
+export const UpdateSalesCommission = async (payload) => {
+    try {
+        const response = await put("/SalesCommission/update", payload);
+        return response;
+    } catch (error) {
+        console.error("Error updating sales commission:", error);
+        throw error;
+    }
+};
+
 export const GetAllSalesCommissionListing = async ({ customerId, gasId }) => {
     try {
         const queryParams = new URLSearchParams();
@@ -5728,5 +5748,25 @@ export const GetAllPayment = async (orgId, poid) => {
     } catch (error) {
         console.error("Failed to fetch Payment list", error);
         return { status: false, message: error };
+    }
+};
+
+export const deleteCreditNote = async (id) => {
+    try {
+        const response = await axios.delete(`${PYTHON_API_URL}/dn_cn/delete-credit-note/${id}`);
+        return response.data;
+    } catch (error) {
+        console.error("Error deleting credit note:", error);
+        throw error;
+    }
+};
+
+export const deleteDebitNote = async (id) => {
+    try {
+        const response = await axios.delete(`${PYTHON_API_URL}/dn_cn/delete-debit-note/${id}`);
+        return response.data;
+    } catch (error) {
+        console.error("Error deleting debit note:", error);
+        throw error;
     }
 };

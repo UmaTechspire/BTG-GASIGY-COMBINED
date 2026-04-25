@@ -18,7 +18,21 @@ import { Column } from 'primereact/column';
 import { Tag } from 'primereact/tag';
 import { InputText } from "primereact/inputtext";
 import { FilterMatchMode } from 'primereact/api';
-import { getAllDebitNotes, getAllCreditNotes, getCustomersDNCN } from "../../common/data/mastersapi";
+import { getAllDebitNotes, getAllCreditNotes, getCustomersDNCN, deleteDebitNote, deleteCreditNote } from "../../common/data/mastersapi";
+import axios from "axios";
+import { toast } from "react-toastify";
+import Swal from "sweetalert2";
+
+const getUserDetails = () => {
+    if (localStorage.getItem("authUser")) {
+        try {
+            return JSON.parse(localStorage.getItem("authUser"));
+        } catch (e) {
+            return null;
+        }
+    }
+    return null;
+};
 
 const DnCn = () => {
     const history = useHistory();
@@ -28,19 +42,27 @@ const DnCn = () => {
 
     // Toggle State
     const [isDebitOpen, setIsDebitOpen] = useState(true);
-    const [isCreditOpen, setIsCreditOpen] = useState(false);
+    const [isCreditOpen, setIsCreditOpen] = useState(true);
 
     // Grid Data & loading
     const [debitNotes, setDebitNotes] = useState([]);
     const [creditNotes, setCreditNotes] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Filters (Shared or separate? Let's keep them separate state but controlled by one input if desired, or separate inputs. 
-    // User said "look exactly like JournalCtx". JournalCt has one global search. 
-    // I will use one global search state that applies to BOTH tables for convenience, or separate if they are distinct.)
-    // Let's us separate filters to avoid confusion if columns differ.
-    const [globalFilterValue, setGlobalFilterValue] = useState("");
-    const [filters, setFilters] = useState({
+    // Pagination Persistence
+    const [dnFirst, setDnFirst] = useState(parseInt(localStorage.getItem("dn_cn_dn_first")) || 0);
+    const [cnFirst, setCnFirst] = useState(parseInt(localStorage.getItem("dn_cn_cn_first")) || 0);
+
+    // Filters
+    const [dnGlobalFilterValue, setDnGlobalFilterValue] = useState("");
+    const [cnGlobalFilterValue, setCnGlobalFilterValue] = useState("");
+
+    const user = getUserDetails();
+    const isSuperAdmin = user?.u_id === 158;
+    const [dnFilters, setDnFilters] = useState({
+        global: { value: null, matchMode: FilterMatchMode.CONTAINS },
+    });
+    const [cnFilters, setCnFilters] = useState({
         global: { value: null, matchMode: FilterMatchMode.CONTAINS },
     });
 
@@ -102,18 +124,34 @@ const DnCn = () => {
         }
     };
 
-    const onGlobalFilterChange = (e) => {
+    const onDnGlobalFilterChange = (e) => {
         const value = e.target.value;
-        setGlobalFilterValue(value);
-        setFilters((prevFilters) => ({
+        setDnGlobalFilterValue(value);
+        setDnFilters((prevFilters) => ({
             ...prevFilters,
             global: { value, matchMode: FilterMatchMode.CONTAINS }
         }));
     };
 
-    const clearFilter = () => {
-        setGlobalFilterValue("");
-        setFilters({
+    const onCnGlobalFilterChange = (e) => {
+        const value = e.target.value;
+        setCnGlobalFilterValue(value);
+        setCnFilters((prevFilters) => ({
+            ...prevFilters,
+            global: { value, matchMode: FilterMatchMode.CONTAINS }
+        }));
+    };
+
+    const clearDnFilter = () => {
+        setDnGlobalFilterValue("");
+        setDnFilters({
+            global: { value: null, matchMode: FilterMatchMode.CONTAINS }
+        });
+    };
+
+    const clearCnFilter = () => {
+        setCnGlobalFilterValue("");
+        setCnFilters({
             global: { value: null, matchMode: FilterMatchMode.CONTAINS }
         });
     };
@@ -136,8 +174,7 @@ const DnCn = () => {
         const d = new Date(date);
         if (isNaN(d.getTime())) return "-";
         return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-            .replace(/ /g, '-')
-            .toLowerCase();
+            .replace(/ /g, '-');
     };
 
     const dateBodyTemplate = (rowData) => {
@@ -151,33 +188,67 @@ const DnCn = () => {
     // Replicating inside might be cleaner if they are treated as separate lists.
     // But let's try a common control bar above the accordions.
 
-    const renderControlBar = () => {
+    const renderTableHeader = (type) => {
+        const value = type === 'debit' ? dnGlobalFilterValue : cnGlobalFilterValue;
+        const onChange = type === 'debit' ? onDnGlobalFilterChange : onCnGlobalFilterChange;
+        const onClear = type === 'debit' ? clearDnFilter : clearCnFilter;
+
         return (
-            <Card className="mb-3">
-                <CardBody className="p-3">
-                    <div className="row align-items-center g-3 clear-spa">
-                        <div className="col-12 col-lg-6">
-                            <Button className="btn btn-danger btn-label" onClick={clearFilter} >
-                                <i className="mdi mdi-filter-off label-icon" /> Clear
-                            </Button>
-                        </div>
-                        <div className="col-12 col-lg-3 text-end">
-                            <span className="me-4"><Tag value="S" severity={getSeverity("Saved")} /> Saved</span>
-                            <span className="me-1"><Tag value="P" severity={getSeverity("Posted")} /> Posted</span>
-                        </div>
-                        <div className="col-12 col-lg-3">
-                            <InputText
-                                type="search"
-                                value={globalFilterValue}
-                                onChange={onGlobalFilterChange}
-                                placeholder="Keyword Search"
-                                className="form-control"
-                            />
-                        </div>
-                    </div>
-                </CardBody>
-            </Card>
+            <div className="row align-items-center g-3 clear-spa p-2">
+                <div className="col-12 col-lg-6">
+                    <Button className="btn btn-danger btn-label" onClick={onClear} size="sm">
+                        <i className="mdi mdi-filter-off label-icon" /> Clear
+                    </Button>
+                </div>
+                <div className="col-12 col-lg-3 text-end">
+                    <span className="me-4"><Tag value="S" severity={getSeverity("Saved")} /> Saved</span>
+                    <span className="me-1"><Tag value="P" severity={getSeverity("Posted")} /> Posted</span>
+                </div>
+                <div className="col-12 col-lg-3">
+                    <InputText
+                        type="search"
+                        value={value}
+                        onChange={onChange}
+                        placeholder="Keyword Search"
+                        className="form-control form-control-sm"
+                    />
+                </div>
+            </div>
         );
+    };
+
+    const handleDelete = async (rowData) => {
+        const type = rowData.dnNo ? 'debit' : 'credit';
+        const id = type === 'debit' ? rowData.DebitNoteId : rowData.CreditNoteId;
+        const noteNo = type === 'debit' ? rowData.dnNo : rowData.cnNo;
+
+        Swal.fire({
+            title: "Are you sure?",
+            text: `Do you want to delete ${type === 'debit' ? 'Debit' : 'Credit'} Note ${noteNo}?`,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#f46a6a",
+            cancelButtonColor: "#74788d",
+            confirmButtonText: "Yes, delete it!",
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    setLoading(true);
+                    const res = type === 'debit' ? await deleteDebitNote(id) : await deleteCreditNote(id);
+                    if (res.status === 'success') {
+                        toast.success(res.message || "Deleted successfully");
+                        loadData(); // Refresh list
+                    } else {
+                        toast.error(res.message || "Deletion failed");
+                    }
+                } catch (error) {
+                    console.error("Delete error:", error);
+                    toast.error("An error occurred while deleting");
+                } finally {
+                    setLoading(false);
+                }
+            }
+        });
     };
 
     const actionBodyTemplate = (rowData) => {
@@ -194,13 +265,16 @@ const DnCn = () => {
                 >
                     <i className="mdi mdi-square-edit-outline font-size-18"></i>
                 </span>
-                <span
-                    className="text-danger cursor-pointer"
-                    title="Delete"
-                    style={{ cursor: 'pointer' }}
-                >
-                    <i className="mdi mdi-trash-can-outline font-size-18"></i>
-                </span>
+                {isSuperAdmin && (
+                    <span
+                        className="text-danger cursor-pointer"
+                        title="Delete"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => handleDelete(rowData)}
+                    >
+                        <i className="mdi mdi-trash-can-outline font-size-18"></i>
+                    </span>
+                )}
             </div>
         );
     };
@@ -276,8 +350,7 @@ const DnCn = () => {
                     </Col>
                 </Row>
 
-                {/* Global Controls (Filter/Legend) */}
-                {renderControlBar()}
+
 
                 {/* Debit Note Section */}
                 <div className="accordion-item mb-2 border rounded">
@@ -297,17 +370,23 @@ const DnCn = () => {
                             <DataTable
                                 value={debitNotes}
                                 paginator
-                                rows={5}
+                                rows={10}
+                                first={dnFirst}
+                                onPage={(e) => {
+                                    setDnFirst(e.first);
+                                    localStorage.setItem("dn_cn_dn_first", e.first);
+                                }}
                                 loading={loading}
                                 dataKey="dnNo"
-                                filters={filters}
+                                filters={dnFilters}
+                                header={renderTableHeader('debit')}
                                 globalFilterFields={['dnNo', 'description', 'customer', 'invoiceNo', 'status']}
                                 emptyMessage="No Debit Notes found."
                                 className="p-datatable-gridlines border-0"
                                 showGridlines
                             >
                                 <Column field="dnNo" header="Debit Note No" sortable style={{ minWidth: '120px' }} />
-                                <Column field="date" header="Date" body={dateBodyTemplate} sortable style={{ minWidth: '100px' }} />
+                                <Column field="date" header="Date" body={dateBodyTemplate} sortable style={{ minWidth: '120px', whiteSpace: 'nowrap' }} />
                                 <Column field="description" header="Description" sortable style={{ minWidth: '150px' }} />
                                 <Column field="customer" header="Customer" sortable style={{ minWidth: '200px' }} />
                                 <Column field="invoiceNo" header="Invoice No" sortable style={{ minWidth: '120px' }} />
@@ -338,17 +417,23 @@ const DnCn = () => {
                             <DataTable
                                 value={creditNotes}
                                 paginator
-                                rows={5}
+                                rows={10}
+                                first={cnFirst}
+                                onPage={(e) => {
+                                    setCnFirst(e.first);
+                                    localStorage.setItem("dn_cn_cn_first", e.first);
+                                }}
                                 loading={loading}
                                 dataKey="cnNo"
-                                filters={filters}
+                                filters={cnFilters}
+                                header={renderTableHeader('credit')}
                                 globalFilterFields={['cnNo', 'description', 'customer', 'invoiceNo', 'status']}
                                 emptyMessage="No Credit Notes found."
                                 className="p-datatable-gridlines border-0"
                                 showGridlines
                             >
                                 <Column field="cnNo" header="Credit Note No" sortable style={{ minWidth: '120px' }} />
-                                <Column field="date" header="Date" body={dateBodyTemplate} sortable style={{ minWidth: '100px' }} />
+                                <Column field="date" header="Date" body={dateBodyTemplate} sortable style={{ minWidth: '120px', whiteSpace: 'nowrap' }} />
                                 <Column field="description" header="Description" sortable style={{ minWidth: '150px' }} />
                                 <Column field="customer" header="Customer" sortable style={{ minWidth: '200px' }} />
                                 <Column field="invoiceNo" header="Invoice No" sortable style={{ minWidth: '120px' }} />

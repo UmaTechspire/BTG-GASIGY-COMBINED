@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "s1yLWcwvNZM=",
+  "dgSpecHash": "jo/po0wRhgQ=",
   "success": true,
-  "projectFilePath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj",
+  "projectFilePath": "E:\\btg_latest_live4\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\36841\\.nuget\\packages\\bouncycastle.cryptography\\2.3.1\\bouncycastle.cryptography.2.3.1.nupkg.sha512",
     "C:\\Users\\36841\\.nuget\\packages\\closedxml\\0.104.2\\closedxml.0.104.2.nupkg.sha512",

@@ -55,6 +55,7 @@ class VerifyCustomerUpdate(BaseModel):
     tax_deduction: float
     exchange_rate: float = 1.0
     allocations: List[InvoiceAllocation]
+    advance_payment: float = 0.0 
     reply_message: Optional[str] = None
     user_id: Optional[int] = None
 
@@ -64,6 +65,7 @@ class SaveDraftRequest(BaseModel):
     tax_deduction: float
     exchange_rate: float = 1.0 
     allocations: List[InvoiceAllocation]
+    advance_payment: float = 0.0
     reply_message: Optional[str] = None 
 
 class UpdateReferenceRequest(BaseModel):
