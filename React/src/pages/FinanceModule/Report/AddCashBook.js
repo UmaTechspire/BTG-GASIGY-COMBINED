@@ -683,6 +683,14 @@ const AddCashBook = () => {
                 if (claimOpt.amount) {
                     newRows[index]['amount'] = formatWithCommas(claimOpt.amount);
                 }
+
+                // Auto-update batch currency based on claim
+                if (claimOpt.currency_code) {
+                    const matchingCurrency = currencyList.find(c => c.label === claimOpt.currency_code);
+                    if (matchingCurrency) {
+                        setSelectedCurrency(matchingCurrency);
+                    }
+                }
             }
         }
 

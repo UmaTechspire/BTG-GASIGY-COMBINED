@@ -466,7 +466,7 @@ const ProcurementsManagePurchaseOrder = () => {
     //     setPurchaseOrders(filteredData);
     // };
 
-    const getFilteredPurchaseOrders = async () => {
+    const getFilteredPurchaseOrders = async (isAdvanced = false) => {
         let result = { data: [] };
         if (allPurchaseOrders.length === 0) {
             result = await GetAllPurchaseOrderList(0, branchId, 0, orgId, UserData?.u_id);
@@ -532,10 +532,10 @@ const ProcurementsManagePurchaseOrder = () => {
                 item.createdbyName?.toLowerCase() === (filterCreatedBy.label?.toLowerCase() || filterCreatedBy.value?.toString().toLowerCase())
             );
         }
-        if (filterItemName) {
+        if (filterItemName && !isAdvanced) {
             const searchLower = (filterItemName.value || filterItemName.label || '').toLowerCase();
             filteredData = filteredData.filter(item =>
-                (item.itemName || '').toLowerCase().includes(searchLower)
+                (item.itemName || item.itemname || '').toLowerCase().includes(searchLower)
             );
         }
         return filteredData;
@@ -567,7 +567,7 @@ const ProcurementsManagePurchaseOrder = () => {
 
         setIsAdvancedLoading(true);
         try {
-            const filteredData = await getFilteredPurchaseOrders();
+            const filteredData = await getFilteredPurchaseOrders(true);
 
             if (!filteredData || filteredData.length === 0) {
                 setPurchaseOrders([]);
