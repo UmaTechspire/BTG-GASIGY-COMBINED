@@ -227,15 +227,6 @@ claim_hod_isdiscussed= @isdiscussedeight,
         THEN 0
         ELSE IsPaymentgenerated
     END ,
-
-        IsSubmitted = CASE
-        WHEN ((IFNULL(Claim_Discussed_Count, 0) 
-              ) > 2 or @isdiscussedeight = 1 or (ifnull(is_Hod_created,0)=0 and ifnull(@isdiscussedone,0)=1)
-              )
-        THEN 0
-        ELSE IsSubmitted 
-          END,
-
    
  
                 claim_gm_isdiscussed = case when ifnull(claim_hod_isapproved,0)=1   then 0 else claim_gm_isdiscussed end  ,
@@ -310,21 +301,21 @@ claim_hod_isdiscussed= @isdiscussedeight,
 
 
 
-                    string updateissubmittedSql = @"
-                UPDATE tbl_claimAndpayment_header
-                SET    IsSubmitted = CASE
-        WHEN ((IFNULL(pv_dis_count, 0) 
-              ) > 2  
-              )
-        THEN 0
-        ELSE IsSubmitted 
-          END
-                WHERE SummaryId = @SummaryId";
-                    int affectedRows_issubmitted = await _connection.ExecuteAsync(updateissubmittedSql, new { SummaryId = obj.summaryid, remarks = obj.remarks });
+        //             string updateissubmittedSql = @"
+        //         UPDATE tbl_claimAndpayment_header
+        //         SET    IsSubmitted = CASE
+        // WHEN ((IFNULL(pv_dis_count, 0) 
+        //       ) > 2  
+        //       )
+        // THEN 0
+        // ELSE IsSubmitted 
+        //   END
+        //         WHERE SummaryId = @SummaryId";
+        //             int affectedRows_issubmitted = await _connection.ExecuteAsync(updateissubmittedSql, new { SummaryId = obj.summaryid, remarks = obj.remarks });
 
 
 
-                }
+        //         }
 
                 string updatedetailsdis = "";
                 //updatedetailsdis += @"update tbl_claimAndpayment_header set  isdiscussionaccepted=" + 1 + "  where  ifnull(claim_gm_isdiscussed,0)=1;";

@@ -4513,6 +4513,15 @@ const ApprovalTable = ({
                       </button>
 
                       <button type="button" className="btn btn-warning" onClick={() => {
+                        if (group.pv_dis_count >= 3) {
+                          Swal.fire({
+                            icon: "warning",
+                            title: "Discussion Limit Reached",
+                            text: "Discussion limit reached. Please Approve or Reject the request.",
+                          });
+                          return;
+                        }
+
                         // handlePVSave(summaryId, 1,2)
                         setSelectedSummaryId({ pv_dis_count: group.pv_dis_count, summaryId: summaryId, type: 1, operation: 2 }); // or row.id, depending on your data
                         setShowDiscussModal(true);
@@ -4545,6 +4554,15 @@ const ApprovalTable = ({
                             </button>
 
                             <button type="button" data-access="save" className="btn btn-warning" onClick={() => {
+
+                              if (group.pv_dis_count >= 3) {
+                                Swal.fire({
+                                  icon: "warning",
+                                  title: "Discussion Limit Reached",
+                                  text: "Discussion limit reached. Please Approve or Reject the request.",
+                                });
+                                return;
+                              }
 
                               // handlePVSave(summaryId, 2,2);
                               setSelectedSummaryId({ pv_dis_count: group.pv_dis_count, summaryId: summaryId, type: 2, operation: 2 }); // or row.id, depending on your data
