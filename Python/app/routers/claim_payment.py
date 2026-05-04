@@ -173,7 +173,6 @@ def save_hod_discussion(req: HodDiscussionRequest):
                 SET claim_hod_isdiscussed = 1, 
                     hod_discussed_count = %s, 
                     applicant_hod_comment = %s, 
-                    IsSubmitted = 0,
                     claim_hod_isapproved = 0,
                     claim_gm_isapproved = 0,
                     claim_director_isapproved = 0,
@@ -191,7 +190,6 @@ def save_hod_discussion(req: HodDiscussionRequest):
                 SET claim_hod_isdiscussed = 1, 
                     hod_discussed_count = %s, 
                     applicant_hod_comment = %s, 
-                    IsSubmitted = 0
                 WHERE Claim_ID = %s
             """
             cursor.execute(update_query, (new_count, new_comment, req.claim_id))
@@ -355,7 +353,7 @@ def save_hod_gm_discussion(req: DiscussionRequest):
                  params.append(current_gm_title + 1)
                  
                  # Send to Applicant
-                 update_parts.append("IsSubmitted = 0")
+                 # update_parts.append("IsSubmitted = 0")
                  
                  if is_third_count:
                     update_parts.append("is_delete_required = 1")
@@ -378,7 +376,7 @@ def save_hod_gm_discussion(req: DiscussionRequest):
                     update_parts.append("claim_hod_isapproved = 0")
                     update_parts.append("claim_gm_isapproved = 0")
                     update_parts.append("claim_director_isapproved = 0")
-                    update_parts.append("IsSubmitted = 0")
+                    # update_parts.append("IsSubmitted = 0")
                     update_parts.append("is_delete_required = 1")
                     
                 else:
@@ -489,7 +487,7 @@ def save_gm_director_discussion(req: DiscussionRequest):
                 update_parts.append("claim_gm_isapproved = 0")
                 update_parts.append("claim_hod_isapproved = 0")
                 update_parts.append("claim_director_isapproved = 0")
-                update_parts.append("IsSubmitted = 0")
+                # update_parts.append("IsSubmitted = 0")
                 update_parts.append("is_delete_required = 1")
             else:
                 update_parts.append("claim_director_isdiscussed = 1")
