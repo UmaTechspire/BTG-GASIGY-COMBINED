@@ -204,6 +204,7 @@ const VerifyCustomer = () => {
           return {
             id: inv.invoice_id,
             invNo: inv.invoice_no,
+            type: inv.record_type || "INV",
             date: inv.invoice_date,
             balanceDue: balance,
             paymentType: pType,
@@ -343,7 +344,8 @@ const VerifyCustomer = () => {
         invoice_id: inv.id,
         invoice_no: inv.invNo,
         payment_type: inv.paymentType,
-        amount_allocated: parseFloat(inv.amount) || 0
+        amount_allocated: parseFloat(inv.amount) || 0,
+        record_type: inv.type
       }))
   });
 
@@ -582,15 +584,18 @@ const VerifyCustomer = () => {
                 <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                   <Table bordered hover className="align-middle mb-0 table-sm">
                     <thead className="table-light text-center sticky-top" style={{ top: 0, zIndex: 10 }}>
-                      <tr><th>Invoice No.</th><th>Date</th><th>Balance Due</th><th style={{ width: '25%' }}>Payment Type</th><th>Allocate Amount</th><th style={{ width: '60px' }} className="text-center"><Input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} /></th></tr>
+                      <tr><th>Type</th><th>Invoice No.</th><th>Date</th><th>Balance Due</th><th style={{ width: '25%' }}>Payment Type</th><th>Allocate Amount</th><th style={{ width: '60px' }} className="text-center"><Input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} /></th></tr>
                     </thead>
                     <tbody>
-                      {verificationData.invoices.length === 0 ? <tr><td colSpan="6" className="text-center text-muted p-4">No Outstanding Invoices Found.</td></tr> : verificationData.invoices.map((inv, idx) => {
+                      {verificationData.invoices.length === 0 ? <tr><td colSpan="7" className="text-center text-muted p-4">No Outstanding Invoices Found.</td></tr> : verificationData.invoices.map((inv, idx) => {
                         if (invoiceSearch && !inv.invNo.toString().toLowerCase().includes(invoiceSearch.toLowerCase())) {
                           return null;
                         }
                         return (
-                          <tr key={inv.id} className={inv.selected ? "table-active" : ""}>
+                          <tr key={`${inv.type}-${inv.id}`} className={inv.selected ? "table-active" : ""}>
+                            <td className="text-center">
+                              <Badge color={inv.type === "DN" ? "warning" : "primary"} className="px-2">{inv.type}</Badge>
+                            </td>
                             <td className="text-center">{inv.invNo}</td><td className="text-center">{inv.date}</td><td className="text-end">{inv.balanceDue.toLocaleString()}</td>
                             <td className="text-center">
                               <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Full"} disabled={(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && !isEditingVerified} onChange={() => handleInvoiceChange(idx, "paymentType", "Full")} /><Label check className="ms-1 small">Full</Label></FormGroup>

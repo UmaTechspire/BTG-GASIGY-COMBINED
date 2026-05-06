@@ -166,6 +166,12 @@ async def create_debit_note(note: DebitNoteCreate, db: Session = Depends(get_db)
         db.add(new_inv)
         await db.commit()
 
+    # 3. Sync to AR Ledger (if submitted)
+    if note.IsSubmitted:
+        await db.execute(text(f"CALL {DB_NAME_FINANCE}.proc_AR_InsertFromDebitNote(:id, :org, :branch, :user)"), 
+                         {"id": new_dn.DebitNoteId, "org": 1, "branch": 1, "user": "System"})
+        await db.commit()
+
     return {"status": "success", "message": "Debit Note created successfully", "data": new_dn}
 
 
@@ -205,6 +211,12 @@ async def update_debit_note(note: DebitNoteUpdate, db: Session = Depends(get_db)
                 InvoiceNo=str(note.InvoiceNo)
             )
             db.add(new_inv)
+        await db.commit()
+
+    # 3. Sync to AR Ledger (if submitted)
+    if note.IsSubmitted:
+        await db.execute(text(f"CALL {DB_NAME_FINANCE}.proc_AR_InsertFromDebitNote(:id, :org, :branch, :user)"), 
+                         {"id": note.DebitNoteId, "org": 1, "branch": 1, "user": "System"})
         await db.commit()
 
     return {"status": "success", "message": "Debit Note updated successfully", "data": existing_dn}
@@ -304,6 +316,8 @@ async def delete_debit_note(id: int, db: Session = Depends(get_db)):
         await db.execute(text(f"DELETE FROM {DB_NAME_FINANCE}.debit_invoice WHERE DebitNoteId = :id"), {"id": id})
         # Delete from Debit_Notes (parent)
         await db.execute(text(f"DELETE FROM {DB_NAME_FINANCE}.Debit_Notes WHERE DebitNoteId = :id"), {"id": id})
+        # Cleanup AR Ledger
+        await db.execute(text(f"DELETE FROM {DB_NAME_FINANCE}.tbl_accounts_receivable WHERE invoice_id = :id AND doc_type = 'DN'"), {"id": id})
         await db.commit()
         return {"status": "success", "message": "Debit Note deleted successfully"}
     except Exception as e:

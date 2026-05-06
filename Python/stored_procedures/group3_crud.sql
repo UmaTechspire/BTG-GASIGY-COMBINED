@@ -178,15 +178,17 @@ DELIMITER ;
 -- 12. proc_CRUD_GetARIdByInvoiceId
 DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_GetARIdByInvoiceId;
 DELIMITER //
-CREATE PROCEDURE btggasify_finance_live.proc_CRUD_GetARIdByInvoiceId(IN p_invoice_id INT)
+CREATE PROCEDURE btggasify_finance_live.proc_CRUD_GetARIdByInvoiceId(IN p_invoice_id INT, IN p_type VARCHAR(10))
 BEGIN
-    -- Fix: Some AR records have mismatched invoice_id but matching invoice_no.
-    -- We join with the header to get the official invoice number and match it in AR.
-    SELECT ar.ar_id 
-    FROM btggasify_finance_live.tbl_accounts_receivable ar
-    JOIN btggasify_live.tbl_salesinvoices_header h ON TRIM(ar.invoice_no) = TRIM(h.salesinvoicenbr)
-    WHERE h.id = p_invoice_id 
-    LIMIT 1;
+    IF p_type = 'DN' THEN
+        SELECT ar_id FROM btggasify_finance_live.tbl_accounts_receivable WHERE invoice_id = p_invoice_id AND doc_type = 'DN' LIMIT 1;
+    ELSE
+        SELECT ar.ar_id 
+        FROM btggasify_finance_live.tbl_accounts_receivable ar
+        JOIN btggasify_live.tbl_salesinvoices_header h ON TRIM(ar.invoice_no) = TRIM(h.salesinvoicenbr)
+        WHERE h.id = p_invoice_id AND ar.doc_type = 'INV'
+        LIMIT 1;
+    END IF;
 END //
 DELIMITER ;
 
@@ -224,14 +226,14 @@ DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_GetARBook(IN p_customer_id INT)
 BEGIN
     SELECT 
-        'Invoice' as doc_type,
+        CASE WHEN ar.doc_type = 'DN' THEN 'Debit Note' ELSE 'Invoice' END as doc_type,
         ar.ar_id as id,
         DATE_FORMAT(ar.invoice_date, '%Y-%m-%d') as ledger_date,
         ar.invoice_no,
         ar.invoice_no as reference_no,
-        ar.inv_amount as invoice_amount,
+        CASE WHEN ar.doc_type = 'INV' THEN ar.inv_amount ELSE 0 END as invoice_amount,
         0 as receipt_amount,
-        0 as debit_note_amount, 
+        CASE WHEN ar.doc_type = 'DN' THEN ar.inv_amount ELSE 0 END as debit_note_amount, 
         0 as credit_note_amount,
         ar.currencyid,
         mc.CurrencyCode,

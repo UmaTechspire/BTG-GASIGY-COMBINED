@@ -519,8 +519,13 @@ async def _process_receipt_allocations(db: AsyncSession, record: ARReceipt, data
     old_allocs = old_res.fetchall()
 
     for old in old_allocs:
-        # Revert PaidAmount in Header
-        await db.execute(text("CALL proc_CRUD_RevertHeaderPaidAmount(:amt, :id)"), {"amt": old.payment_amount, "id": old.invoice_id})
+        if old.record_type == 'DN':
+             # Revert PaidAmount in Debit_Notes
+             await db.execute(text("CALL proc_DN_RevertPaidAmount(:amt, :id)"), {"amt": old.payment_amount, "id": old.invoice_id})
+        else:
+             # Revert PaidAmount in Header
+             await db.execute(text("CALL proc_CRUD_RevertHeaderPaidAmount(:amt, :id)"), {"amt": old.payment_amount, "id": old.invoice_id})
+             
         # Revert already_received in AR
         await db.execute(text("CALL proc_CRUD_RevertARAlreadyReceived(:amt, :arid)"), {"amt": old.payment_amount, "arid": old.ar_id})
 
@@ -535,19 +540,26 @@ async def _process_receipt_allocations(db: AsyncSession, record: ARReceipt, data
 
     for alloc in data.allocations:
         if alloc.amount_allocated > 0:
-            # 1. Update PaidAmount in Header
-            update_header = text("CALL proc_CRUD_ApplyHeaderPaidAmount(:amt, :id)")
-            await db.execute(update_header, {"amt": alloc.amount_allocated, "id": alloc.invoice_id})
-            
-            # 2. Get Invoice Number
-            get_inv_nbr = text("CALL proc_DSI_GetDONumberString(:id)")
-            inv_res = await db.execute(get_inv_nbr, {"id": alloc.invoice_id})
-            inv_nbr = inv_res.scalar()
-            if inv_nbr: linked_invoices.append(inv_nbr)
+            if alloc.record_type == 'DN':
+                # 1. Update PaidAmount in Debit_Notes
+                update_dn = text("CALL proc_DN_ApplyPaidAmount(:amt, :id)")
+                await db.execute(update_dn, {"amt": alloc.amount_allocated, "id": alloc.invoice_id})
+                inv_nbr = alloc.invoice_no
+                if inv_nbr: linked_invoices.append(inv_nbr)
+            else:
+                # 1. Update PaidAmount in Header
+                update_header = text("CALL proc_CRUD_ApplyHeaderPaidAmount(:amt, :id)")
+                await db.execute(update_header, {"amt": alloc.amount_allocated, "id": alloc.invoice_id})
+                
+                # 2. Get Invoice Number
+                get_inv_nbr = text("CALL proc_DSI_GetDONumberString(:id)")
+                inv_res = await db.execute(get_inv_nbr, {"id": alloc.invoice_id})
+                inv_nbr = inv_res.scalar()
+                if inv_nbr: linked_invoices.append(inv_nbr)
 
             # 3. Update AR Table
-            get_ar = text("CALL proc_CRUD_GetARIdByInvoiceId(:id)")
-            ar_id = (await db.execute(get_ar, {"id": alloc.invoice_id})).scalar()
+            get_ar = text("CALL proc_CRUD_GetARIdByInvoiceId(:id, :type)")
+            ar_id = (await db.execute(get_ar, {"id": alloc.invoice_id, "type": alloc.record_type})).scalar()
             
             if ar_id:
                 # Insert Link

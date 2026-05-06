@@ -36,11 +36,12 @@ const SalesCommissionReport = () => {
     const [selectedRow, setSelectedRow] = useState(null);
 
 
+
     useEffect(() => {
         fetch(`${PYTHON_API_URL}/api/sales/customers`)
             .then(res => res.json())
             .then(data => {
-                const list = data?.data || [];   // ✅ SAFE
+                const list = data?.data || [];
 
                 const formatted = list.map(item => ({
                     label: item.CustomerName,
@@ -62,12 +63,11 @@ const SalesCommissionReport = () => {
         }
 
         const fetchContacts = async () => {
-            setSelectedContact(null); // reset BEFORE fetch
+            setSelectedContact(null);
             setContacts([]);
 
-            const res = await fetch(
-                `${PYTHON_API_URL}/api/sales/contacts?customer_id=${selectedCustomer.value}`
-            );
+            const res = await fetch(`${PYTHON_API_URL}/api/sales/contacts?customer_id=${selectedCustomer.value}`);
+            if (!res.ok) throw new Error("Failed to fetch contacts");
             const data = await res.json();
 
             const formatted = (data?.data || []).map(item => ({
@@ -76,16 +76,15 @@ const SalesCommissionReport = () => {
             }));
 
             setContacts(formatted);
+
+
+            if (formatted.length > 0) {
+                setSelectedContact(formatted[0]);
+            }
         };
 
         fetchContacts();
     }, [selectedCustomer]);
-
-
-
-
-    // ===== DUMMY DROPDOWN DATA =====
-
 
 
 
@@ -101,12 +100,13 @@ const SalesCommissionReport = () => {
             params.append("contact", selectedContact.value);
         }
         if (fromDate) {
-            params.append("from_date", fromDate.toISOString().split("T")[0]);
+            params.append("from_date", formatDateForAPI(fromDate));
         }
 
         if (toDate) {
-            params.append("to_date", toDate.toISOString().split("T")[0]);
+            params.append("to_date", formatDateForAPI(toDate));
         }
+
 
         console.log("Search params:", params.toString());
 
@@ -142,11 +142,22 @@ const SalesCommissionReport = () => {
                 const grouped = {};
 
                 res.data.forEach(item => {
-                    const key = item.invoiceId;
+                    const invoiceNo =
+                        item.invoiceNo ||
+                        item.InvoiceNo ||
+                        item.invoiceno ||
+                        item.salesinvoicenbr;
 
-                    if (!grouped[key]) {
-                        grouped[key] = {
-                            refNo: item.invoiceId,            // ✅ correct
+                    console.log("Resolved InvoiceNo:", invoiceNo);
+
+                    if (!invoiceNo) {
+                        console.warn("Missing invoiceNo:", item);
+                        return;
+                    }
+
+                    if (!grouped[invoiceNo]) {
+                        grouped[invoiceNo] = {
+                            refNo: invoiceNo,
                             date: item.invoiceDate,
                             customerName: item.customerName,
                             contact: item.contactName,
@@ -155,22 +166,19 @@ const SalesCommissionReport = () => {
                         };
                     }
 
-                    grouped[key].items.push({
+                    grouped[invoiceNo].items.push({
                         gasName: item.gasName,
                         qty: item.qty,
                         rate: item.rate,
                         commission: item.commission
                     });
 
-                    grouped[key].total += item.commission;
+                    grouped[invoiceNo].total += item.commission || 0;
                 });
 
-
-
-
                 const formatted = Object.values(grouped);
-                setTableData(formatted);
-                console.log("Formatted data:", formatted);
+                console.log("FINAL DATA:", formatted);
+
                 setTableData(formatted);
             })
             .catch(err => {
@@ -188,23 +196,29 @@ const SalesCommissionReport = () => {
         setTableData([]);
         setGlobalFilter("");
     };
-
-    const handleNew = () => {
-        alert("New Entry Clicked");
-    };
-
     // ===== DATE FORMAT =====
     const formatDate = (date) => {
         if (!date) return "";
 
-        const d = new Date(date);
-
-        return d.toLocaleDateString("en-GB", {
+        return new Date(date).toLocaleDateString("en-GB", {
             day: "2-digit",
             month: "short",
             year: "numeric",
         });
     };
+
+
+    const formatDateForAPI = (date) => {
+        if (!date) return null;
+
+        const d = new Date(date);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+
+        return `${year}-${month}-${day}`;
+    };
+
 
     const totalCommission = tableData.reduce(
         (sum, row) => sum + (row.total || 0),
@@ -353,21 +367,23 @@ const SalesCommissionReport = () => {
                                         />
 
                                         <Column
-                                            field="Invoice No"
+                                            field="refNo"
                                             header="Invoice No"
-                                            body={(rowData) => (
-                                                <span
-                                                    style={{ color: "#007bff", cursor: "pointer", textDecoration: "underline" }}
-                                                    onClick={() => {
-                                                        setSelectedRow(rowData);
-                                                        setModalOpen(true);
-                                                    }}
-                                                >
-                                                    {rowData.refNo}
-                                                </span>
-                                            )}
-                                        />
+                                            body={(rowData) => {
 
+                                                return (
+                                                    <span
+                                                        style={{ color: "#007bff", cursor: "pointer", textDecoration: "underline" }}
+                                                        onClick={() => {
+                                                            setSelectedRow(rowData);
+                                                            setModalOpen(true);
+                                                        }}
+                                                    >
+                                                        {rowData.refNo || "NO DATA"}
+                                                    </span>
+                                                );
+                                            }}
+                                        />
                                         <Column
                                             header="Commission"
                                             body={(row) =>

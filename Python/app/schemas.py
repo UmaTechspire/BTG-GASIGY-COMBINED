@@ -48,6 +48,7 @@ class InvoiceAllocation(BaseModel):
     invoice_no: str
     payment_type: str 
     amount_allocated: float
+    record_type: str = "INV"
 
 class VerifyCustomerUpdate(BaseModel):
     customer_id: int

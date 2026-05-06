@@ -1,4 +1,4 @@
-﻿using BackEnd.Finance.ClaimAndPayment;
+using BackEnd.Finance.ClaimAndPayment;
 using Core.Abstractions;
 using Core.Finance.Approval;
 using Core.Finance.ClaimAndPayment;
@@ -312,10 +312,7 @@ claim_hod_isdiscussed= @isdiscussedeight,
         //   END
         //         WHERE SummaryId = @SummaryId";
         //             int affectedRows_issubmitted = await _connection.ExecuteAsync(updateissubmittedSql, new { SummaryId = obj.summaryid, remarks = obj.remarks });
-
-
-
-        //         }
+                }
 
                 string updatedetailsdis = "";
                 //updatedetailsdis += @"update tbl_claimAndpayment_header set  isdiscussionaccepted=" + 1 + "  where  ifnull(claim_gm_isdiscussed,0)=1;";

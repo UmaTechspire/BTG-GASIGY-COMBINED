@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo  } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Card,
   CardBody,
@@ -33,7 +33,7 @@ import { Tag } from "primereact/tag";
 import { TriStateCheckbox } from "primereact/tristatecheckbox";
 import "primereact/resources/themes/lara-light-blue/theme.css";
 import Flatpickr from "react-flatpickr";
-import { LoadCustomerList, ToggleChangeCustomerStatus,  } from "../../../src/common/data/mastersapi";
+import { LoadCustomerList, ToggleChangeCustomerStatus, GetCustomer } from "../../../src/common/data/mastersapi";
 import { useHistory } from "react-router-dom";
 // Move the initFilters function definition above
 const initFilters = () => ({
@@ -85,7 +85,7 @@ const ManageCustomer = () => {
   const toggleModal2 = () => {
     setIsModalOpen2(!isModalOpen2);
   };
-  const loadCustomerList = async (searchvalue ="") => {
+  const loadCustomerList = async (searchvalue = "") => {
     setLoading(true);
     debugger
     const params = {
@@ -98,11 +98,29 @@ const ManageCustomer = () => {
       userId: 0,
     };
     try {
-      const data = await LoadCustomerList(params);
+      let data = await LoadCustomerList(params);
+
+      if (!data || data.length === 0) {
+        console.log("Primary API empty. Falling back to GetCustomer...");
+        const fallbackData = await GetCustomer(1, 0, searchvalue || "%");
+        if (fallbackData && fallbackData.length > 0) {
+          data = fallbackData.map(c => ({
+            ...c,
+            CustomerCode: c.CustomerCode || c.code || `CUST-${c.CustomerId || c.Id || ""}`,
+            CustomerName: c.CustomerName || c.Customer || "-",
+            Email: c.Email || "",
+            PhoneNumber: c.PhoneNumber || "",
+            IsActive: c.IsActive !== undefined ? c.IsActive : 1,
+            Id: c.CustomerId || c.Id
+          }));
+        }
+      }
+
       debugger;
-      setCustomers(data);
+      const safeData = data || [];
+      setCustomers(safeData);
       const initialSwitchStates = {};
-      data.forEach(c => {
+      safeData.forEach(c => {
         initialSwitchStates[c.CustomerCode] = c.IsActive === 1;
       });
       setSwitchStates(initialSwitchStates);
@@ -119,7 +137,7 @@ const ManageCustomer = () => {
   };
 
   const existEmails = useMemo(() => {
-    return customers
+    return (customers || [])
       .filter(c => !!c.Email)
       .map(c => c.Email.toLowerCase());
   }, [customers]);
@@ -137,11 +155,12 @@ const ManageCustomer = () => {
     setGlobalFilterValue(value);
   };
 
-  const handleSearch = () =>{ debugger
+  const handleSearch = () => {
+    debugger
     loadCustomerList(customerName);
   };
 
-  const handleSearchCancel =()=>{
+  const handleSearchCancel = () => {
     loadCustomerList("");
     setCustomerName("");
   };
@@ -208,37 +227,37 @@ const ManageCustomer = () => {
 
   const actionBodyTemplate = rowData => {
     if (!rowData.IsActive) {
-            return (
-                <div className="actions">
-
-                    <span
-                        style={{
-                            cursor: 'not-allowed',
-                            opacity: 0.5,
-                            pointerEvents: 'none'
-                        }}
-                        title={"Disabled"}>
-                        <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
-                    </span>
-                    {/* <span onClick={() => deleteRow(rowData)} title="Delete">
-                <i className="mdi mdi-trash-can-outline label-icon" style={{ fontSize: '1.5rem' }}></i> </span> */}
-                </div>
-            )
-        }    
-    else {
-    return (
-      rowData.IsActive && (
+      return (
         <div className="actions">
-          <span onClick={() => editRow(rowData)} title="Edit">
-            <i
-              className="mdi mdi-square-edit-outline"
-              style={{ fontSize: "1.5rem" }}
-            ></i>
+
+          <span
+            style={{
+              cursor: 'not-allowed',
+              opacity: 0.5,
+              pointerEvents: 'none'
+            }}
+            title={"Disabled"}>
+            <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
           </span>
+          {/* <span onClick={() => deleteRow(rowData)} title="Delete">
+                <i className="mdi mdi-trash-can-outline label-icon" style={{ fontSize: '1.5rem' }}></i> </span> */}
         </div>
       )
-    );
-  }
+    }
+    else {
+      return (
+        rowData.IsActive && (
+          <div className="actions">
+            <span onClick={() => editRow(rowData)} title="Edit">
+              <i
+                className="mdi mdi-square-edit-outline"
+                style={{ fontSize: "1.5rem" }}
+              ></i>
+            </span>
+          </div>
+        )
+      );
+    }
   };
 
   const onSwitchChange = async () => {
@@ -319,9 +338,9 @@ const ManageCustomer = () => {
                       </label>
                     </div>
                     <div className="col-12 col-lg-8 col-md-8 col-sm-8">
-                      <input id="name" type="text" className="form-control" 
-                      value={customerName} 
-                      onChange={(e)=>setCustomerName(e.target.value)}/>
+                      <input id="name" type="text" className="form-control"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)} />
                     </div>
                   </div>
                 </div>

@@ -177,6 +177,7 @@ BEGIN
       AND (p_from_date IS NULL OR dn.TransactionDate >= p_from_date)
       AND (p_to_date IS NULL OR dn.TransactionDate <= p_to_date)
       AND NOT EXISTS (SELECT 1 FROM btggasify_finance_live.debit_invoice di WHERE di.DebitNoteId = dn.DebitNoteId)
+      AND NOT EXISTS (SELECT 1 FROM btggasify_finance_live.tbl_accounts_receivable ar WHERE ar.invoice_id = dn.DebitNoteId AND ar.doc_type = 'DN')
 
     UNION ALL
 

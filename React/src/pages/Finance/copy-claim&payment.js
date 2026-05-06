@@ -320,10 +320,11 @@ const Copyclaimpayment = () => {
                     categoryid: header.ClaimCategoryId,
                 });
 
-                // setSelectedApplicant({
-                //     username: header.applicantname,
-                //     userid: header.ApplicantId,
-                // });
+                setSelectedApplicant({
+                    username: header.applicantname,
+                    userid: header.ApplicantId,
+                    jobtitle: header.JobTitle
+                });
 
                 setSelectedCurrency({
                     Currency: header.transactioncurrency,
@@ -336,10 +337,10 @@ const Copyclaimpayment = () => {
                     modeOfPaymentId: header.ModeOfPaymentId
                 });
                 setColumnType(header.docType);
-                // setSelectedDepartment({
-                //     departmentname: header.departmentname,
-                //     departmentid: header.DepartmentId,
-                // });
+                setSelectedDepartment({
+                    departmentname: header.departmentname,
+                    departmentid: header.DepartmentId,
+                });
 
                 if (header.SupplierId) {
                     setSelectedSupplier({
@@ -415,19 +416,9 @@ const Copyclaimpayment = () => {
             setInitialValues((prev) => ({
                 ...prev,
                 claimNumber: data?.ClaimNo,
-                applicant: data?.applicantid,
-                department: data?.departmentid,
             }));
             setLogininfo(data);
             if (data.hodlogin == 0) {
-                setSelectedApplicant({
-                    username: data.applicantname,
-                    userid: data.applicantid,
-                });
-                setSelectedDepartment({
-                    departmentname: data.departmentname,
-                    departmentid: data.departmentid,
-                });
                 setactiveapp(0);
             }
             console.log("currency ,", selectedCurrency);
@@ -1159,7 +1150,7 @@ const Copyclaimpayment = () => {
                                                                                 setFieldValue("department", option.departmentid)
                                                                             }}
                                                                             classNamePrefix="select"
-                                                                            isDisabled={activeapp == 0}
+                                                                            isDisabled={true}
                                                                             isClearable={true}
 
                                                                             isSearchable={true}
@@ -1206,7 +1197,7 @@ const Copyclaimpayment = () => {
                                                                                 setFieldValue("jobTitle", selected?.jobtitle || "");
                                                                             }}
                                                                             classNamePrefix="select"
-                                                                            isDisabled={activeapp == 0}
+                                                                            isDisabled={true}
 
                                                                             isClearable={true}
 
