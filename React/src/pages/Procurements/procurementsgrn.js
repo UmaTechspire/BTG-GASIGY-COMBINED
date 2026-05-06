@@ -226,7 +226,7 @@ const ManageProcurementsGRN = () => {
 
     return (
       <div className="d-flex align-items-center justify-content-center gap-3">
-        {!isRestrictedUser && rowData.Status === "Saved" ? (
+        {(!isRestrictedUser && rowData.Status === "Saved") || Number(UserData?.u_id) === 133 ? (
           <span onClick={() => linkEditGRN(rowData)}
             title='Edit' style={{ cursor: 'pointer' }}>
             <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>

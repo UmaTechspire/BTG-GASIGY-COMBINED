@@ -344,7 +344,7 @@ const ProcurementManagePurchaseRequistion = () => {
     const actionBodyTemplate = (rowData) => {
         return (
             <div className="d-flex align-items-center justify-content-center gap-3">
-                {!isRestrictedUser && rowData.IsActive === 1 && rowData.Status === 'Saved' ? (
+                {(!isRestrictedUser && rowData.IsActive === 1 && rowData.Status === 'Saved') || Number(userData?.u_id) === 133 ? (
                     <span onClick={() => editRow(rowData)}
                         title='Edit' style={{ cursor: 'pointer' }}>
                         <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>

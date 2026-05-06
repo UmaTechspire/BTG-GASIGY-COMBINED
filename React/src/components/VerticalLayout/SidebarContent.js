@@ -1333,6 +1333,70 @@ class SidebarContent extends Component {
         }
 
         // ---------------------------------------------------------
+        // FINAL OVERRIDE FOR USER 133 (Custom Procurement & Claim)
+        // ---------------------------------------------------------
+        if (currentUserIdFilter === 133) {
+            console.log("=== FINAL OVERRIDE (133): Custom Configuration ===");
+
+            const modulesToKeep = ["Procurement", "Claim", "Claims"];
+            menuData.menus = menuData.menus.filter(m => modulesToKeep.includes(m.moduleName));
+
+            let procurementMod133 = menuData.menus.find(m => m.moduleName === "Procurement");
+            if (!procurementMod133) {
+                procurementMod133 = {
+                    moduleId: 99992,
+                    moduleName: "Procurement",
+                    icon: "bx bx-shopping-bag",
+                    screen: [],
+                    menuOrder: 3
+                };
+                menuData.menus.push(procurementMod133);
+            }
+
+            const allowedProcurementScreens = [
+                { screenName: "Purchase Memo", url: "/procurementspurchase-memo", icon: "bx bx-file" },
+                { screenName: "Purchase Requisition", url: "/procurementspurchase-requisition", icon: "bx bx-file" },
+                { screenName: "Purchase Order", url: "/procurementspurchase-order", icon: "bx bx-cart" },
+                { screenName: "GRN", url: "/procurementsgrn", icon: "bx bx-box" },
+                { screenName: "IRN", url: "/InvoiceReceipt", icon: "bx bx-receipt" }
+            ];
+
+            procurementMod133.screen = allowedProcurementScreens.map((item, idx) => ({
+                screenId: 99970 + idx,
+                screenName: item.screenName,
+                url: item.url,
+                icon: item.icon,
+                module: []
+            }));
+
+            let claimMod133 = menuData.menus.find(m => m.moduleName === "Claim" || m.moduleName === "Claims");
+            if (!claimMod133) {
+                claimMod133 = {
+                    moduleId: 99993,
+                    moduleName: "Claim",
+                    icon: "bx bx-briefcase-alt-2",
+                    screen: [],
+                    menuOrder: 4
+                };
+                menuData.menus.push(claimMod133);
+            }
+
+            const allowedClaimScreens = [
+                { screenName: "Claim & Payment", url: "/Manageclaim&Payment", icon: "bx bx-detail" },
+                { screenName: "PPP", url: "/PPP", icon: "bx bx-file" },
+                { screenName: "Master Payment Plan", url: "/paymentplanapproval", icon: "bx bx-calendar-check" }
+            ];
+
+            claimMod133.screen = allowedClaimScreens.map((item, idx) => ({
+                screenId: 99980 + idx,
+                screenName: item.screenName,
+                url: item.url,
+                icon: item.icon,
+                module: []
+            }));
+        }
+
+        // ---------------------------------------------------------
         // FINAL OVERRIDE: SALES QUOTATION ONLY USERS (142-155, 188, 190, 192)
         // ---------------------------------------------------------
         // These users should see ONLY "Sales Quotation" in the Sales menu

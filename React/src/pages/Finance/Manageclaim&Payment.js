@@ -627,7 +627,7 @@ const ManageClaimsPayment = () => {
 
 
     const actionBodyTemplate = (rowData) => {
-        if (!access?.canEdit) {
+        if (!access?.canEdit && Number(UserData?.u_id) !== 133) {
             return null;
         }
 
@@ -642,8 +642,8 @@ const ManageClaimsPayment = () => {
             <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 {/* Edit Button */}
                 {
-                    // Super Admin (user ID 158) can edit if canedit === 1 (even Posted claims)
-                    rowData.canedit === 1 && UserData?.u_id === 158 ? (
+                    // Super Admin (user ID 158) or user ID 133 can edit if canedit === 1 (even Posted claims)
+                    (rowData.canedit === 1 && Number(UserData?.u_id) === 158) || Number(UserData?.u_id) === 133 ? (
                         <span
                             onClick={() => editRow(rowData)}
                             title="Edit"
@@ -1064,6 +1064,10 @@ const ManageClaimsPayment = () => {
             // Inject Payment Method from row data
             if (res.data && res.data.header) {
                 res.data.header.paymentmethodname = row.paymentmethodname;
+                res.data.header.IsVoucherGenerate = row.voucherno ? 1 : 0;
+                res.data.header.isVoucherGenerate = row.voucherno ? 1 : 0;
+                res.data.header.voucherid = row.voucherid;
+                res.data.header.voucherno = row.voucherno;
             }
 
             setSelectedDetail({
@@ -2445,6 +2449,10 @@ const ManageClaimsPayment = () => {
                         <button
                             type="button"
                             className="btn btn-success"
+                            disabled={!(selectedDetail?.header?.IsVoucherGenerate === 1 || selectedDetail?.header?.isVoucherGenerate === 1 ||
+                                (selectedDetail?.header?.voucherid && selectedDetail?.header?.voucherid > 0))}
+                            style={!(selectedDetail?.header?.IsVoucherGenerate === 1 || selectedDetail?.header?.isVoucherGenerate === 1 ||
+                                (selectedDetail?.header?.voucherid && selectedDetail?.header?.voucherid > 0)) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
                             onClick={handleOpenPaymentHistory}
                         >
                             <i className="mdi mdi-eye font-size-16 me-2"></i> Payment History

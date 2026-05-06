@@ -678,7 +678,7 @@ def get_all_claims(
                 ch.claimamountintc, 
                 IFNULL(ch.isclaimant_discussed,0) AS isclaimant_discussed,
                 CASE WHEN IFNULL(ch.claim_hod_isapproved,0)=0 THEN 1 ELSE 0 END AS candelete_old,
-                CASE WHEN IFNULL(ch.ppp_gm_approvalone,0)=0 AND IFNULL(ch.Claim_Discussed_Count,0)<=2 THEN 1 ELSE 0 END AS canedit,
+                CASE WHEN IFNULL(ch.ppp_gm_approvalone,0)=0 THEN 1 ELSE 0 END AS canedit,
                 ch.totalamountinidr, ch.voucherid, ch.voucherno,
                 DATE_FORMAT(ch.PaymentDate, '%d-%b-%Y') AS paymentDate,
                 IFNULL(psh.PaymentNo,'') AS PaymentNo,
