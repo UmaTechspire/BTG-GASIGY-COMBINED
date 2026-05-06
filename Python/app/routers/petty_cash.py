@@ -538,10 +538,19 @@ async def get_opening_balance(
         balance_query = text(f"""
             SELECT COALESCE(SUM(CASE WHEN category_id = 1 THEN amount ELSE -amount END), 0)
             FROM {DB_NAME_FINANCE}.tbl_petty_cash
-            WHERE isactive = 1
-              AND issubmitted = 1
-              AND orgid = :orgid
-              AND branchid = :branchid
+            WHERE IsSubmitted = 1
+              AND OrgId = :orgid
+              AND BranchId = :branchid
+              AND expdate >= COALESCE(
+                  (SELECT MAX(expdate) 
+                   FROM {DB_NAME_FINANCE}.tbl_petty_cash 
+                   WHERE (pc_number LIKE '%OPENING%' OR ExpenseDescription LIKE '%OPENING%')
+                     AND expdate < :from_date
+                     AND IsSubmitted = 1
+                     AND OrgId = :orgid
+                     AND BranchId = :branchid),
+                  :from_date
+              )
               AND expdate < :from_date
               AND (currencyid = :curid OR :curid IS NULL OR :curid = 0)
         """)

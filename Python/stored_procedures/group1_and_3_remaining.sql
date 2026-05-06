@@ -18,7 +18,7 @@ CREATE PROCEDURE btggasify_finance_live.proc_AR_GetARBook(
     IN p_to_date DATE
 )
 BEGIN
-    -- Invoices
+    -- Invoices / AR Ledger Records
     SELECT 
         ar.ar_id as transaction_id, 
         ar.customer_id as customer_id, 
@@ -29,23 +29,37 @@ BEGIN
         ar.ar_no, 
         ar.invoice_no, 
         (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
-         WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
-        ar.inv_amount as invoice_amount, 
+         WHERE d.salesinvoicesheaderid = ar.invoice_id AND ar.doc_type = 'INV' LIMIT 1) as po_no,
+        CASE WHEN ar.doc_type = 'INV' THEN ar.inv_amount ELSE 0 END as invoice_amount, 
         NULL as receipt_no, 
         0 as receipt_amount, 
-        (SELECT COALESCE(SUM(dn.Amount), 0) 
-         FROM btggasify_finance_live.debit_invoice di 
-         JOIN btggasify_finance_live.Debit_Notes dn ON di.DebitNoteId = dn.DebitNoteId 
-         WHERE TRIM(di.InvoiceNo) = TRIM(ar.invoice_no) AND dn.IsSubmitted = 1) as debit_note_amount,
-        (SELECT COALESCE(SUM(cn.Amount), 0) 
-         FROM btggasify_finance_live.credit_invoice ci 
-         JOIN btggasify_finance_live.Credit_Notes cn ON ci.CreditNoteId = cn.CreditNoteId 
-         WHERE TRIM(ci.InvoiceNo) = TRIM(ar.invoice_no) AND cn.IsSubmitted = 1) as credit_note_amount,
-        (ar.inv_amount - ar.already_received + 
-            (SELECT COALESCE(SUM(dn2.Amount), 0) FROM btggasify_finance_live.debit_invoice di2 JOIN btggasify_finance_live.Debit_Notes dn2 ON di2.DebitNoteId = dn2.DebitNoteId WHERE TRIM(di2.InvoiceNo) = TRIM(ar.invoice_no) AND dn2.IsSubmitted = 1) - 
-            (SELECT COALESCE(SUM(cn2.Amount), 0) FROM btggasify_finance_live.credit_invoice ci2 JOIN btggasify_finance_live.Credit_Notes cn2 ON ci2.CreditNoteId = cn2.CreditNoteId WHERE TRIM(ci2.InvoiceNo) = TRIM(ar.invoice_no) AND cn2.IsSubmitted = 1)
-        ) as balance, 
-        'Invoice' as payment_mode, 
+        CASE 
+            WHEN ar.doc_type = 'DN' THEN ar.inv_amount
+            ELSE (SELECT COALESCE(SUM(dn.Amount), 0) 
+                  FROM btggasify_finance_live.debit_invoice di 
+                  JOIN btggasify_finance_live.Debit_Notes dn ON di.DebitNoteId = dn.DebitNoteId 
+                  WHERE TRIM(di.InvoiceNo) = TRIM(ar.invoice_no) AND dn.IsSubmitted = 1)
+        END as debit_note_amount,
+        CASE 
+            WHEN ar.doc_type = 'CN' THEN ar.inv_amount
+            ELSE (SELECT COALESCE(SUM(cn.Amount), 0) 
+                  FROM btggasify_finance_live.credit_invoice ci 
+                  JOIN btggasify_finance_live.Credit_Notes cn ON ci.CreditNoteId = cn.CreditNoteId 
+                  WHERE TRIM(ci.InvoiceNo) = TRIM(ar.invoice_no) AND cn.IsSubmitted = 1)
+        END as credit_note_amount,
+        (CASE 
+            WHEN ar.doc_type = 'INV' THEN
+                (ar.inv_amount - ar.already_received + 
+                    (SELECT COALESCE(SUM(dn2.Amount), 0) FROM btggasify_finance_live.debit_invoice di2 JOIN btggasify_finance_live.Debit_Notes dn2 ON di2.DebitNoteId = dn2.DebitNoteId WHERE TRIM(di2.InvoiceNo) = TRIM(ar.invoice_no) AND dn2.IsSubmitted = 1) - 
+                    (SELECT COALESCE(SUM(cn2.Amount), 0) FROM btggasify_finance_live.credit_invoice ci2 JOIN btggasify_finance_live.Credit_Notes cn2 ON ci2.CreditNoteId = cn2.CreditNoteId WHERE TRIM(ci2.InvoiceNo) = TRIM(ar.invoice_no) AND cn2.IsSubmitted = 1)
+                )
+            ELSE (ar.inv_amount - ar.already_received)
+         END) as balance, 
+        CASE 
+            WHEN ar.doc_type = 'DN' THEN 'Debit Note'
+            WHEN ar.doc_type = 'CN' THEN 'Credit Note'
+            ELSE 'Invoice'
+        END as payment_mode, 
         '-' as remarks,
         0 as receipt_id, 
         0 as deposit_bank_id, 

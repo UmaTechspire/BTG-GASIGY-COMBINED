@@ -475,7 +475,8 @@ const ARBookReport = () => {
       return;
     }
 
-    const noteId = rowData.transaction_id || rowData.id || rowData.real_invoice_id;
+    // Prioritize real_invoice_id (DebitNoteId/CreditNoteId) over ar_id
+    const noteId = rowData.real_invoice_id || rowData.transaction_id || rowData.id;
     if (!noteId) {
       toast.warning("No ID available for this Note.");
       return;
@@ -1484,7 +1485,6 @@ const ARBookReport = () => {
 
         {/* --- NOTE (DN/CN) VIEW POPUP --- */}
         <Dialog
-          header={`${noteDetails?.type === 'DN' ? 'Debit Note' : 'Credit Note'} View: ${noteDetails?.DebitNoteNumber || noteDetails?.DebitNoteNo || noteDetails?.CreditNoteNumber || noteDetails?.CreditNoteNo || ''}`}
           visible={showNoteDialog}
           style={{ width: '60vw' }}
           onHide={() => setShowNoteDialog(false)}

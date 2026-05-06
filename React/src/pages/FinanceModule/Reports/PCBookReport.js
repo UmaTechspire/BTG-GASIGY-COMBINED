@@ -50,6 +50,7 @@ const PCBookReport = () => {
     const [selectedClaimDetail, setSelectedClaimDetail] = useState(null);
     const [sortField, setSortField] = useState(null);
     const [sortOrder, setSortOrder] = useState(null);
+    const [openingBalanceVal, setOpeningBalanceVal] = useState(0);
 
     const dtRef = useRef(null);
     const printAreaRef = useRef(null);
@@ -115,13 +116,19 @@ const PCBookReport = () => {
             const from = fromDate ? format(fromDate, "yyyy-MM-dd") : "";
             const to = toDate ? format(toDate, "yyyy-MM-dd") : "";
             const curId = selectedCurrency ? selectedCurrency.value : 0;
-            let openingBalance = 0;
 
-            const [response, typesData, categoriesData] = await Promise.all([
+            const [response, typesData, categoriesData, openingRes] = await Promise.all([
                 axios.get(`${PYTHON_API_URL}/pettycash/list?orgid=1&branchid=1&FromDate=${from}&ToDate=${to}&currencyid=${curId}`),
                 getPettyCashExpenseTypes(1, 1), // orgid=1, branchid=1
-                getPettyCashCategories(1, 1)
+                getPettyCashCategories(1, 1),
+                axios.get(`${PYTHON_API_URL}/pettycash/opening-balance?from_date=${from}&orgid=1&branchid=1&currencyid=${curId}`)
             ]);
+
+            if (openingRes.data && openingRes.data.status) {
+                setOpeningBalanceVal(openingRes.data.opening_balance);
+            } else {
+                setOpeningBalanceVal(0);
+            }
 
             const tMap = {};
             if (typesData) {
@@ -314,7 +321,26 @@ const PCBookReport = () => {
             });
         }
 
-        const finalSorted = openingBalanceRow ? [openingBalanceRow, ...others] : others;
+        let finalSorted = openingBalanceRow ? [openingBalanceRow, ...others] : others;
+
+        // If no manual opening balance row is found in the current date range,
+        // and we have an opening balance from the backend, inject a virtual row.
+        if (!openingBalanceRow && openingBalanceVal !== 0) {
+            const virtualOpeningRow = {
+                expdate: fromDate ? format(fromDate, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
+                ExpDate: fromDate ? format(fromDate, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
+                pc_number: "OPENING",
+                description: "OPENING BALANCE",
+                expensedescription: "OPENING BALANCE",
+                debit: openingBalanceVal > 0 ? openingBalanceVal : 0,
+                credit: openingBalanceVal < 0 ? Math.abs(openingBalanceVal) : 0,
+                amount: Math.abs(openingBalanceVal),
+                isVirtual: true,
+                category_id: 1, // Treat as Top-up/Receipt for debit logic
+                categoryName: "OPENING BALANCE"
+            };
+            finalSorted = [virtualOpeningRow, ...finalSorted];
+        }
 
         // 3. Recalculate cumulative
         let runningTotal = 0;
@@ -322,7 +348,7 @@ const PCBookReport = () => {
             runningTotal += (row.debit - row.credit);
             return { ...row, cumulativeAmount: runningTotal };
         });
-    }, [pcData, globalFilter, sortField, sortOrder]);
+    }, [pcData, globalFilter, sortField, sortOrder, openingBalanceVal, fromDate]);
 
     useEffect(() => {
         if (selectedCurrency && fromDate && toDate) {

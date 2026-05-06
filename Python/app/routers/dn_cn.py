@@ -4,7 +4,7 @@ from sqlalchemy import text
 from ..database import get_db, engine
 from ..models.dn_cn import CreditNotes, DebitNotes, CreditInvoice, DebitInvoice
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import date
 import os
 from dotenv import load_dotenv
@@ -26,7 +26,7 @@ class CreditNoteCreate(BaseModel):
     CreditAmount: float
     Description: Optional[str] = None
     CustomerId: int
-    InvoiceNo: Optional[int] = None # Expecting ID here as int
+    InvoiceNo: Optional[Any] = None 
     CurrencyId: int
     IsSubmitted: bool = False
 
@@ -37,7 +37,7 @@ class CreditNoteUpdate(BaseModel):
     CreditAmount: float
     Description: Optional[str] = None
     CustomerId: int
-    InvoiceNo: Optional[int] = None
+    InvoiceNo: Optional[Any] = None
     CurrencyId: int
     IsSubmitted: bool
 
@@ -47,7 +47,7 @@ class DebitNoteCreate(BaseModel):
     DebitAmount: float
     Description: Optional[str] = None
     CustomerId: int
-    InvoiceNo: Optional[int] = None
+    InvoiceNo: Optional[Any] = None
     CurrencyId: int
     IsSubmitted: bool = False
 
@@ -58,7 +58,7 @@ class DebitNoteUpdate(BaseModel):
     DebitAmount: float
     Description: Optional[str] = None
     CustomerId: int
-    InvoiceNo: Optional[int] = None
+    InvoiceNo: Optional[Any] = None
     CurrencyId: int
     IsSubmitted: bool
 
