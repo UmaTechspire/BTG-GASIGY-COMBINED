@@ -280,9 +280,21 @@ const ManageCustomer = () => {
     try {
       const response = await ToggleChangeCustomerStatus(payload);
 
-      if (response?.statusCode === 0) {
-        toast.success(response.message);
-        loadCustomerList();
+      if (response?.statusCode === 0 || response?.status === true) {
+        toast.success(response.message || "Status updated successfully.");
+        // Update local state so customer stays in the grid with updated active status
+        const updatedIsActive = isActive ? 1 : 0;
+        setCustomers(prev =>
+          prev.map(c =>
+            c.CustomerCode === customerCode
+              ? { ...c, IsActive: updatedIsActive }
+              : c
+          )
+        );
+        setSwitchStates(prev => ({
+          ...prev,
+          [customerCode]: isActive,
+        }));
       } else {
         toast.error(response?.message || "Toggle failed.");
       }
