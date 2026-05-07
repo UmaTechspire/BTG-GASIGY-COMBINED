@@ -47,12 +47,18 @@ const AddManualInvoice = () => {
   const [isDisabled, setIsDisabled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+
+
   // --- NEW STATES FOR DO CONVERSION ---
   const [convertModal, setConvertModal] = useState(false);
   const [availableDOs, setAvailableDOs] = useState([]);
   const [selectedDOs, setSelectedDOs] = useState([]);
   const [doLoading, setDoLoading] = useState(false);
   const [globalFilter, setGlobalFilter] = useState(""); // [ADDED] State for Search
+
+  const auth = localStorage.getItem("authUser");
+  const authUser = auth ? JSON.parse(auth) : null;
+  const isSuperAdmin = authUser && (authUser.superAdmin || authUser.IsAdmin || authUser.role_name === "Super Admin");
 
   const [invoiceHeader, SetInvoiceHeader] = useState({
     doid: [],
@@ -69,6 +75,14 @@ const AddManualInvoice = () => {
     calculatedPrice: 1,
     poNumber: "",
   });
+
+  useEffect(() => {
+    if (invoiceHeader.isSubmitted === 1 && !isSuperAdmin) {
+      setIsDisabled(true);
+    } else {
+      setIsDisabled(false);
+    }
+  }, [invoiceHeader.isSubmitted, isSuperAdmin]);
   const [totalQty, setTotalQty] = useState();
   const [totalPrice, setTotalPrice] = useState();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -225,15 +239,59 @@ const AddManualInvoice = () => {
       customerId: option ? option.value : "",
     }));
     setIscustomerchange(prev => prev + 1);
-
-    setmanualinvoiceDetails([{
-      sqid: 0, packingid: 0, id: 0, salesInvoicesId: 0, packingDetailId: 0, deliveryNumber: "", GasCodeId: 0, gasCode: "",
-      Volume: 1, Pressure: 1, Qty: 1, pickedQty: 1, Uom: "", UomId: 0, CurrencyId: currencySelect, UnitPrice: 0, TotalPrice: 0,
-      ConvertedPrice: "", price: "", Exchangerate: 0, driverName: "", truckName: "", doNumber: "",
-      requestDeliveryDate: currentDate, deliveryAddress: "", deliveryInstruction: "", soQty: 0, so_Issued_Qty: 0, balance_Qty: 0,
-      ConvertedCurrencyId: currencySelect, isImportedDO: false, Note: "", sellingPrice: 0, sellingTotal: 0, commissions: []
-    }]);
   };
+
+  useEffect(() => {
+    const syncCommissions = async () => {
+      if (invoiceHeader.customerId && invoiceHeader.salesInvoiceDate && manualinvoiceDetails.length > 0) {
+        // Only sync if there's at least one item with a GasCodeId
+        const hasItems = manualinvoiceDetails.some(item => item.GasCodeId !== 0);
+        if (!hasItems) return;
+
+        console.log("Customer or Date changed, syncing commissions...");
+        const updatedDetails = await Promise.all(manualinvoiceDetails.map(async (item) => {
+          if (item.GasCodeId) {
+            try {
+              const commData = await GetSalesCommission(
+                invoiceHeader.customerId, 
+                item.GasCodeId, 
+                formatDateForAPI(invoiceHeader.salesInvoiceDate)
+              );
+              if (commData && commData.found) {
+                const qty = parseFloat(item.pickedQty) || 1;
+                const commissions = commData.commissions.map(c => ({
+                  ...c,
+                  qty: qty,
+                  amount: parseFloat((parseFloat(c.rate) * qty).toFixed(2))
+                }));
+                const sellingPrice = commissions.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
+                const sellingTotal = commissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+                
+                return { ...item, commissions, sellingPrice, sellingTotal };
+              } else {
+                // If no commission found for this customer/gas, reset it
+                return { ...item, commissions: [], sellingPrice: 0, sellingTotal: 0 };
+              }
+            } catch (e) {
+              console.error("Commission sync failed for item:", item.gasCode, e);
+            }
+          }
+          return item;
+        }));
+
+        // Compare to avoid infinite loop
+        const hasChanged = updatedDetails.some((item, idx) => 
+          item.sellingPrice !== manualinvoiceDetails[idx].sellingPrice || 
+          item.commissions?.length !== manualinvoiceDetails[idx].commissions?.length
+        );
+
+        if (hasChanged) {
+          setmanualinvoiceDetails(updatedDetails);
+        }
+      }
+    };
+    syncCommissions();
+  }, [invoiceHeader.customerId, invoiceHeader.salesInvoiceDate]);
 
   const handleDOSelectChange = options => {
     setPackingDetails([]);
@@ -479,7 +537,7 @@ const AddManualInvoice = () => {
       orgId: invoiceHeader.orgId || 1,
       branchId: invoiceHeader.branchId || 1,
       userId: invoiceHeader.userId || 1,
-      isSubmitted: Number(submitType),
+      isSubmitted: (id > 0 && invoiceHeader.isSubmitted === 1 && submitType === 0) ? 1 : Number(submitType),
       ismanual: 1,
       totalQty,
       totalAmount,
@@ -534,7 +592,7 @@ const AddManualInvoice = () => {
       command: id > 0 ? "UpdateInvoice" : "CreateInvoice",
       header: {
         ...headerdetails,
-        isSubmitted: Number(submitType) || 0,
+        isSubmitted: (id > 0 && invoiceHeader.isSubmitted === 1 && submitType === 0) ? 1 : (Number(submitType) || 0),
       },
       details: updatedDetails,
       doDetail: doDetailPayload
@@ -1054,7 +1112,11 @@ const AddManualInvoice = () => {
         let commissions = [];
 
         if (invoiceHeader.customerId && invoiceHeader.salesInvoiceDate) {
-          const commData = await GetSalesCommission(invoiceHeader.customerId, selectedGas.GasCodeId, invoiceHeader.salesInvoiceDate);
+          const commData = await GetSalesCommission(
+            invoiceHeader.customerId, 
+            selectedGas.GasCodeId, 
+            formatDateForAPI(invoiceHeader.salesInvoiceDate)
+          );
           if (commData && commData.found) {
             const currentGridQty = parseFloat(updatedDetails[index].pickedQty) || 1;
             commissions = commData.commissions.map(c => ({
@@ -1171,14 +1233,14 @@ const AddManualInvoice = () => {
                           <Col md="12" className="mb-3">
                             <div className="d-flex justify-content-end align-items-center gap-2">
                               {access.canSave && (
-                                <Button color="info" onClick={(e) => { openpopup(e, 0) }} disabled={isSubmitting} >
+                                <Button color="info" onClick={(e) => { openpopup(e, 0) }} disabled={isSubmitting || isDisabled} >
                                   {id > 0 ? "Update" : "Save"}
                                 </Button>
                               )}
 
                               {access.canPost && (
                                 <Button color="success" onClick={(e) => { openpopup(e, 1) }}
-                                  disabled={isSubmitting} >
+                                  disabled={isSubmitting || isDisabled} >
                                   <i className="bx bxs-save me-2"></i>Post
                                 </Button>
                               )}
@@ -1186,7 +1248,7 @@ const AddManualInvoice = () => {
                               <Button
                                 color="warning"
                                 onClick={toggleConvertModal}
-                                disabled={!invoiceHeader.customerId}
+                                disabled={!invoiceHeader.customerId || isDisabled}
                                 title="Convert DO"
                               >
                                 <i className="bx bx-import me-1"></i> Convert DO
@@ -1208,6 +1270,7 @@ const AddManualInvoice = () => {
                                 value={invoiceHeader.salesInvoiceNbr}
                                 id="salesInvoiceNbr"
                                 maxLength="40"
+                                disabled={isDisabled}
                                 onChange={(e) => {
                                   SetInvoiceHeader((prev) => ({
                                     ...prev,
@@ -1231,6 +1294,7 @@ const AddManualInvoice = () => {
                                 value={invoiceHeader.poNumber}
                                 id="poNumber"
                                 placeholder="Enter PO Number"
+                                disabled={isDisabled}
                                 onChange={(e) => {
                                   SetInvoiceHeader((prev) => ({
                                     ...prev,
@@ -1254,6 +1318,7 @@ const AddManualInvoice = () => {
                                   altFormat: "d-M-Y",
                                   dateFormat: "Y-m-d",
                                   defaultDate: invoiceHeader.salesInvoiceDate,
+                                  clickOpens: !isDisabled
                                 }}
                                 name="SalesInvoiceDate"
                                 onChange={date =>
@@ -1273,8 +1338,9 @@ const AddManualInvoice = () => {
                                 name="customerId"
                                 classNamePrefix="select"
                                 className={errors.customerId && touched.customerId ? "select-invalid" : ""}
-                                isClearable
-                                isSearchable
+                                isClearable={!isDisabled}
+                                isSearchable={!isDisabled}
+                                isDisabled={isDisabled}
                                 options={customerList.map(cus => ({
                                   value: cus.CustomerID,
                                   label: cus.CustomerName,
@@ -1300,8 +1366,9 @@ const AddManualInvoice = () => {
                                 name="ConvertedCurrencyId"
                                 classNamePrefix="select"
                                 className={errors.currencyId && touched.currencyId ? "select-invalid" : ""}
-                                isClearable
-                                isSearchable
+                                isClearable={!isDisabled}
+                                isSearchable={!isDisabled}
+                                isDisabled={isDisabled}
                                 options={CurrencyList.map(currency => ({
                                   value: currency.currencyid,
                                   label: currency.Currency
@@ -1345,9 +1412,11 @@ const AddManualInvoice = () => {
                                         <thead style={{ backgroundColor: "#3e90e2" }}>
                                           <tr>
                                             <th className="text-center" style={{ width: "2%" }}>
-                                              <span style={{ cursor: "pointer", alignItems: "center" }} onClick={handleAddItem}>
-                                                <i className="mdi mdi-plus" />
-                                              </span>
+                                              {!isDisabled && (
+                                                <span style={{ cursor: "pointer", alignItems: "center" }} onClick={handleAddItem}>
+                                                  <i className="mdi mdi-plus" />
+                                                </span>
+                                              )}
                                             </th>
                                             <th className="text-center" style={{ minWidth: "200px" }}> GAS </th>
 
@@ -1373,7 +1442,7 @@ const AddManualInvoice = () => {
                                               <tr key={index}>
                                                 <td>
                                                   {/* Always allow delete if user has permission */}
-                                                  {access.canDelete && (
+                                                  {access.canDelete && !isDisabled && (
                                                     <span color="danger" className="btn-sm" onClick={() => handleDeleteRow(index)} title="Delete">
                                                       <i className="mdi mdi-trash-can-outline label-icon align-middle" title="Delete" />
                                                     </span>
@@ -1413,6 +1482,7 @@ const AddManualInvoice = () => {
                                                 {/* DO Number Column */}
                                                 <td>
                                                   <Input type="text" className="text-end" maxLength={20}
+                                                    disabled={isDisabled}
                                                     onChange={e => handleDOChange(index, e.target.value)}
                                                     value={manualinvoiceDetails[index]?.doNumber}
                                                     id={`doNumber-${index}`}
@@ -1422,6 +1492,7 @@ const AddManualInvoice = () => {
                                                 {/* Note Column */}
                                                 <td>
                                                   <Input type="text" maxLength={50}
+                                                    disabled={isDisabled}
                                                     onChange={e => handleNoteChange(index, e.target.value)}
                                                     value={manualinvoiceDetails[index]?.Note || ""}
                                                     id={`Note-${index}`}
@@ -1435,6 +1506,7 @@ const AddManualInvoice = () => {
                                                     name={`manualinvoiceDetails.${index}.pickedQty`}
                                                     type="text"
                                                     inputMode="decimal"  // [FIX] Decimal input
+                                                    disabled={isDisabled}
                                                     className="text-end"
                                                     maxLength={10}
                                                     value={manualinvoiceDetails[index]?.pickedQty || ""}
@@ -1458,6 +1530,7 @@ const AddManualInvoice = () => {
                                                 {/* UOM Column */}
                                                 <td>
                                                   <Input type="select"
+                                                    disabled={isDisabled}
                                                     onChange={e => handleUOMChange(index, e.target.value)}
                                                     id={`Uom-${index}`}
                                                     value={manualinvoiceDetails[index]?.UomId || ""}
@@ -1473,6 +1546,7 @@ const AddManualInvoice = () => {
                                                 {/* Unit Price Column - [FIX 3] Formatted Value */}
                                                 <td>
                                                   <Input type="text" name={`manualinvoiceDetails.${index}.UnitPrice`} inputMode="decimal" className="text-end" maxLength={15}
+                                                    disabled={isDisabled}
                                                     value={formatInputNumber(manualinvoiceDetails[index]?.UnitPrice || "")} // [FIX] Show formatted string
                                                     onChange={e => {
                                                       const raw = e.target.value.replace(/[^0-9.]/g, ""); // [FIX] Strip non-numeric for state
@@ -1491,6 +1565,7 @@ const AddManualInvoice = () => {
                                                 {/* Total Price Column */}
                                                 <td>
                                                   <Input type="text" name="TotalPrice" className="text-end"
+                                                    disabled={isDisabled}
                                                     value={formatInputNumber(manualinvoiceDetails[index]?.TotalPrice || "")}
                                                     onChange={e => {
                                                       const raw = e.target.value.replace(/[^0-9.]/g, "");
@@ -1503,6 +1578,7 @@ const AddManualInvoice = () => {
                                                 {/* Selling Price Column */}
                                                 <td>
                                                   <Input type="text"
+                                                    disabled={isDisabled}
                                                     value={formatInputNumber(manualinvoiceDetails[index]?.sellingPrice)}
                                                     id={`SellingPrice-${index}`}
                                                     onChange={e => handleSellingPriceChange(index, e.target.value)}
@@ -1517,6 +1593,7 @@ const AddManualInvoice = () => {
                                                 {/* Selling Total Column */}
                                                 <td>
                                                   <Input type="text"
+                                                    disabled={isDisabled}
                                                     value={formatInputNumber(manualinvoiceDetails[index]?.sellingTotal)}
                                                     id={`SellingTotal-${index}`}
                                                     onChange={e => handleSellingTotalChange(index, e.target.value)}

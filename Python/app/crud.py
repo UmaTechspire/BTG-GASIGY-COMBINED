@@ -627,7 +627,7 @@ async def bulk_update_ar_reference(db: AsyncSession, ar_ids: List[int], new_refe
         updated_count = 0
 
         for ar_id in ar_ids:
-            # 🟢 FIXED: Removed the if-index logic that added suffixes like -1, -2
+            # 🟢 UPDATED: Multiple records can now share the same reference (DB index was dropped)
             unique_ref = new_reference
 
             # 1. Update Details (Preserve DO Linkage)

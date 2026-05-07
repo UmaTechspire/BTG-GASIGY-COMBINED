@@ -308,9 +308,41 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_BulkUpdateFinanceAR;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_BulkUpdateFinanceAR(IN p_ar_id INT, IN p_ref VARCHAR(100))
 BEGIN
-    UPDATE btggasify_finance_live.tbl_accounts_receivable 
-    SET invoice_no = p_ref COLLATE utf8mb4_general_ci
-    WHERE ar_id = p_ar_id;
+    DECLARE v_existing_ar_id INT;
+    DECLARE v_amt DECIMAL(18,2);
+    DECLARE v_amt_idr DECIMAL(18,2);
+    
+    -- 1. Check if another record already has this invoice_no and is active
+    SELECT ar_id INTO v_existing_ar_id 
+    FROM btggasify_finance_live.tbl_accounts_receivable 
+    WHERE invoice_no = p_ref COLLATE utf8mb4_general_ci 
+      AND ar_id != p_ar_id 
+      AND is_active = 1 
+    LIMIT 1;
+    
+    IF v_existing_ar_id IS NOT NULL THEN
+        -- 2. MERGE SCENARIO: Reference exists, so we consolidate this record into the existing one
+        SELECT inv_amount, invoice_amt_idr INTO v_amt, v_amt_idr 
+        FROM btggasify_finance_live.tbl_accounts_receivable WHERE ar_id = p_ar_id;
+        
+        -- Add amounts to the existing 'master' record
+        UPDATE btggasify_finance_live.tbl_accounts_receivable 
+        SET inv_amount = inv_amount + v_amt, 
+            invoice_amt_idr = invoice_amt_idr + v_amt_idr,
+            balance_amount = balance_amount + v_amt,
+            updated_date = NOW()
+        WHERE ar_id = v_existing_ar_id;
+        
+        -- Deactivate this 'child' record (now that we've updated its index column to NULL via generated column logic)
+        UPDATE btggasify_finance_live.tbl_accounts_receivable 
+        SET is_active = 0, invoice_no = p_ref COLLATE utf8mb4_general_ci, updated_date = NOW()
+        WHERE ar_id = p_ar_id;
+    ELSE
+        -- 3. STANDARD SCENARIO: First time setting this reference or only one record
+        UPDATE btggasify_finance_live.tbl_accounts_receivable 
+        SET invoice_no = p_ref COLLATE utf8mb4_general_ci, updated_date = NOW()
+        WHERE ar_id = p_ar_id;
+    END IF;
 END //
 DELIMITER ;
 

@@ -564,70 +564,84 @@ async def get_all_invoices(filter_data: InvoiceFilter):
 async def get_invoice_details(invoiceid: str):
     try:
         async with engine.connect() as conn:
-            # 1. Fetch Header from User Panel schema ONLY
+            # 1. Fetch ALL matching Headers (to handle consolidated DOs sharing one number)
             header_query = text("CALL proc_DSI_GetHeader(:input_val)")
-            
             result = await conn.execute(header_query, {"input_val": invoiceid})
-            header = result.mappings().first()
+            header_rows = result.mappings().all()
             
-            if not header:
+            if not header_rows:
                 raise HTTPException(status_code=404, detail=f"Invoice '{invoiceid}' not found")
 
-            header_dict = dict(header)
-            hid = header_dict["InvoiceId"]
+            # Initialize aggregated header with the first row's primary data
+            first_row = dict(header_rows[0])
+            aggregated_header = {
+                "InvoiceId": first_row["InvoiceId"],
+                "InvoiceNbr": first_row["InvoiceNbr"],
+                "Salesinvoicesdate": first_row["Salesinvoicesdate"],
+                "CustomerName": first_row["CustomerName"],
+                "customerid": first_row["customerid"],
+                "TotalAmount": sum(float(h["TotalAmount"] or 0) for h in header_rows),
+                "CalculatedPrice": sum(float(h["CalculatedPrice"] or h["TotalAmount"] or 0) for h in header_rows),
+                "Status": first_row["Status"],
+                "PONumber": "", 
+                "Items": []
+            }
 
-            # 2. Fetch Details from User Panel schema ONLY
-            detail_query = text("CALL proc_DSI_GetDetails(:hid)")
+            all_items = []
             
-            details_result = await conn.execute(detail_query, {"hid": hid})
-            details_rows = details_result.fetchall()
+            # 2. Fetch Details for ALL linked Headers
+            for h in header_rows:
+                hid = h["InvoiceId"]
+                detail_query = text("CALL proc_DSI_GetDetails(:hid)")
+                details_result = await conn.execute(detail_query, {"hid": hid})
+                details_rows = details_result.fetchall()
 
-            # 🟢 Fetch ALL commissions for this invoice at once
-            all_comm_query = text(f"""
-                SELECT ic.GasId, ic.ContactName as contactName, ic.Rate as rate, ic.Qty as qty, ic.Total_Commission as amount
-                FROM {DB_NAME_USER}.InvoiceCommission ic
-                WHERE ic.InvoiceId = :hid
-            """)
-            all_comm_res = await conn.execute(all_comm_query, {"hid": hid})
-            all_comm_rows = all_comm_res.mappings().all()
-            
-            # Create a lookup map for commissions by GasId
-            comm_map = {}
-            for c in all_comm_rows:
-                c_dict = dict(c)
-                try:
-                    # SQLAlchemy mappings might return lowercase keys depending on the driver
-                    gid_val = c_dict.get("GasId") or c_dict.get("gasid") or c_dict.get("gasId")
-                    gid = int(gid_val)
-                    if gid not in comm_map:
-                        comm_map[gid] = []
-                    comm_map[gid].append(c_dict)
-                except (ValueError, TypeError, KeyError):
-                    continue
+                # Fetch commissions for this specific hid
+                all_comm_query = text(f"""
+                    SELECT ic.GasId, ic.ContactName as contactName, ic.Rate as rate, ic.Qty as qty, ic.Total_Commission as amount
+                    FROM {DB_NAME_USER}.InvoiceCommission ic
+                    WHERE ic.InvoiceId = :hid
+                """)
+                all_comm_res = await conn.execute(all_comm_query, {"hid": hid})
+                all_comm_rows = all_comm_res.mappings().all()
+                
+                # Create a lookup map for commissions by GasId
+                comm_map = {}
+                for c in all_comm_rows:
+                    c_dict = dict(c)
+                    try:
+                        gid_val = c_dict.get("GasId") or c_dict.get("gasid") or c_dict.get("gasId")
+                        if gid_val is not None:
+                            gid = int(gid_val)
+                            if gid not in comm_map:
+                                comm_map[gid] = []
+                            comm_map[gid].append(c_dict)
+                    except: continue
 
-            items_list = []
-            for row in details_rows:
-                row_dict = dict(row._mapping)
-                gid_raw = row_dict.get("gascodeid") or row_dict.get("GasCodeId") or row_dict.get("GasId") or row_dict.get("id")
-                gid = int(gid_raw) if gid_raw else 0
-                
-                # Assign commissions from our map
-                item_comms = comm_map.get(gid, [])
-                row_dict["commissions"] = item_comms
-                
-                # Calculate sums for synchronization
-                rate_sum = sum(float(c.get("rate") or 0) for c in item_comms)
-                amt_sum = sum(float(c.get("amount") or 0) for c in item_comms)
-                
-                # Sync SellingPrice and SellingTotal
-                row_dict["sellingPrice"] = float(row_dict.get("SellingPrice") or row_dict.get("sellingPrice") or rate_sum)
-                row_dict["sellingTotal"] = float(row_dict.get("SellingTotal") or row_dict.get("sellingTotal") or amt_sum)
-                
-                items_list.append(row_dict)
-            
-            header_dict["Items"] = items_list
-            header_dict["PONumber"] = items_list[0]["PONumber"] if items_list else ""
-            return header_dict
+                for row in details_rows:
+                    row_dict = dict(row._mapping)
+                    gid_raw = row_dict.get("gascodeid") or row_dict.get("GasCodeId") or row_dict.get("GasId") or row_dict.get("id")
+                    gid = int(gid_raw) if gid_raw else 0
+                    
+                    # Assign commissions from our map
+                    item_comms = comm_map.get(gid, [])
+                    row_dict["commissions"] = item_comms
+                    
+                    # Calculate sums for synchronization if not already present
+                    rate_sum = sum(float(c.get("rate") or 0) for c in item_comms)
+                    amt_sum = sum(float(c.get("amount") or 0) for c in item_comms)
+                    
+                    row_dict["sellingPrice"] = float(row_dict.get("SellingPrice") or row_dict.get("sellingPrice") or rate_sum)
+                    row_dict["sellingTotal"] = float(row_dict.get("SellingTotal") or row_dict.get("sellingTotal") or amt_sum)
+                    
+                    # Capture PO Number for the header if we find one in any detail row
+                    if row_dict.get("PONumber") and not aggregated_header["PONumber"]:
+                        aggregated_header["PONumber"] = row_dict["PONumber"]
+                    
+                    all_items.append(row_dict)
+
+            aggregated_header["Items"] = all_items
+            return aggregated_header
 
     except HTTPException as he:
         raise he

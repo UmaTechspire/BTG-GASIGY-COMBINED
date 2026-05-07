@@ -53,13 +53,17 @@ const ManualInvoice = () => {
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
-  // Main Filter (IsAR: 0 -> Saved/Drafts)
+  const auth = localStorage.getItem("authUser");
+  const authUser = auth ? JSON.parse(auth) : null;
+  const isSuperAdmin = authUser && (authUser.superAdmin || authUser.IsAdmin || authUser.role_name === "Super Admin");
+
+  // Main Filter (IsAR: 0 -> Saved/Drafts, 2 -> All for Super Admin)
   const [invoiceFilter, setInvoiceFilter] = useState({
     customerid: 0,
     FromDate: formatDate(sevenDaysAgo),
     ToDate: formatDate(new Date()),
     BranchId: 1,
-    IsAR: 0
+    IsAR: isSuperAdmin ? 2 : 0
   });
 
   // History Filter (Default Current Month)
@@ -141,8 +145,9 @@ const ManualInvoice = () => {
           </Button>
         </div>
         <div className="col-12 col-lg-3 text-end">
-          {/* Only show Saved status legend as main table is filtered for saved */}
+          {/* Show P legend for Super Admin since they see posted entries too */}
           <span className="me-4"><Tag value="S" severity={getSeverity("Saved")} /> Saved</span>
+          {isSuperAdmin && <span className="me-4"><Tag value="P" severity={getSeverity("Posted")} /> Posted</span>}
         </div>
         <div className="col-12 col-lg-3">
           <input
@@ -220,7 +225,7 @@ const ManualInvoice = () => {
         invoiceFilter.FromDate,
         invoiceFilter.ToDate,
         invoiceFilter.BranchId,
-        0 // IsAR Flag
+        invoiceFilter.IsAR // IsAR Flag
       );
       if (response?.status) {
         setInvoiceList(response?.data || []);
@@ -278,7 +283,7 @@ const ManualInvoice = () => {
     if (!access?.canEdit) return null;
     return (
       <div className="actions">
-        {rowData.Status != "Posted" && (
+        {(rowData.Status != "Posted" || isSuperAdmin) && (
           <span style={{ marginRight: "0.5rem" }} title="Edit" onClick={() => editRow(rowData)}>
             <i className="mdi mdi-square-edit-outline" style={{ fontSize: "1.5rem" }}></i>
           </span>
@@ -315,7 +320,7 @@ const ManualInvoice = () => {
       FromDate: formatDate(sevenDaysAgo),
       ToDate: formatDate(new Date()),
       BranchId: 1,
-      IsAR: 0
+      IsAR: isSuperAdmin ? 2 : 0
     };
     setInvoiceFilter(resetFilter);
     setIsseacrch(!isseacrch);

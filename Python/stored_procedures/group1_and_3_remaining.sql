@@ -951,7 +951,7 @@ BEGIN
     WHERE h.Salesinvoicesdate BETWEEN p_from_date AND p_to_date
       AND (p_customer_id = 0 OR h.customerid = p_customer_id)
       AND h.isactive = 1 
-      AND h.IsSubmitted = p_is_ar
+      AND (p_is_ar = 2 OR h.IsSubmitted = p_is_ar)
     ORDER BY h.id DESC;
 END //
 DELIMITER ;
