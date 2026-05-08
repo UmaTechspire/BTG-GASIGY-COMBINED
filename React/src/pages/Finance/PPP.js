@@ -760,10 +760,6 @@ const PPP = ({ selectedType, setSelectedType }) => {
     if (res.status) {
       if (res.data && res.data.header) {
         res.data.header.paymentmethodname = row.paymentMethod;
-        res.data.header.IsVoucherGenerate = row.voucherno ? 1 : 0;
-        res.data.header.isVoucherGenerate = row.voucherno ? 1 : 0;
-        res.data.header.voucherid = row.voucherid;
-        res.data.header.voucherno = row.voucherno;
       }
       let details = res.data.details || [];
 
@@ -2589,10 +2585,7 @@ let severity = 'secondary'; // default gray
             <button
               type="button"
               className="btn btn-success"
-              disabled={!(selectedDetail?.header?.IsVoucherGenerate === 1 || selectedDetail?.header?.isVoucherGenerate === 1 ||
-                (selectedDetail?.header?.voucherid && selectedDetail?.header?.voucherid > 0))}
-              style={!(selectedDetail?.header?.IsVoucherGenerate === 1 || selectedDetail?.header?.isVoucherGenerate === 1 ||
-                (selectedDetail?.header?.voucherid && selectedDetail?.header?.voucherid > 0)) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+
               onClick={handleOpenPaymentHistory}
             >
               <i className="mdi mdi-eye font-size-16 me-2"></i> Payment History

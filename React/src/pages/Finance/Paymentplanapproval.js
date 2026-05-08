@@ -179,17 +179,29 @@ const Paymentplanapproval = ({ selectedType, setSelectedType }) => {
       return;
     }
 
-    await GetSeqNo();
+    Swal.fire({
+      title: "Are you sure?",
+      text: "Are you sure you want to submit?",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#3085d6",
+      cancelButtonColor: "#d33",
+      confirmButtonText: "Yes",
+      cancelButtonText: "No",
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        await GetSeqNo();
 
-    if (Claimheader.alravailable == 1) {
-      setConvertFromDate(Claimheader.FromDate ? new Date(Claimheader.FromDate) : null);
-      setConvertToDate(Claimheader.ToDate ? new Date(Claimheader.ToDate) : null);
-    }
-    else {
-      setConvertFromDate(null);
-      setConvertToDate(null);
-    }
-    setConvertModalVisible(true);
+        if (Claimheader.alravailable == 1) {
+          setConvertFromDate(Claimheader.FromDate ? new Date(Claimheader.FromDate) : null);
+          setConvertToDate(Claimheader.ToDate ? new Date(Claimheader.ToDate) : null);
+        } else {
+          setConvertFromDate(null);
+          setConvertToDate(null);
+        }
+        setConvertModalVisible(true);
+      }
+    });
   };
   const handleConvertSubmit = async (type) => {
     if (!convertFromDate || !convertToDate) {

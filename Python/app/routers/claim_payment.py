@@ -161,8 +161,8 @@ def save_hod_discussion(req: HodDiscussionRequest):
         current_count = row[1] or 0
         new_count = current_count + 1
         
-        if new_count == 3:
-            # 3rd time logic
+        if new_count == 4:
+            # 4th time logic
             forced_message = "Please cancel the transaction"
             comment_entry = f"[{req.hod_name} at {timestamp}]: {forced_message}"
             new_comment = existing_comment + "\n" + comment_entry if existing_comment else comment_entry
@@ -189,14 +189,14 @@ def save_hod_discussion(req: HodDiscussionRequest):
                 UPDATE tbl_claimAndpayment_header 
                 SET claim_hod_isdiscussed = 1, 
                     hod_discussed_count = %s, 
-                    applicant_hod_comment = %s, 
+                    applicant_hod_comment = %s
                 WHERE Claim_ID = %s
             """
             cursor.execute(update_query, (new_count, new_comment, req.claim_id))
 
         conn.commit()
         
-        return {"status": True, "message": "Discussion sent to applicant", "data": new_comment, "is_delete_required": new_count == 3}
+        return {"status": True, "message": "Discussion sent to applicant", "data": new_comment, "is_delete_required": new_count == 4}
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -324,9 +324,9 @@ def save_hod_gm_discussion(req: DiscussionRequest):
         department_id = row[3] or 0
         
         is_third_count = False
-        if req.sender_role == "GM" and (current_gm_title + 1) == 3:
+        if req.sender_role == "GM" and (current_gm_title + 1) == 4:
              is_third_count = True
-
+        
         if is_third_count:
              comment_entry = f"[{req.user_name} at {timestamp}]: Please cancel the transaction"
         else:
@@ -463,7 +463,7 @@ def save_gm_director_discussion(req: DiscussionRequest):
         current_dir_count = row[1] or 0
         
         is_third_count = False
-        if req.sender_role == "Director" and (current_dir_count + 1) == 3:
+        if req.sender_role == "Director" and (current_dir_count + 1) == 4:
              is_third_count = True
         
         if is_third_count:
@@ -669,15 +669,15 @@ def get_all_claims(
                 cat.claimcategory AS claimcategory,
                 CASE WHEN ch.ClaimCategoryId=3 THEN IFNULL(u.username,'') ELSE u.username END AS applicantname,
                 CASE WHEN ch.ClaimCategoryId=3 THEN IFNULL(md.departmentname,'') ELSE md.departmentname END AS departmentname,
-                CASE WHEN ch.IsSubmitted=0 AND (IFNULL(ch.Claim_Discussed_Count,0)<=2 
-                    AND IFNULL(ch.PPP_Discussed_Count,0)<=2 AND IFNULL(ch.isdiscussionaccepted,0)=0 
-                    AND IFNULL(ch.pv_dis_count,0)<=2)
+                CASE WHEN ch.IsSubmitted=0 AND (IFNULL(ch.Claim_Discussed_Count,0)<=3 
+                    AND IFNULL(ch.PPP_Discussed_Count,0)<=3 AND IFNULL(ch.isdiscussionaccepted,0)=0 
+                    AND IFNULL(ch.pv_dis_count,0)<=3)
                     THEN 'Saved' ELSE 'Posted' END AS Status,
                 cur.CurrencyCode AS transactioncurrency,
                 IFNULL(pm.PaymentMethod,'') AS paymentmethodname,
                 ch.claimamountintc, 
                 IFNULL(ch.isclaimant_discussed,0) AS isclaimant_discussed,
-                CASE WHEN IFNULL(ch.claim_hod_isapproved,0)=0 THEN 1 ELSE 0 END AS candelete_old,
+                CASE WHEN IFNULL(ch.claim_hod_isapproved,0)=0 AND (IFNULL(ch.Claim_Discussed_Count,0)>3 OR IFNULL(ch.PPP_Discussed_Count,0)>3 OR IFNULL(ch.pv_dis_count,0)>3 OR IFNULL(ch.IsSubmitted,0)=0) THEN 1 ELSE 0 END AS candelete,
                 CASE WHEN IFNULL(ch.ppp_gm_approvalone,0)=0 THEN 1 ELSE 0 END AS canedit,
                 ch.totalamountinidr, ch.voucherid, ch.voucherno,
                 DATE_FORMAT(ch.PaymentDate, '%d-%b-%Y') AS paymentDate,
@@ -694,10 +694,10 @@ def get_all_claims(
                 IFNULL(ch.hod_discussed_count,0) AS hod_discussed_count,
                 IFNULL(ch.gm_discussed_count,0) AS gm_discussed_count,
                 IFNULL(ch.director_discussed_count,0) AS director_discussed_count,
-                CASE WHEN IFNULL(ch.Claim_Discussed_Count,0)>2 OR IFNULL(ch.PPP_Discussed_Count,0)>2 OR IFNULL(ch.pv_dis_count,0)> 2 THEN 1 ELSE 0 END AS IsReject,
+                CASE WHEN IFNULL(ch.Claim_Discussed_Count,0)>3 OR IFNULL(ch.PPP_Discussed_Count,0)>3 OR IFNULL(ch.pv_dis_count,0)> 3 THEN 1 ELSE 0 END AS IsReject,
                 CASE WHEN IFNULL(ch.claim_gm_isapproved,0)=0 AND IFNULL(ch.claim_gm_isdiscussed,0)=1 
-                    AND IFNULL(ch.IsSubmitted,0)=0 AND IFNULL(ch.Claim_Discussed_Count,0)<=2 
-                    AND IFNULL(ch.PPP_Discussed_Count,0)<=2 THEN 1 ELSE 0 END AS candiscuss
+                    AND IFNULL(ch.IsSubmitted,0)=0 AND IFNULL(ch.Claim_Discussed_Count,0)<=3 
+                    AND IFNULL(ch.PPP_Discussed_Count,0)<=3 THEN 1 ELSE 0 END AS candiscuss
             FROM tbl_claimAndpayment_header ch
             JOIN master_claimcategory cat ON cat.id = ch.ClaimCategoryId
             JOIN {purpose_subquery} ON tfc.Claim_ID = ch.Claim_ID

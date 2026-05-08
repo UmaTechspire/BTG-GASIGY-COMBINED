@@ -636,7 +636,7 @@ const ManageClaimsPayment = () => {
         const isFinanceCancelled = rowData?.finance_cancel == 1 || rowData?.finance_cancel === true;
         const cancelRemarks = rowData?.finance_cancel_remarks || "Cancel";
 
-        const canDelete = isCancelled || isFinanceCancelled || (rowData?.Status !== 'Posted' && (rowData?.IsReject === 1 || rowData?.isSubmitted == 0 || rowData?.candelete == 1));
+        const canDelete = isCancelled || isFinanceCancelled || rowData?.IsReject === 1 || rowData?.candelete == 1 || (rowData?.Status !== 'Posted' && rowData?.isSubmitted == 0);
 
         return (
             <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -888,7 +888,7 @@ const ManageClaimsPayment = () => {
             const dataWithTimestamp = rawData.map(item => {
                 let currentStatus = item.Status;
                 // Force "Saved" status if discussion limit reached or if cancelled
-                if (item.is_delete_required === 1 || item.hod_discussed_count >= 3 || item.gm_discussed_count >= 3 || item.director_discussed_count >= 3) {
+                if (item.is_delete_required === 1 || item.hod_discussed_count > 3 || item.gm_discussed_count > 3 || item.director_discussed_count > 3) {
                     currentStatus = "Saved";
                 }
                 return {
@@ -1064,10 +1064,6 @@ const ManageClaimsPayment = () => {
             // Inject Payment Method from row data
             if (res.data && res.data.header) {
                 res.data.header.paymentmethodname = row.paymentmethodname;
-                res.data.header.IsVoucherGenerate = row.voucherno ? 1 : 0;
-                res.data.header.isVoucherGenerate = row.voucherno ? 1 : 0;
-                res.data.header.voucherid = row.voucherid;
-                res.data.header.voucherno = row.voucherno;
             }
 
             setSelectedDetail({
@@ -2449,10 +2445,6 @@ const ManageClaimsPayment = () => {
                         <button
                             type="button"
                             className="btn btn-success"
-                            disabled={!(selectedDetail?.header?.IsVoucherGenerate === 1 || selectedDetail?.header?.isVoucherGenerate === 1 ||
-                                (selectedDetail?.header?.voucherid && selectedDetail?.header?.voucherid > 0))}
-                            style={!(selectedDetail?.header?.IsVoucherGenerate === 1 || selectedDetail?.header?.isVoucherGenerate === 1 ||
-                                (selectedDetail?.header?.voucherid && selectedDetail?.header?.voucherid > 0)) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
                             onClick={handleOpenPaymentHistory}
                         >
                             <i className="mdi mdi-eye font-size-16 me-2"></i> Payment History
