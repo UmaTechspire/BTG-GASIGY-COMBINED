@@ -139,10 +139,10 @@ async def get_bank_book_report(
             approval_sql = text(f"""
                 SELECT r.receipt_id 
                 FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
-                LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON r.ar_id = h.Claim_ID
+                LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON r.ar_id = h.Claim_ID AND LOWER(r.transaction_type) NOT IN ('receipt', 'customer receipt')
                 WHERE r.receipt_id IN ({','.join(map(str, receipt_ids))})
                   AND (
-                      r.transaction_type = 'Receipt'  -- Receipts always show (no Director gate)
+                      LOWER(r.transaction_type) IN ('receipt', 'customer receipt')  -- Receipts always show (no Director gate)
                       OR r.ar_id = 0 OR r.ar_id IS NULL  -- Non-claim payments always show
                       OR h.PPP_PV_Director_approve = 1    -- Claim payments need Director approval
                   )

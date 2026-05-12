@@ -277,74 +277,164 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_AR_GetOutstandingInvoices;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_AR_GetOutstandingInvoices(
     IN p_customer_id INT,
-    IN p_receipt_id INT,
-    IN p_from_date DATE,
-    IN p_to_date DATE
+    IN p_receipt_id  INT,
+    IN p_from_date   DATE,
+    IN p_to_date     DATE
 )
 BEGIN
-    SELECT 
-        h.id as invoice_id,
-        h.salesinvoicenbr as invoice_no,
-        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d 
-         WHERE d.salesinvoicesheaderid = h.id LIMIT 1) as po_no,
-        DATE_FORMAT(h.Salesinvoicesdate, '%d-%m-%Y') as invoice_date,
-        h.TotalAmount as total_amount,
-        cur.CurrencyCode as currencycode,
-        (SELECT COALESCE(SUM(ra.payment_amount), 0) 
-         FROM btggasify_finance_live.tbl_receipt_ag_ar ra 
-         JOIN btggasify_finance_live.tbl_accounts_receivable ar_link ON ra.ar_id = ar_link.ar_id
-         WHERE TRIM(ar_link.invoice_no) = TRIM(h.salesinvoicenbr) 
-           AND ra.receipt_id = p_receipt_id AND ra.is_active = 1
-        ) as allocated_here,
-        (h.TotalAmount - 
-            (SELECT COALESCE(SUM(ra3.payment_amount), 0) 
-             FROM btggasify_finance_live.tbl_receipt_ag_ar ra3 
-             JOIN btggasify_finance_live.tbl_accounts_receivable ar_link3 ON ra3.ar_id = ar_link3.ar_id
-             WHERE TRIM(ar_link3.invoice_no) = TRIM(h.salesinvoicenbr) 
-               AND ra3.is_active = 1
-               AND (ra3.receipt_id != p_receipt_id OR p_receipt_id IS NULL)
-            ) -
-            (SELECT COALESCE(SUM(cn.Amount), 0) 
-             FROM btggasify_finance_live.credit_invoice ci 
-             JOIN btggasify_finance_live.Credit_Notes cn ON ci.CreditNoteId = cn.CreditNoteId 
-             WHERE TRIM(ci.InvoiceNo) = TRIM(h.salesinvoicenbr) AND cn.IsSubmitted = 1)
-        ) as balance_due
-    FROM btggasify_live.tbl_salesinvoices_header h
-    LEFT JOIN btggasify_finance_live.tbl_accounts_receivable ar ON TRIM(h.salesinvoicenbr) = TRIM(ar.invoice_no)
+    -- Normalize p_receipt_id: treat 0 as NULL
+    DECLARE v_receipt_id INT DEFAULT NULL;
+    IF p_receipt_id > 0 THEN SET v_receipt_id = p_receipt_id; END IF;
+
+    -- ---- CONSOLIDATED AR LEDGER QUERY ----
+    -- We drive from tbl_accounts_receivable to ensure ALL posted items are visible.
+    
+    -- 1. INVOICES (and general AR records)
+    SELECT
+        ar.invoice_id                                           AS invoice_id, -- SI Header ID
+        ar.invoice_no                                           AS invoice_no,
+        'INV'                                                   AS record_type,
+        (SELECT d.PONumber FROM btggasify_live.tbl_salesinvoices_details d
+         WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) AS po_no,
+        ar.invoice_date                                         AS raw_date,
+        DATE_FORMAT(ar.invoice_date, '%d-%m-%Y')                AS invoice_date,
+        ar.inv_amount                                           AS total_amount,
+        cur.CurrencyCode                                        AS currencycode,
+
+        -- Allocated Here (Accurate join via ar_id)
+        (SELECT COALESCE(SUM(ra.payment_amount), 0)
+         FROM btggasify_finance_live.tbl_receipt_ag_ar ra
+         WHERE ra.ar_id = ar.ar_id
+           AND ra.is_active = 1
+           AND (ra.receipt_id = v_receipt_id OR 
+                ra.receipt_id IN (
+                    SELECT r_sub.receipt_id FROM btggasify_finance_live.tbl_ar_receipt r_sub
+                    WHERE r_sub.combine_group_id = (SELECT r_parent.combine_group_id FROM btggasify_finance_live.tbl_ar_receipt r_parent WHERE r_parent.receipt_id = v_receipt_id AND r_parent.combine_group_id IS NOT NULL)
+                )
+           )
+        )                                                       AS allocated_here,
+
+        -- Balance Due (Ledger Balance - other grouping-aware allocations)
+        (ar.inv_amount 
+            - (SELECT COALESCE(SUM(ra3.payment_amount), 0)
+               FROM btggasify_finance_live.tbl_receipt_ag_ar ra3
+               WHERE ra3.ar_id = ar.ar_id
+                 AND ra3.is_active = 1
+                 AND (ra3.receipt_id != v_receipt_id AND 
+                      ra3.receipt_id NOT IN (
+                          SELECT r_sub2.receipt_id FROM btggasify_finance_live.tbl_ar_receipt r_sub2
+                          WHERE r_sub2.combine_group_id = (SELECT r_parent2.combine_group_id FROM btggasify_finance_live.tbl_ar_receipt r_parent2 WHERE r_parent2.receipt_id = v_receipt_id AND r_parent2.combine_group_id IS NOT NULL)
+                      ) OR v_receipt_id IS NULL
+                 )
+              )
+            - (SELECT COALESCE(SUM(cn.Amount), 0)
+               FROM btggasify_finance_live.credit_invoice ci
+               JOIN btggasify_finance_live.Credit_Notes cn ON ci.CreditNoteId = cn.CreditNoteId
+               WHERE TRIM(ci.InvoiceNo) = TRIM(ar.invoice_no) AND cn.IsSubmitted = 1)
+        )                                                       AS balance_due
+
+    FROM btggasify_finance_live.tbl_accounts_receivable ar
     LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId
-    WHERE h.customerid = p_customer_id
-      AND (p_from_date IS NULL OR h.Salesinvoicesdate >= p_from_date)
-      AND (p_to_date IS NULL OR h.Salesinvoicesdate <= p_to_date)
-      AND h.IsSubmitted = 1
-      AND h.IsAR = 1
+    LEFT JOIN btggasify_live.tbl_salesinvoices_header h ON ar.invoice_id = h.id
+    WHERE ar.is_active = 1
+      AND (ar.doc_type = 'INV' OR ar.doc_type IS NULL OR ar.doc_type = '')
       AND (
-          (h.TotalAmount - 
-              (SELECT COALESCE(SUM(ra4.payment_amount), 0) 
-               FROM btggasify_finance_live.tbl_receipt_ag_ar ra4 
-               JOIN btggasify_finance_live.tbl_accounts_receivable ar_link4 ON ra4.ar_id = ar_link4.ar_id
-               WHERE TRIM(ar_link4.invoice_no) = TRIM(h.salesinvoicenbr) AND ra4.is_active = 1
-              ) -
-              (SELECT COALESCE(SUM(cn2.Amount), 0) 
-               FROM btggasify_finance_live.credit_invoice ci2 
-               JOIN btggasify_finance_live.Credit_Notes cn2 ON ci2.CreditNoteId = cn2.CreditNoteId 
-               WHERE TRIM(ci2.InvoiceNo) = TRIM(h.salesinvoicenbr) AND cn2.IsSubmitted = 1)
-          ) > 0.01
-          OR 
-          -- Match by Invoice Number in link table (override for current receipt)
+          -- Case 1: Formally linked to this receipt (ALWAYS SHOW)
           EXISTS (
-              SELECT 1 FROM btggasify_finance_live.tbl_receipt_ag_ar ra2
-              JOIN btggasify_finance_live.tbl_accounts_receivable ar_link2 ON ra2.ar_id = ar_link2.ar_id
-              WHERE TRIM(ar_link2.invoice_no) = TRIM(h.salesinvoicenbr)
-                AND ra2.receipt_id = p_receipt_id AND ra2.is_active = 1
+              SELECT 1 FROM btggasify_finance_live.tbl_receipt_ag_ar ra_v
+              WHERE ra_v.ar_id = ar.ar_id
+                AND ra_v.is_active = 1
+                AND (ra_v.receipt_id = v_receipt_id OR 
+                     ra_v.receipt_id IN (
+                         SELECT r_sub_v.receipt_id FROM btggasify_finance_live.tbl_ar_receipt r_sub_v
+                         WHERE r_sub_v.combine_group_id = (SELECT r_parent_v.combine_group_id FROM btggasify_finance_live.tbl_ar_receipt r_parent_v WHERE r_parent_v.receipt_id = v_receipt_id AND r_parent_v.combine_group_id IS NOT NULL)
+                     )
+                )
+          )
+          OR
+          -- Case 2: Outstanding for this customer
+          (
+            ar.customer_id = p_customer_id
+            AND (p_from_date IS NULL OR ar.invoice_date >= p_from_date)
+            AND (p_to_date   IS NULL OR ar.invoice_date <= p_to_date)
+            AND (ar.inv_amount - ar.already_received) > 0.01
+            -- Filter out DOs that are part of a consolidated invoice (Standard Business Rule)
+            AND (h.id IS NULL OR (
+                h.salesinvoicenbr NOT LIKE 'DO %'
+                AND h.salesinvoicenbr NOT IN (
+                    SELECT DISTINCT TRIM(DOnumber)
+                    FROM btggasify_live.tbl_salesinvoices_details
+                    WHERE DOnumber IS NOT NULL AND TRIM(DOnumber) != ''
+                )
+            ))
           )
       )
-      AND h.salesinvoicenbr NOT IN (
-          SELECT DISTINCT DOnumber 
-          FROM btggasify_live.tbl_salesinvoices_details 
-          WHERE DOnumber IS NOT NULL AND DOnumber != ''
+
+    UNION ALL
+
+    -- 2. DEBIT NOTES
+    SELECT
+        ar.invoice_id                                           AS invoice_id, -- Debit Note ID
+        ar.invoice_no                                           AS invoice_no,
+        'DN'                                                    AS record_type,
+        NULL                                                    AS po_no,
+        ar.invoice_date                                         AS raw_date,
+        DATE_FORMAT(ar.invoice_date, '%d-%m-%Y')                AS invoice_date,
+        ar.inv_amount                                           AS total_amount,
+        cur.CurrencyCode                                        AS currencycode,
+
+        (SELECT COALESCE(SUM(ra.payment_amount), 0)
+         FROM btggasify_finance_live.tbl_receipt_ag_ar ra
+         WHERE ra.ar_id = ar.ar_id
+           AND ra.is_active = 1
+           AND (ra.receipt_id = v_receipt_id OR 
+                ra.receipt_id IN (
+                    SELECT r_sub5.receipt_id FROM btggasify_finance_live.tbl_ar_receipt r_sub5
+                    WHERE r_sub5.combine_group_id = (SELECT r_parent5.combine_group_id FROM btggasify_finance_live.tbl_ar_receipt r_parent5 WHERE r_parent5.receipt_id = v_receipt_id AND r_parent5.combine_group_id IS NOT NULL)
+                )
+           )
+        )                                                       AS allocated_here,
+
+        (ar.inv_amount
+            - (SELECT COALESCE(SUM(ra3.payment_amount), 0)
+               FROM btggasify_finance_live.tbl_receipt_ag_ar ra3
+               WHERE ra3.ar_id = ar.ar_id
+                 AND ra3.is_active = 1
+                 AND (ra3.receipt_id != v_receipt_id AND 
+                      ra3.receipt_id NOT IN (
+                          SELECT r_sub6.receipt_id FROM btggasify_finance_live.tbl_ar_receipt r_sub6
+                          WHERE r_sub6.combine_group_id = (SELECT r_parent6.combine_group_id FROM btggasify_finance_live.tbl_ar_receipt r_parent6 WHERE r_parent6.receipt_id = v_receipt_id AND r_parent6.combine_group_id IS NOT NULL)
+                      ) OR v_receipt_id IS NULL
+                 )
+              )
+        )                                                       AS balance_due
+
+    FROM btggasify_finance_live.tbl_accounts_receivable ar
+    LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId
+    WHERE ar.is_active = 1
+      AND ar.doc_type = 'DN'
+      AND (
+          EXISTS (
+              SELECT 1 FROM btggasify_finance_live.tbl_receipt_ag_ar ra_v2
+              WHERE ra_v2.ar_id = ar.ar_id
+                AND ra_v2.is_active = 1
+                AND (ra_v2.receipt_id = v_receipt_id OR 
+                     ra_v2.receipt_id IN (
+                         SELECT r_sub7.receipt_id FROM btggasify_finance_live.tbl_ar_receipt r_sub7
+                         WHERE r_sub7.combine_group_id = (SELECT r_parent7.combine_group_id FROM btggasify_finance_live.tbl_ar_receipt r_parent7 WHERE r_parent7.receipt_id = v_receipt_id AND r_parent7.combine_group_id IS NOT NULL)
+                     )
+                )
+          )
+          OR
+          (
+            ar.customer_id = p_customer_id
+            AND (p_from_date IS NULL OR ar.invoice_date >= p_from_date)
+            AND (p_to_date   IS NULL OR ar.invoice_date <= p_to_date)
+            AND (ar.inv_amount - ar.already_received) > 0.01
+          )
       )
-      AND h.salesinvoicenbr NOT LIKE 'DO %'
-    ORDER BY h.Salesinvoicesdate ASC;
+
+    ORDER BY raw_date ASC;
 END //
 DELIMITER ;
 

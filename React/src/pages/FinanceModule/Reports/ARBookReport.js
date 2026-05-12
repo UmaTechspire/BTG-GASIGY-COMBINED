@@ -424,23 +424,10 @@ const ARBookReport = () => {
     if (rId && cId) {
       setLoadingAllocations(true);
       try {
-        if ((rowData.is_combined || rowData.combine_group_id) && rowData._grouped_receipt_ids) {
-          let allAllocations = [];
-          // Fetch allocations for all merged original receipts
-          await Promise.all(rowData._grouped_receipt_ids.map(async (id) => {
-            const response = await getOutstandingInvoices(cId, id, null, null, true);
-            const data = response?.data || response;
-            if (Array.isArray(data)) {
-              allAllocations = [...allAllocations, ...data];
-            }
-          }));
-          setReceiptAllocations(allAllocations);
-        } else {
-          const response = await getOutstandingInvoices(cId, rId, null, null, true);
-          const data = response?.data || response;
-          if (Array.isArray(data)) {
-            setReceiptAllocations(data);
-          }
+        const response = await getOutstandingInvoices(cId, rId, null, null, true);
+        const data = response?.data || response;
+        if (Array.isArray(data)) {
+          setReceiptAllocations(data);
         }
       } catch (err) {
         console.error("Error fetching allocations:", err);
@@ -1527,8 +1514,13 @@ const ARBookReport = () => {
                   </DataTable>
                 </div>
               ) : (
-                <div className="text-center p-3 text-muted border rounded bg-light mt-3" style={{ fontSize: '13px' }}>
-                  No formal invoice allocations found for this receipt.
+                <div className="text-center p-4 text-muted border rounded-3 bg-light mt-3 shadow-sm" style={{ fontSize: '13px', borderLeft: '5px solid #ffc107' }}>
+                  <i className="bx bx-info-circle me-1 fs-5 text-warning align-middle"></i> 
+                  <span className="fw-bold text-dark">No formal invoice allocations found.</span>
+                  <p className="mb-0 mt-2 small">
+                    This can occur if the link is from legacy data (matched by number only) 
+                    or if the allocation has not been finalized in the system.
+                  </p>
                 </div>
               )}
 

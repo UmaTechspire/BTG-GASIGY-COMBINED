@@ -87,7 +87,7 @@ const formatVoucherNumber = (id, type) => {
     if (!id || id === 0 || id === "0") return "-";
     let prefix = "";
     const t = String(type || "").toLowerCase();
-    
+
     if (t === 'receipt' || t === 'deposit') {
         prefix = "RV - ";
     } else if (t === 'payment' || t === 'Transfer to PC Book') {
@@ -95,7 +95,7 @@ const formatVoucherNumber = (id, type) => {
     } else if (t === 'other income') {
         prefix = "RCV - ";
     }
-    
+
     return `${prefix}${id}`;
 };
 
@@ -108,7 +108,7 @@ const splitReferenceNo = (ref, backendPurpose) => {
         }
         return { claimNo, purpose: backendPurpose };
     }
-    
+
     if (!ref) return { claimNo: "", purpose: "" };
     if (ref.startsWith("CLM") && ref.includes(" - ")) {
         const [claimNo, ...descParts] = ref.split(" - ");
@@ -228,7 +228,7 @@ const AddCashBook = () => {
         const cachedData = claimListCache[category];
         const isStale = cachedData && cachedData.length > 0 && !Object.prototype.hasOwnProperty.call(cachedData[0], 'supplier_id');
 
-        if (!force && cachedData && !isStale) return; 
+        if (!force && cachedData && !isStale) return;
 
         try {
             const res = await axios.get(`${PYTHON_API_URL}/AR/cash/get-cash-claims`, {
@@ -348,7 +348,7 @@ const AddCashBook = () => {
 
                     const isPayment = ['Payment', 'Deposit', 'Round plus'].includes(transactionType);
                     const lookupList = isPayment ? supplierList : customerList;
-                    
+
                     const name = lookupList.find(c => String(c.value) === String(item.customer_id))?.label || item.customerName || item.customer_id || "-";
                     const customerName = (name === "Unknown Customer" || name === "unknown customer") ? "-" : name;
 
@@ -386,7 +386,7 @@ const AddCashBook = () => {
                             const currentAmt = parseFloat(String(grouped[masterIdx].cash_amount || 0));
                             const itemAmt = parseFloat(String(item.cash_amount || 0));
                             grouped[masterIdx].cash_amount = currentAmt + itemAmt;
-                            
+
                             // Re-format searchableAmount with new total
                             let displayAmt = grouped[masterIdx].cash_amount;
                             if (grouped[masterIdx].transaction_type === 'transfer') displayAmt = Math.abs(displayAmt);
@@ -418,10 +418,10 @@ const AddCashBook = () => {
             if (entry.date) {
                 const entryDate = new Date(entry.date);
                 entryDate.setHours(0, 0, 0, 0); // Normalize to midnight
-                
+
                 const from = new Date(filterFromDate);
                 from.setHours(0, 0, 0, 0);
-                
+
                 const to = new Date(filterToDate);
                 to.setHours(23, 59, 59, 999);
 
@@ -447,7 +447,7 @@ const AddCashBook = () => {
                     entry.displayDate,
                     entry.currencyCode
                 ].some(val => val?.toString().toLowerCase().includes(searchLower));
-                
+
                 if (!match) return false;
             }
 
@@ -527,11 +527,11 @@ const AddCashBook = () => {
                 remark: cancelModal.remark
             });
             toast.success("Claim cancelled successfully!");
-            
+
             if (cancelModal.rowIndex !== null) {
                 handleRemoveRow(cancelModal.rowIndex);
             }
-            
+
             setCancelModal({ isOpen: false, rowIndex: null, claimId: null, remark: "" });
         } catch (err) {
             console.error(err);
@@ -564,7 +564,7 @@ const AddCashBook = () => {
     const getFilteredClaims = (row) => {
         const allClaims = claimListCache[row.claimCategory] || [];
         let filtered = [];
-        
+
         // 1. Initial Filtering
         if (['Claim', 'Cash Advance'].includes(row.claimCategory)) {
             filtered = [...allClaims];
@@ -587,6 +587,14 @@ const AddCashBook = () => {
             });
         }
 
+        // 1c. Payment/Claim specific filtering (HIDE Petty Cash claims for regular payments)
+        if (row.type === 'Payment' && row.claimCategory === 'Claim') {
+            filtered = filtered.filter(c => {
+                const t = String(c.type || "").trim().toUpperCase();
+                return t !== 'PETTY CASH' && t !== 'PC' && t !== 'PETTYCASH';
+            });
+        }
+
         // 2. ENHANCED RECOVERY LOGIC
         // Try to find the claim by ID if we have it
         let currentClaim = filtered.find(c => c.value === row.linkedClaimId);
@@ -595,7 +603,7 @@ const AddCashBook = () => {
         if (!currentClaim && row.referenceNo && row.referenceNo.startsWith("CLM")) {
             const claimNo = row.referenceNo.split(" - ")[0].trim();
             currentClaim = filtered.find(c => c.label.includes(claimNo));
-            
+
             // If found by label, we effectively "recover" the missing ID
             if (currentClaim && !row.linkedClaimId) {
                 row.linkedClaimId = currentClaim.value;
@@ -607,7 +615,7 @@ const AddCashBook = () => {
         if (!currentClaim && row.referenceNo && row.referenceNo.startsWith("CLM")) {
             const claimNoPart = row.referenceNo.split(" - ")[0].trim();
             const virtualValue = row.linkedClaimId || ("VIRTUAL_" + claimNoPart);
-            
+
             if (!filtered.some(c => c.value === virtualValue)) {
                 filtered.push({
                     value: virtualValue,
@@ -641,7 +649,7 @@ const AddCashBook = () => {
             newRows[index]['linkedClaimId'] = null;
             newRows[index]['referenceNo'] = "";
             newRows[index]['amount'] = "";
-            
+
             // Auto-set claimCategory to "Claim" if transfer or Payment is selected
             if (value === 'Transfer to PC Book' || value === 'Payment') {
                 newRows[index]['claimCategory'] = 'Claim';
@@ -654,7 +662,7 @@ const AddCashBook = () => {
             newRows[index]['linkedClaimId'] = null;
             newRows[index]['referenceNo'] = "";
             newRows[index]['amount'] = "";
-            
+
             if (value) {
                 loadClaimsForCategory(value);
                 // Clear party if Cash Advance or Claim is selected for a Payment
@@ -799,15 +807,15 @@ const AddCashBook = () => {
 
         for (let i = 0; i < rows.length; i++) {
             // Skip Party validation for types where it's not applicable
-            const isOptionalParty = 
-                ['Claim', 'Cash Advance'].includes(rows[i].claimCategory) || 
+            const isOptionalParty =
+                ['Claim', 'Cash Advance'].includes(rows[i].claimCategory) ||
                 ['transfer', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(rows[i].type);
 
             if (!isOptionalParty && !rows[i].customerId) {
                 toast.error(`Please select a Party for row ${i + 1}`);
                 return;
             }
-            
+
             // Validate Claim No for transfer
             if (rows[i].type === 'Transfer to PC Book' && !rows[i].linkedClaimId) {
                 toast.error(`Please select a Claim No. for transfer in row ${i + 1}`);
@@ -821,7 +829,7 @@ const AddCashBook = () => {
                 // Calculate amount (Negative for Cash Book credit/deduction items)
                 const amtStr = String(row.amount || 0).replace(/,/g, '');
                 let finalAmount = Math.abs(parseFloat(amtStr || 0));
-                
+
                 if (['Payment', 'Round plus', 'Deposit', 'Transfer to PC Book', 'Deposit to Bank'].includes(row.type)) {
                     finalAmount = -finalAmount;
                 }
@@ -954,7 +962,7 @@ const AddCashBook = () => {
         try {
             const entry = entryList.find(e => e.receipt_id === id);
             const isReceipt = entry?.transaction_type === 'Receipt';
-            
+
             await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${id}`, {});
             toast.success(isReceipt ? "Marketing Verification Generated!" : "Posted to Cash Book Successfully!");
             // Clear claim cache to force re-fetch of now-processed claims
@@ -1065,10 +1073,10 @@ const AddCashBook = () => {
         try {
             await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${selectedEntry.receipt_id}`, {});
             toast.success("Marketing Verification Generated!");
-            
+
             // Clear claim cache to force re-fetch of now-processed claims
             setClaimListCache({});
-            
+
             setIsPreviewOpen(false);
             loadEntryList();
         } catch (err) {
@@ -1086,7 +1094,7 @@ const AddCashBook = () => {
         const isPayment = printRecord?.transaction_type === 'Payment';
         const receiptContent = document.getElementById("receipt-print-section").innerHTML;
         const metaContent = document.getElementById("receipt-print-meta")?.innerHTML || "";
-        
+
         return `
             <html>
                 <head>
@@ -1135,7 +1143,7 @@ const AddCashBook = () => {
                             margin: 10px 0 18px 0; 
                             color: ${isPayment ? '#000' : '#1a2c5b'}; 
                             letter-spacing: ${isPayment ? '2px' : '1.5px'}; 
-                            ${isPayment ? 'text-transform: uppercase;' : 'text-decoration: underline double;' } 
+                            ${isPayment ? 'text-transform: uppercase;' : 'text-decoration: underline double;'} 
                         }
                         .label { font-weight: bold; color: ${isPayment ? '#000' : '#1a2c5b'}; font-size: 11px; white-space: nowrap; }
                         .colon { font-weight: bold; color: ${isPayment ? '#000' : '#1a2c5b'}; font-size: 11px; text-align: center; }
@@ -1260,8 +1268,8 @@ const AddCashBook = () => {
 
     const printBodyTemplate = (rowData) => {
         const isReceipt = rowData.transaction_type === 'Receipt';
-        const isPrintable = isReceipt 
-            ? rowData.verificationStatus === 'Completed' 
+        const isPrintable = isReceipt
+            ? rowData.verificationStatus === 'Completed'
             : rowData.is_posted === 1;
 
         return (
@@ -1279,7 +1287,7 @@ const AddCashBook = () => {
     const postBodyTemplate = (rowData) => {
         const isReceipt = rowData.transaction_type === 'Receipt';
         const isSaved = rowData.is_posted === 0;
-        
+
         const isReceiptReady = isReceipt && rowData.is_posted === 1 && rowData.verificationStatus === 'Completed' && rowData.is_submitted !== 1;
         const isOtherSaved = !isReceipt && isSaved;
         const isCombinedSaved = rowData.is_combined && isSaved;
@@ -1466,21 +1474,21 @@ const AddCashBook = () => {
                             <Column selectionMode="multiple" headerStyle={{ width: '3em' }}></Column>
                             <Column field="displayDate" sortField="date" header="Date" sortable filter filterPlaceholder="Search Date" style={{ width: '10%' }} />
                             <Column field="transaction_type" header="Type" sortable filter filterPlaceholder="Search Type" style={{ width: '10%' }} />
-                            <Column 
-                                field="receiptIdStr" 
-                                header="Voucher Number" 
-                                sortable 
-                                filter 
-                                filterPlaceholder="Search Voucher" 
+                            <Column
+                                field="receiptIdStr"
+                                header="Voucher Number"
+                                sortable
+                                filter
+                                filterPlaceholder="Search Voucher"
                                 body={(rowData) => (
                                     <span title={rowData.reference_no || ""}>
                                         {rowData.is_combined && rowData.custom_voucher_no ? rowData.custom_voucher_no : rowData.receiptIdStr}
                                     </span>
                                 )}
-                                style={{ width: '10%' }} 
+                                style={{ width: '10%' }}
                             />
-                            <Column 
-                                header="Party" 
+                            <Column
+                                header="Party"
                                 body={(rowData) => {
                                     if (rowData.transaction_type === 'Deposit to Bank') {
                                         const bank = bankList.find(b => parseInt(b.value) === parseInt(rowData.customerId || rowData.customer_id));
@@ -1488,7 +1496,7 @@ const AddCashBook = () => {
                                     }
                                     return (rowData.customerName === "Unknown Customer" || rowData.customerName === "unknown customer") ? "-" : (rowData.customerName || "-");
                                 }}
-                                sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }} 
+                                sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }}
                             />
                             <Column field="reference_no" header="Description" sortable filter filterPlaceholder="Search Desc" style={{ width: '10%' }} />
                             <Column field="cash_amount" header="Amount" sortable className="text-end" body={(d) => {
@@ -1603,16 +1611,16 @@ const AddCashBook = () => {
                                             <Select
                                                 options={getOptionsForType(row.type, row.claimCategory)}
                                                 value={
-                                                    (['Transfer to PC Book', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(row.type) || 
-                                                     (row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory)))
-                                                    ? null 
-                                                    : getOptionsForType(row.type, row.claimCategory).find(c => c.value === row.customerId) || null
+                                                    (['Transfer to PC Book', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(row.type) ||
+                                                        (row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory)))
+                                                        ? null
+                                                        : getOptionsForType(row.type, row.claimCategory).find(c => c.value === row.customerId) || null
                                                 }
                                                 onChange={(opt) => handleRowChange(index, 'customerId', opt?.value)}
                                                 styles={customSelectStyles}
                                                 isDisabled={
-                                                    row.isPosted || 
-                                                    ['Transfer to PC Book', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(row.type) || 
+                                                    row.isPosted ||
+                                                    ['Transfer to PC Book', 'Other Income', 'Round plus', 'Round minus', 'Deposit'].includes(row.type) ||
                                                     (row.type === 'Payment' && ['Cash Advance', 'Claim'].includes(row.claimCategory))
                                                 }
                                                 menuPortalTarget={document.body}
@@ -1624,7 +1632,7 @@ const AddCashBook = () => {
                                             <Select
                                                 options={getFilteredClaims(row)}
                                                 value={
-                                                    getFilteredClaims(row).find(c => c.value === row.linkedClaimId) || 
+                                                    getFilteredClaims(row).find(c => c.value === row.linkedClaimId) ||
                                                     getFilteredClaims(row).find(c => row.referenceNo && c.label.includes(row.referenceNo.split(' - ')[0])) ||
                                                     null
                                                 }
@@ -1662,8 +1670,8 @@ const AddCashBook = () => {
                                         </td>
                                         <td className="text-center">
                                             {(row.type === 'Payment' || row.type === 'transfer') && ['Claim', 'Cash Advance'].includes(row.claimCategory) && (
-                                                <i 
-                                                    className="bx bx-x-circle text-warning cursor-pointer fs-5 align-middle" 
+                                                <i
+                                                    className="bx bx-x-circle text-warning cursor-pointer fs-5 align-middle"
                                                     onClick={() => openCancelModal(index, row.linkedClaimId)}
                                                     title="Cancel Claim"
                                                 ></i>
@@ -1773,30 +1781,30 @@ const AddCashBook = () => {
                             boxSizing: 'border-box'
                         }}>
                             {/* Header */}
-                            <div className="header" style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                borderBottom: printRecord?.transaction_type === 'Payment' ? '0.5px solid #000' : '2px solid #1a2c5b', 
-                                paddingBottom: '6px', 
-                                marginBottom: '12px' 
+                            <div className="header" style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: printRecord?.transaction_type === 'Payment' ? '0.5px solid #000' : '2px solid #1a2c5b',
+                                paddingBottom: '6px',
+                                marginBottom: '12px'
                             }}>
                                 <div className="logo" style={{ width: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '90px' : '70px', marginRight: '15px', flexShrink: 0 }}>
                                     <img src={logo} alt="BTG Logo" style={{ width: '100%' }} />
                                 </div>
                                 <div className="company-details" style={{ flexGrow: 1 }}>
-                                    <h2 style={{ 
-                                        margin: 0, 
-                                        color: printRecord?.transaction_type === 'Payment' ? '#000' : '#1a2c5b', 
-                                        fontSize: '16px', 
-                                        fontWeight: 'bold', 
-                                        textTransform: 'uppercase', 
-                                        letterSpacing: '0.5px' 
+                                    <h2 style={{
+                                        margin: 0,
+                                        color: printRecord?.transaction_type === 'Payment' ? '#000' : '#1a2c5b',
+                                        fontSize: '16px',
+                                        fontWeight: 'bold',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.5px'
                                     }}>PT. BATAM TEKNOLOGI GAS</h2>
                                     <p style={{ margin: '1px 0', fontSize: '12px', color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#333' }}>Jalan Brigjen Katamso KM. 3, Tanjung Uncang, Batam - Indonesia</p>
                                     <p style={{ margin: '1px 0', fontSize: '12px', color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#333' }}>Telp: (+62) 778 462959, 391918</p>
                                     <p style={{ margin: '1px 0', fontSize: '12px', color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#333' }}>Website: www.ptbtg.com | E-mail: ptbtg@ptbtg.com</p>
                                 </div>
-                                {! (['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type)) && (
+                                {!(['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type)) && (
                                     <div style={{ position: 'absolute', top: '18px', right: '22px', textAlign: 'right' }}>
                                         <div style={{ fontSize: '14px', color: '#d92525', fontWeight: 'bold', fontFamily: 'monospace' }}>
                                             No. : {formatVoucherNumber(printRecord?.receipt_id, printRecord?.transaction_type)}
@@ -1804,15 +1812,15 @@ const AddCashBook = () => {
                                     </div>
                                 )}
                             </div>
-                            
+
                             {/* Title */}
-                            <div className="receipt-title" style={{ 
-                                textAlign: 'center', 
-                                fontSize: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '18px' : '15px', 
-                                fontWeight: 'bold', 
-                                textDecoration: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'none' : 'underline double', 
-                                marginBottom: '18px', 
-                                color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#1a2c5b', 
+                            <div className="receipt-title" style={{
+                                textAlign: 'center',
+                                fontSize: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '18px' : '15px',
+                                fontWeight: 'bold',
+                                textDecoration: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'none' : 'underline double',
+                                marginBottom: '18px',
+                                color: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '#000' : '#1a2c5b',
                                 letterSpacing: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? '2px' : '1.5px',
                                 textTransform: ['Payment', 'Transfer to PC Book'].includes(printRecord?.transaction_type) ? 'uppercase' : 'none'
                             }}>
@@ -1834,7 +1842,7 @@ const AddCashBook = () => {
                                                     <td style={{ width: "120px", textAlign: "left", padding: "4px 2px", fontWeight: "bold", border: "none" }}>Payment To</td>
                                                     <td style={{ width: "10px", padding: "4px 2px", border: "none" }}>:</td>
                                                     <td style={{ width: "220px", padding: "4px 2px", verticalAlign: "top", border: "none" }}>{printRecord?.customerName}</td>
-                                                    
+
                                                     <td style={{ width: "60px", textAlign: "left", padding: "4px 2px", fontWeight: "bold", border: "none" }}>PV #</td>
                                                     <td style={{ width: "10px", padding: "4px 2px", border: "none" }}>:</td>
                                                     <td style={{ width: "120px", padding: "4px 2px", verticalAlign: "top", border: "none" }}>{formatVoucherNumber(printRecord?.receipt_id, printRecord?.transaction_type)}</td>
@@ -1843,7 +1851,7 @@ const AddCashBook = () => {
                                                     <td style={{ textAlign: "left", padding: "4px 2px", fontWeight: "bold", border: "none" }}>Payment Method</td>
                                                     <td style={{ padding: "4px 2px", border: "none" }}>:</td>
                                                     <td style={{ padding: "4px 2px", verticalAlign: "top", border: "none" }}>{(printRecord?.bankName && printRecord?.bankName !== "-") ? "Bank Transfer" : "Cash"}</td>
-                                                    
+
                                                     <td style={{ textAlign: "left", padding: "4px 2px", fontWeight: "bold", border: "none" }}>Date</td>
                                                     <td style={{ padding: "4px 2px", border: "none" }}>:</td>
                                                     <td style={{ padding: "4px 2px", verticalAlign: "top", border: "none" }}>{formatDatePrint(printRecord?.date)}</td>
@@ -2014,14 +2022,14 @@ const AddCashBook = () => {
                     <ModalBody>
                         <div className="mb-3">
                             <Label for="cancelRemark">Remark <span className="text-danger">*</span></Label>
-                            <Input 
-                                type="textarea" 
-                                id="cancelRemark" 
-                                value={cancelModal.remark} 
-                                onChange={(e) => setCancelModal({...cancelModal, remark: e.target.value})} 
-                                maxLength={100} 
+                            <Input
+                                type="textarea"
+                                id="cancelRemark"
+                                value={cancelModal.remark}
+                                onChange={(e) => setCancelModal({ ...cancelModal, remark: e.target.value })}
+                                maxLength={100}
                                 rows="3"
-                                placeholder="Enter reason for cancellation (max 100 characters)" 
+                                placeholder="Enter reason for cancellation (max 100 characters)"
                             />
                             <small className="text-muted">{cancelModal.remark.length}/100</small>
                         </div>

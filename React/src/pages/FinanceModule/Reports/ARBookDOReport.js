@@ -296,30 +296,29 @@ const ARBookDOReport = () => {
 
                     <Column field="ledger_date" header="Date"
                       body={(row) => format(new Date(row.ledger_date), "dd-MMM-yyyy")}
-                      headerStyle={{ whiteSpace: 'nowrap' }} />
+                      headerStyle={{ whiteSpace: 'nowrap' }} sortable />
 
-                    <Column field="invoice_no" header="Reference No." body={referenceBodyTemplate} headerStyle={{ whiteSpace: 'nowrap' }} />
+                    <Column field="invoice_no" header="Reference No." body={referenceBodyTemplate} headerStyle={{ whiteSpace: 'nowrap' }} sortable />
 
                     <Column field="invoiceAmount" header="Invoice Amount (A)"
                       body={(d) => d.invoiceAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" />
+                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" sortable />
 
                     <Column field="debitNote" header="Debit Note (B)"
                       body={(d) => d.debitNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" />
+                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" sortable />
 
                     <Column field="receiptAmount" header="Receipt (C)"
                       body={(d) => d.receiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" />
+                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" sortable />
 
                     <Column field="creditNote" header="Credit Note (D)"
                       body={(d) => d.creditNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" />
+                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" sortable />
 
                     <Column field="cumulativeBalance" header="Balance ((A+B)-(C+D))"
                       body={(d) => d.cumulativeBalance?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" />
-                  </DataTable>
+                      headerStyle={{ whiteSpace: 'nowrap' }} className="text-end" />                  </DataTable>
                 </div>
               </CardBody>
             </Card>

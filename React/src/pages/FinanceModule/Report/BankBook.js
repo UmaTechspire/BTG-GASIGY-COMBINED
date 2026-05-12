@@ -311,13 +311,22 @@ const BankBook = () => {
         const data = await GetBankList(1, 1);
         const options = data.map(item => ({
             value: item.value,
-            label: item.BankName
+            label: item.BankName,
+            currency: item.CurrencyCode || item.Currency || ""
         }));
         setBtgBankOptions(options);
     }
 
     // State to hold manually typed exchange rates per voucher
     const [rates, setRates] = useState({});
+    const [rateDirections, setRateDirections] = useState({}); // { rowKey: 'multiply' | 'divide' }
+
+    const toggleRateDirection = (rowKey, currentDir) => {
+        setRateDirections(prev => ({
+            ...prev,
+            [rowKey]: currentDir === 'divide' ? 'multiply' : 'divide'
+        }));
+    };
 
     // Filter by currency, then apply exchange rates and recalculate the running balance
     const filteredWithRates = React.useMemo(() => {
@@ -329,12 +338,22 @@ const BankBook = () => {
 
         return baseFiltered.map((item, index) => {
             const rowKey = item.voucherNo + "_" + index;
-            const currentRate = rates[rowKey] !== undefined ? rates[rowKey] : 1;
+            const rawRate = rates[rowKey];
+            const currentRate = (rawRate === undefined || rawRate === "" || isNaN(parseFloat(rawRate))) ? 1 : parseFloat(rawRate);
 
-            const convertedDebit = item.debitOut * currentRate;
-            const convertedCredit = item.creditIn * currentRate;
+            // Default to 'divide' for IDR transactions in non-IDR banks
+            const selectedBankObj = btgBankOptions.find(o => o.value === bankid);
+            const selectedBankCurrency = selectedBankObj?.currency || "";
+            const defaultDirection = (item.currency === "IDR" && selectedBankCurrency !== "IDR" && selectedBankCurrency !== "") ? 'divide' : 'multiply';
+            const direction = rateDirections[rowKey] || defaultDirection;
+            const isDivide = direction === 'divide';
 
-            const totalConverted = (currentRate !== 1)
+            const rate = currentRate || 1;
+
+            const convertedDebit = isDivide ? (item.debitOut / rate) : (item.debitOut * rate);
+            const convertedCredit = isDivide ? (item.creditIn / rate) : (item.creditIn * rate);
+
+            const totalConverted = (rate !== 1 || isDivide)
                 ? (item.debitOut > 0 ? item.debitOut : item.creditIn)
                 : 0;
 
@@ -350,6 +369,7 @@ const BankBook = () => {
                 ...item,
                 rowKey: rowKey,
                 exchangeRate: currentRate,
+                rateDirection: direction,
                 totalConverted: totalConverted,
                 convertedDebit: convertedDebit,
                 convertedCredit: convertedCredit,
@@ -366,15 +386,14 @@ const BankBook = () => {
 
             return true;
         });
-    }, [bankBook, currency, rates, fromDate]);
+    }, [bankBook, currency, rates, fromDate, toDate, bankid, btgBankOptions, rateDirections]);
 
     const filtered = filteredWithRates;
 
     const handleRateChange = (rowKey, newRate) => {
-        const val = parseFloat(newRate);
         setRates(prev => ({
             ...prev,
-            [rowKey]: isNaN(val) ? 1 : val // fallback to 1 if empty
+            [rowKey]: newRate
         }));
     };
 
@@ -388,7 +407,7 @@ const BankBook = () => {
                 "Transaction Type": ex.transactionType,
                 "Party": ex.party,
                 "Currency": ex.currency,
-                "Exchange Rate": ex.exchangeRate,
+                "Exchange Rate": (ex.rateDirection === 'divide' ? '/ ' : 'x ') + ex.exchangeRate,
                 "Total (Converted)": ex.totalConverted > 0 ? ex.totalConverted : "-",
                 "Debit": ex.convertedDebit,
                 "Credit": ex.convertedCredit,
@@ -663,21 +682,50 @@ const BankBook = () => {
 
 
                                     <Column field="exchangeRate" header="Rate" body={(rowData) => {
+                                        const selectedBankObj = btgBankOptions.find(o => o.value === bankid);
+                                        const selectedBankCurrency = selectedBankObj?.currency || "";
+
+                                        // Allow editing if transaction currency != bank currency
+                                        // Special case: if bank is SGD and trans is IDR, we definitely need a rate.
+                                        const isSameAsBank = rowData.currency === selectedBankCurrency;
                                         const isIDR = rowData.currency === "IDR";
 
+                                        // Only disable if it's IDR and the bank is also IDR (or no bank selected and it's IDR)
+                                        const isDisabled = isIDR && (selectedBankCurrency === "IDR" || selectedBankCurrency === "");
+
+                                        const direction = rowData.rateDirection; 
+                                        const isDivide = direction === 'divide';
+
                                         return (
-                                            <input
-                                                type="number"
-                                                className={`form-control form-control-sm text-end ${isIDR ? 'bg-light text-muted' : ''}`}
-                                                style={{ width: '100%', maxWidth: '85px', fontSize: '12px' }}
-                                                value={isIDR ? 1 : (rates[rowData.rowKey] !== undefined ? rates[rowData.rowKey] : 1)}
-                                                step="0.01"
-                                                min="0.01"
-                                                disabled={isIDR}
-                                                onChange={(e) => handleRateChange(rowData.rowKey, e.target.value)}
-                                            />
+                                            <div className="d-flex align-items-center gap-1">
+                                                {!isDisabled && (
+                                                    <button
+                                                        type="button"
+                                                        className={`btn btn-sm p-0 px-1 ${isDivide ? 'btn-warning' : 'btn-light border'}`}
+                                                        style={{ fontSize: '11px', height: '24px', minWidth: '22px', fontWeight: 'bold' }}
+                                                        onClick={() => toggleRateDirection(rowData.rowKey, rowData.rateDirection)}
+                                                        title={isDivide ? "Division Mode (/)" : "Multiplication Mode (*)"}
+                                                    >
+                                                        {isDivide ? '/' : '×'}
+                                                    </button>
+                                                )}
+                                                <input
+                                                    type="text"
+                                                    className={`form-control form-control-sm text-end ${isDisabled ? 'bg-light text-muted' : ''}`}
+                                                    style={{ width: '100%', maxWidth: '75px', fontSize: '12px' }}
+                                                    value={isDisabled ? "1" : (rates[rowData.rowKey] !== undefined ? rates[rowData.rowKey] : "1")}
+                                                    disabled={isDisabled}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        // Allow numbers and a single decimal point
+                                                        if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                                                            handleRateChange(rowData.rowKey, val);
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
                                         );
-                                    }} style={{ width: '100px' }} className="text-center" sortable />
+                                    }} style={{ width: '130px' }} className="text-center" sortable />
 
                                     {/* Total (Converted) - foreign currency amount */}
                                     <Column field="totalConverted" header="Total (Converted)" body={(d) => {
@@ -766,7 +814,7 @@ const BankBook = () => {
                                                         <td>{item.transactionType} {item.chequeNumber ? `(${item.chequeNumber})` : ''}</td>
                                                         <td>{item.party}</td>
                                                         <td>{item.currency}</td>
-                                                        <td className="text-end">{item.exchangeRate}</td>
+                                                        <td className="text-end">{(item.rateDirection === 'divide' ? '/ ' : '× ') + item.exchangeRate}</td>
                                                         <td className="text-end">
                                                             {item.totalConverted > 0 ? item.totalConverted.toLocaleString('en-US', { minimumFractionDigits: 2 }) : "-"}
                                                         </td>

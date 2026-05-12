@@ -100,7 +100,7 @@ async def get_daily_cash_entries(db: AsyncSession = Depends(get_db)):
                 WHERE IsActive = 1
                 GROUP BY Claim_ID
             ) tfc ON r.ar_id = tfc.Claim_ID
-            LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON r.ar_id = h.Claim_ID
+            LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON r.ar_id = h.Claim_ID AND LOWER(r.transaction_type) NOT IN ('receipt', 'customer receipt')
             LEFT JOIN {DB_NAME_FINANCE}.master_claimcategory mcc ON h.ClaimCategoryId = mcc.Id
             WHERE r.cash_amount != 0
               AND r.is_active = 1
@@ -163,7 +163,10 @@ async def get_cash_claims(claim_category: Optional[str] = None, db: AsyncSession
               AND s.PaymentNo >= 'PPP0000041'
               AND NOT EXISTS (
                   SELECT 1 FROM {DB_NAME_FINANCE}.tbl_ar_receipt r 
-                  WHERE (r.ar_id = h.Claim_ID OR LOWER(r.reference_no) LIKE CONCAT('%', LOWER(TRIM(h.ApplicationNo)), '%')) 
+                  WHERE (
+                        (r.ar_id = h.Claim_ID AND LOWER(r.transaction_type) NOT IN ('receipt', 'customer receipt'))
+                        OR LOWER(r.reference_no) LIKE CONCAT('%', LOWER(TRIM(h.ApplicationNo)), '%')
+                    ) 
                     AND r.is_active = 1
               )
               {category_filter}
@@ -238,9 +241,9 @@ async def get_cash_book_report(
             approval_sql = text(f"""
                 SELECT r.receipt_id 
                 FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
-                LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON r.ar_id = h.Claim_ID
+                LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_header h ON r.ar_id = h.Claim_ID AND LOWER(r.transaction_type) NOT IN ('receipt', 'customer receipt')
                 WHERE r.receipt_id IN ({','.join(map(str, receipt_ids))})
-                  AND (LOWER(r.transaction_type) = 'receipt' OR r.ar_id = 0 OR r.ar_id IS NULL OR h.PPP_PV_Director_approve = 1)
+                  AND (LOWER(r.transaction_type) IN ('receipt', 'customer receipt') OR r.ar_id = 0 OR r.ar_id IS NULL OR h.PPP_PV_Director_approve = 1)
             """)
             approval_result = await db.execute(approval_sql)
             approved_ids = {row[0] for row in approval_result.all()}
