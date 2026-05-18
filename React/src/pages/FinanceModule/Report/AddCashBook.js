@@ -267,8 +267,8 @@ const AddCashBook = () => {
             // Load Customers
             const customers = await GetCustomerFilter(1, "%");
             setCustomerList(Array.isArray(customers) ? customers.map(c => ({
-                value: Number(c.Id || c.CustomerID),
-                label: c.CustomerName
+                value: Number(c.value ?? c.id ?? c.Id ?? c.CustomerID ?? 0),
+                label: String(c.label ?? c.name ?? c.CustomerName ?? "")
             })) : []);
 
             // Load Suppliers
