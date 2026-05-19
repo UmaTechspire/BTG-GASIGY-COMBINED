@@ -8,6 +8,7 @@ import Breadcrumbs from "../../components/Common/Breadcrumb";
 import { FilterMatchMode, FilterOperator } from 'primereact/api';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
+import { Tooltip } from "primereact/tooltip";
 import 'primeicons/primeicons.css';
 import { Badge } from 'primereact/badge';
 import { Button } from 'primereact/button';
@@ -67,6 +68,7 @@ import {
     GetPONOAutoComplete,
     CancelPurchaseOrder,
     GetByIdPurchaseOrder, GetCommonProcurementPRNoList, GetPRNoBySupplierAndCurrency, GetPurchaseOrderPrint,
+    ShortClosurePO, GetPendingGRNQty,
     GetAllPO, GetAllItems, GetGRNById, IRNGetBy, ClaimAndPaymentGetById, GetItemNameAutoComplete
 } from "common/data/mastersapi";
 import jsPDF from "jspdf";
@@ -177,7 +179,11 @@ const ProcurementsManagePurchaseOrder = () => {
         { field: 'createdbyName', header: 'Created By' },
         { field: 'grn_no', header: 'GRN No' },
         { field: 'irn_no', header: 'IRN No' },
-        { field: 'claim_no', header: 'Claim No' }
+        { field: 'claim_no', header: 'Claim No' },
+        { field: 'po_gm', header: 'GM' },
+        { field: 'po_director', header: 'Director' },
+        { field: 'print', header: 'Print' },
+        { field: 'blanket_po', header: 'Blanket PO' }
     ];
     const [visibleColumns, setVisibleColumns] = useState(columns);
 
@@ -201,6 +207,10 @@ const ProcurementsManagePurchaseOrder = () => {
     const [selectedIRNDetail, setSelectedIRNDetail] = useState(null);
     const [claimDetailVisible, setClaimDetailVisible] = useState(false);
     const [selectedClaimDetail, setSelectedClaimDetail] = useState(null);
+    // Blanket PO View Modal (for POs ending in -1)
+    const [blanketPoViewVisible, setBlanketPoViewVisible] = useState(false);
+    const [blanketPoViewData, setBlanketPoViewData] = useState(null);
+    const [blanketPoLoading, setBlanketPoLoading] = useState(false);
 
     useEffect(() => {
         const fetchItemsForFilter = async () => {
@@ -702,21 +712,32 @@ const ProcurementsManagePurchaseOrder = () => {
     // Render header above table (search input + clear + tag legend)
     const renderHeader = () => (
         <div className="row align-items-center g-3 clear-spa">
-            <div className="col-12 col-lg-6">
+            <div className="col-12 col-lg-2">
                 <Button className="btn btn-danger btn-label" onClick={clearFilter}>
                     <i className="mdi mdi-filter-off label-icon" /> Clear
                 </Button>
             </div>
-            <div className="col-12 col-lg-3 text-end d-flex align-items-center justify-content-end gap-2">
-                <div className="d-flex align-items-center gap-1">
+            <div className="col-12 col-lg-8 text-end d-flex align-items-center justify-content-end gap-3 flex-wrap">
+                <div className="d-flex align-items-center gap-1 text-nowrap" style={{ whiteSpace: 'nowrap' }}>
                     <div style={{ width: '20px', height: '20px', backgroundColor: '#ffcccc', border: '1px solid #ff9999' }}></div>
                     <span className="font-size-12">Cancelled</span>
                 </div>
-                <span className="me-1">
-                    <Tag value="P" severity="success" /> Posted
-                </span>
+                <div className="d-flex align-items-center gap-1 text-nowrap" style={{ whiteSpace: 'nowrap' }}>
+                    <Badge style={{ width: "5px", fontSize: "13px", margin: "3px" }} value={"A"} severity={"success"} />
+                    <span className="font-size-12">Blanket PO Acknowledged</span>
+                </div>
+                <div className="d-flex align-items-center gap-1 text-nowrap" style={{ whiteSpace: 'nowrap' }}>
+                    <Badge style={{ width: "5px", fontSize: "13px", margin: "3px" }} value={"P"} severity={"danger"} />
+                    <span className="font-size-12">Blanket PO Pending</span>
+                </div>
+                <div className="d-flex align-items-center gap-1 text-nowrap" style={{ whiteSpace: 'nowrap' }}>
+                    <Tag value="S" severity="danger" /> <span className="font-size-12">Saved</span>
+                </div>
+                <div className="d-flex align-items-center gap-1 text-nowrap" style={{ whiteSpace: 'nowrap' }}>
+                    <Tag value="P" severity="success" /> <span className="font-size-12">Posted</span>
+                </div>
             </div>
-            <div className="col-12 col-lg-3">
+            <div className="col-12 col-lg-2">
                 <input
                     className="form-control"
                     type="text"
@@ -825,6 +846,36 @@ const ProcurementsManagePurchaseOrder = () => {
     const statusBodyTemplate = (rowData) => {
         const statusShort = "P";
         return <Tag value={statusShort} severity={getSeverity("Posted")} />;
+    };
+
+    const ApproverGridIndicator = ({ approved, poid, comment }) => {
+        let severity = 'danger'; // default red (Pending)
+        if (approved === "A") severity = 'success';
+        else if (approved === "D") severity = 'warning';
+
+        return (
+            <>
+                {comment && <Tooltip target={`.badge-${poid}`} content={`Comment: ${comment}`} position="top" />}
+                <Badge
+                    className={comment ? `badge-${poid}` : ""}
+                    value={approved}
+                    severity={severity}
+                    style={{ fontSize: '13px', margin: '0' }}
+                />
+            </>
+        );
+    };
+
+    const approvalStatusTemplate = (rowData, field) => {
+        const isApproved = rowData[`${field}_isapproved`] === 1 || rowData[`${field}_isapproved`] === true;
+        const isDiscussed = rowData[`${field}_isdiscussed`] === 1 || rowData[`${field}_isdiscussed`] === true;
+        const comment = rowData[`${field}_remarks`];
+
+        let status = "P";
+        if (isApproved) status = "A";
+        else if (isDiscussed) status = "D";
+
+        return <ApproverGridIndicator approved={status} poid={rowData.poid + field} comment={comment} />;
     };
 
     const statusFilterTemplate = (options) => {
@@ -991,15 +1042,28 @@ const ProcurementsManagePurchaseOrder = () => {
 
     const actionclaimBodyTemplate = (rowData) => {
         const isCancelled = rowData.IsCancel === 1 || rowData.IsCancel === true;
+        // If pono ends with -number (e.g. PO0002680-1), this is a Blanket/Short Closure PO
+        // Clicking it should open the Blanket PO History popup instead of regular detail
+        const isBlanketPO = rowData.pono && /-\d+$/.test(String(rowData.pono).trim());
         return (
             <span
                 style={{
                     cursor: isCancelled ? "default" : "pointer",
                     color: isCancelled ? "#990000" : "blue",
-                    textDecoration: isCancelled ? "none" : "underline"
+                    textDecoration: isCancelled ? "none" : "underline",
+                    textAlign: "left",
+                    display: "block",
+                    padding: 0
                 }}
-                className={isCancelled ? "" : "btn-rounded btn btn-link"}
-                onClick={() => !isCancelled && handleShowDetails(rowData)}
+                className={isCancelled ? "" : "btn-rounded btn-link p-0 text-start"}
+                onClick={() => {
+                    if (isCancelled) return;
+                    if (isBlanketPO) {
+                        handleBlanketPOViewClick(rowData);
+                    } else {
+                        handleShowDetails(rowData);
+                    }
+                }}
             >
                 {rowData.pono}
             </span>
@@ -1187,6 +1251,162 @@ const ProcurementsManagePurchaseOrder = () => {
                 title={isGrnRaised ? "Cannot delete - GRN already created" : isCancelled ? "PO already cancelled" : "Delete PO"}
             >
                 <i className="bx bx-trash" style={{ color: "white" }}></i>
+            </button>
+        );
+    };
+
+    const handleBlanketPOClick = async (rowData) => {
+        try {
+            // Fetch pending balance quantity before showing confirmation
+            let pendingQty = 0;
+            const pendingRes = await GetPendingGRNQty(rowData.poid);
+            if (pendingRes.status) {
+                pendingQty = pendingRes.data;
+            }
+
+            if (pendingQty <= 0) {
+                Swal.fire("Warning", "No balance quantity to short close.", "warning");
+                return;
+            }
+
+            const confirm = await Swal.fire({
+                title: "Confirmation",
+                html: `Do you want to short close this PO?<br/><b>Pending GRN Balance Qty: ${pendingQty}</b>`,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonColor: "#3085d6",
+                cancelButtonColor: "#d33",
+                confirmButtonText: "Yes",
+                cancelButtonText: "Cancel"
+            });
+
+            if (confirm.isConfirmed) {
+                const closureRes = await ShortClosurePO({
+                    poid: rowData.poid,
+                    userId: UserData?.u_id,
+                    branchId: branchId,
+                    orgId: orgId
+                });
+
+                if (closureRes.status) {
+                    Swal.fire("Submitted!", "Short Closure request has been submitted for acknowledge.", "success");
+                    const resList = await GetAllPurchaseOrderList(0, branchId, 0, orgId, UserData?.u_id);
+                    setPurchaseOrders(Array.isArray(resList.data) ? resList.data : []);
+                    setAllPurchaseOrders(Array.isArray(resList.data) ? resList.data : []);
+                } else {
+                    Swal.fire("Error", closureRes.message || "Failed to submit for acknowledge.", "error");
+                }
+            }
+        } catch (error) {
+            console.error("Error in Short Closure:", error);
+            Swal.fire("Error", "Something went wrong.", "error");
+        }
+    };
+
+    // Handles clicking the eye icon on a Blanket/Short Closure PO row (pono ends with -N)
+    const handleBlanketPOViewClick = async (rowData) => {
+        setBlanketPoLoading(true);
+        setBlanketPoViewVisible(true);
+        setBlanketPoViewData(null);
+        try {
+            const blanketPono = String(rowData.pono || "").trim();
+            // Strip the trailing -number to get original PO number: "PO001-1" => "PO001"
+            const originalPono = blanketPono.replace(/-\d+$/, "");
+
+            // Fetch blanket PO details using its poid
+            const blanketRes = await GetByIdPurchaseOrder(rowData.poid, orgId, branchId);
+
+            // Find the original PO's poid by searching the autocomplete API
+            let originalRes = null;
+            const ponoSearch = await GetPONOAutoComplete(orgId, branchId, originalPono);
+            if (ponoSearch?.status && Array.isArray(ponoSearch.data) && ponoSearch.data.length > 0) {
+                // Find exact match
+                const matched = ponoSearch.data.find(p => String(p.pono || p.ponumber || "").trim() === originalPono);
+                const poid = matched?.poid || matched?.id || ponoSearch.data[0]?.poid || ponoSearch.data[0]?.id;
+                if (poid) {
+                    originalRes = await GetByIdPurchaseOrder(poid, orgId, branchId);
+                }
+            }
+
+            // Find the original PO in local state to extract its createdbyName
+            const localMatch = allPurchaseOrders.find(po => String(po.pono || "").trim() === originalPono)
+                || purchaseOrders.find(po => String(po.pono || "").trim() === originalPono);
+
+            // Fallback: search in local allPurchaseOrders state if not found via API
+            if (!originalRes?.status) {
+                if (localMatch?.poid) {
+                    originalRes = await GetByIdPurchaseOrder(localMatch.poid, orgId, branchId);
+                }
+            }
+
+            if (!blanketRes?.status) {
+                Swal.fire("Error", "Could not load Blanket PO details.", "error");
+                setBlanketPoViewVisible(false);
+                return;
+            }
+
+            const originalCreatedByName = localMatch?.createdbyName || originalRes?.data?.Header?.createdbyName || originalRes?.data?.Header?.requestorname || "N/A";
+            const blanketCreatedByName = rowData?.createdbyName || blanketRes?.data?.Header?.createdbyName || blanketRes?.data?.Header?.requestorname || "N/A";
+
+            setBlanketPoViewData({
+                originalPO: originalRes?.status ? originalRes.data : null,
+                originalPono,
+                originalCreatedByName,
+                blanketPO: blanketRes.data,
+                blanketPono,
+                blanketCreatedByName,
+            });
+        } catch (err) {
+            console.error("Error loading Blanket PO view:", err);
+            Swal.fire("Error", "Failed to load Blanket PO details.", "error");
+            setBlanketPoViewVisible(false);
+        } finally {
+            setBlanketPoLoading(false);
+        }
+    };
+
+    const actionBlanketPOBodyTemplate = (rowData) => {
+        // If pono ends with -number (e.g. PO0001-1), this row IS the Blanket/Closure PO
+        // Users view it by clicking the PO number, so the action column shows nothing here
+        const isBlanketPO = rowData.pono && /-\d+$/.test(String(rowData.pono).trim());
+        if (isBlanketPO) {
+            return "-";
+        }
+
+        // Otherwise — standard short closure initiation button
+        const isCancelled = rowData.IsCancel === 1 || rowData.IsCancel === true;
+        const isClosed = rowData.IsShortClosure === 1 || rowData.isShortClosure === 1;
+        const isSubmitted = rowData.IsShortClosureSubmitted === 1 || rowData.isShortClosureSubmitted === 1;
+
+        let btnClass = "btn-info"; // Blue (Default/Not processed)
+        let btnStyle = { cursor: "pointer", color: "white" };
+        let title = "Blanket PO Short Closure";
+
+        if (isClosed) {
+            btnClass = "btn-success"; // Green (Fully approved)
+            btnStyle = { cursor: "default", color: "white" };
+            title = "PO already short closed";
+        } else if (isSubmitted) {
+            btnClass = "btn-warning"; // Brownish/Orange (Pending)
+            btnStyle = { cursor: "default", color: "white", backgroundColor: "#A52A2A", borderColor: "#A52A2A" };
+            title = "Pending acknowledgement";
+        } else if (isCancelled) {
+            btnClass = "btn-secondary";
+            btnStyle = { cursor: "not-allowed", color: "white" };
+            title = "PO already cancelled";
+        }
+
+        const isDisabled = isCancelled || isClosed || isSubmitted;
+
+        return (
+            <button
+                className={`btn ${btnClass}`}
+                style={btnStyle}
+                onClick={() => !isDisabled && handleBlanketPOClick(rowData)}
+                disabled={isDisabled}
+                title={title}
+            >
+                <i className="pi pi-file-edit" style={{ color: "white" }}></i>
             </button>
         );
     };
@@ -1877,6 +2097,20 @@ const ProcurementsManagePurchaseOrder = () => {
                                             style={{ width: "10%" }}
                                             body={claimLinkBodyTemplate}
                                         />
+                                        {visibleColumns.find(col => col.field === 'po_gm') && <Column
+                                            field="po_gm"
+                                            header="GM"
+                                            body={(rowData) => approvalStatusTemplate(rowData, 'po_gm')}
+                                            className="text-center"
+                                            style={{ width: "5%" }}
+                                        />}
+                                        {visibleColumns.find(col => col.field === 'po_director') && <Column
+                                            field="po_director"
+                                            header="Director"
+                                            body={(rowData) => approvalStatusTemplate(rowData, 'po_director')}
+                                            className="text-center"
+                                            style={{ width: "5%" }}
+                                        />}
                                         {/* <Column
                                         header="Action"
                                         showFilterMatchModes={false}
@@ -1891,6 +2125,14 @@ const ProcurementsManagePurchaseOrder = () => {
                                             className="text-center"
                                             style={{ width: "5%" }}
                                         />
+                                        {UserData?.u_id === 135 && UserData?.username?.toLowerCase() === "hugo" && (
+                                            <Column
+                                                header="Blanket PO"
+                                                body={actionBlanketPOBodyTemplate}
+                                                className="text-center"
+                                                style={{ width: "5%" }}
+                                            />
+                                        )}
                                         {/* Delete column - only visible to user 135 */}
                                         {UserData?.u_id === 135 && (
                                             <Column
@@ -3044,6 +3286,192 @@ const ProcurementsManagePurchaseOrder = () => {
                 <ModalFooter>
                     <button type="button" className="btn btn-danger" onClick={() => setClaimDetailVisible(false)}>
                         Close
+                    </button>
+                </ModalFooter>
+            </Modal>
+            {/* ===== Blanket / Short Closure PO History Modal ===== */}
+            <Modal isOpen={blanketPoViewVisible} toggle={() => setBlanketPoViewVisible(false)} size="xl">
+                <ModalHeader toggle={() => setBlanketPoViewVisible(false)}>
+                    Purchase Order Details
+                </ModalHeader>
+                <ModalBody style={{ backgroundColor: "#ffffff", padding: "20px 30px" }}>
+                    {blanketPoLoading ? (
+                        <div className="text-center py-5">
+                            <i className="bx bx-loader bx-spin font-size-24 text-primary"></i>
+                            <p className="mt-2 text-muted">Loading PO details...</p>
+                        </div>
+                    ) : blanketPoViewData ? (
+                        <>
+                            {/* ====== SECTION 1: ORIGINAL PO ====== */}
+                            {blanketPoViewData.originalPO ? (
+                                <>
+                                    <Row className="mb-3">
+                                        <Col md={4}>
+                                            <div className="d-flex mb-2 align-items-center">
+                                                <span style={{ minWidth: "120px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>PO No.</span>
+                                                <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {blanketPoViewData.originalPO.Header?.pono || "N/A"}</span>
+                                            </div>
+                                            <div className="d-flex mb-2 align-items-center">
+                                                <span style={{ minWidth: "120px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>PO Value</span>
+                                                <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {parseFloat(blanketPoViewData.originalPO.Header?.nettotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        </Col>
+                                        <Col md={4}>
+                                            <div className="d-flex mb-2 align-items-center">
+                                                <span style={{ minWidth: "120px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>PO Date</span>
+                                                <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {formatDate(blanketPoViewData.originalPO.Header?.podate)}</span>
+                                            </div>
+                                            <div className="d-flex mb-2 align-items-center">
+                                                <span style={{ minWidth: "120px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>Created Date</span>
+                                                <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {formatDate(blanketPoViewData.originalPO.Header?.createddt)}</span>
+                                            </div>
+                                        </Col>
+                                        <Col md={4}>
+                                            <div className="d-flex mb-2 align-items-center">
+                                                <span style={{ minWidth: "120px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>PO Quantity</span>
+                                                <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {(blanketPoViewData.originalPO.Requisition || []).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0).toLocaleString("en-US", { minimumFractionDigits: 0 })}</span>
+                                            </div>
+                                            <div className="d-flex mb-2 align-items-center">
+                                                <span style={{ minWidth: "120px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>Created By</span>
+                                                <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {blanketPoViewData.originalCreatedByName}</span>
+                                            </div>
+                                        </Col>
+                                    </Row>
+
+                                    <p style={{ fontWeight: "bold", fontSize: "15px", marginTop: "15px", marginBottom: "10px", color: "#333" }}>Purchase Order Details</p>
+                                    <div style={{ overflowX: "auto", marginBottom: "25px" }}>
+                                        <table className="table table-bordered table-sm mb-0" style={{ fontSize: "12px" }}>
+                                            <thead>
+                                                <tr>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>#</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>PR No.</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Item Group</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Item Name</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Qty</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>UOM</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Unit Price</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Discount</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Tax %</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Tax Amt</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>VAT %</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>VAT Amt</th>
+                                                    <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Total Amt</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(blanketPoViewData.originalPO.Requisition || []).map((row, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="text-center">{idx + 1}</td>
+                                                        <td>{row.prnumber || "N/A"}</td>
+                                                        <td>{row.groupname || ""}</td>
+                                                        <td>{row.itemname || ""}</td>
+                                                        <td className="text-center">{parseFloat(row.qty || 0).toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
+                                                        <td className="text-center">{row.uom || ""}</td>
+                                                        <td className="text-center">{parseFloat(row.unitprice || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                        <td className="text-center">{parseFloat(row.discountvalue || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                        <td className="text-center">{row.taxperc ?? 0}</td>
+                                                        <td className="text-center">{parseFloat(row.taxvalue || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                        <td className="text-center">{row.vatperc ?? 0}</td>
+                                                        <td className="text-center">{parseFloat(row.vatvalue || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                        <td className="text-center" style={{ color: "#ff5a00", fontWeight: "bold" }}>{parseFloat(row.nettotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                    </tr>
+                                                ))}
+                                                {(blanketPoViewData.originalPO.Requisition || []).length === 0 && (
+                                                    <tr><td colSpan={13} className="text-center text-muted">No items found</td></tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            ) : (
+                                <p className="text-muted mb-3">Original PO (<b>{blanketPoViewData.originalPono}</b>) could not be loaded.</p>
+                            )}
+
+                            {/* ====== SECTION 2: BLANKET PO ====== */}
+                            <p style={{ fontWeight: "bold", fontSize: "15px", marginTop: "20px", marginBottom: "15px", color: "#333" }}>Blanket PO Details</p>
+                            <Row className="mb-3">
+                                <Col md={4}>
+                                    <div className="d-flex mb-2 align-items-center">
+                                        <span style={{ minWidth: "140px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>BlanketPO No.</span>
+                                        <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {blanketPoViewData.blanketPO.Header?.pono || "N/A"}</span>
+                                    </div>
+                                    <div className="d-flex mb-2 align-items-center">
+                                        <span style={{ minWidth: "140px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>BlanketPO Value</span>
+                                        <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {parseFloat(blanketPoViewData.blanketPO.Header?.nettotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                </Col>
+                                <Col md={4}>
+                                    <div className="d-flex mb-2 align-items-center">
+                                        <span style={{ minWidth: "140px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>BlanketPO Date</span>
+                                        <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {formatDate(blanketPoViewData.blanketPO.Header?.podate)}</span>
+                                    </div>
+                                    <div className="d-flex mb-2 align-items-center">
+                                        <span style={{ minWidth: "140px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>Created Date</span>
+                                        <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {formatDate(blanketPoViewData.blanketPO.Header?.createddt)}</span>
+                                    </div>
+                                </Col>
+                                <Col md={4}>
+                                    <div className="d-flex mb-2 align-items-center">
+                                        <span style={{ minWidth: "160px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>BlanketPO Quantity</span>
+                                        <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {(blanketPoViewData.blanketPO.Requisition || []).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0).toLocaleString("en-US", { minimumFractionDigits: 0 })}</span>
+                                    </div>
+                                    <div className="d-flex mb-2 align-items-center">
+                                        <span style={{ minWidth: "160px", fontSize: "14px", color: "#333", fontWeight: "normal" }}>Created By</span>
+                                        <span style={{ fontSize: "14px", color: "#333", fontWeight: "normal" }}>: {blanketPoViewData.blanketCreatedByName}</span>
+                                    </div>
+                                </Col>
+                            </Row>
+
+                            <p style={{ fontWeight: "bold", fontSize: "15px", marginTop: "15px", marginBottom: "10px", color: "#333" }}>Blanket PO Details</p>
+                            <div style={{ overflowX: "auto" }}>
+                                <table className="table table-bordered table-sm mb-0" style={{ fontSize: "12px" }}>
+                                    <thead>
+                                        <tr>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>#</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>BlanketPO</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Item Group</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Item Name</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Qty</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>UOM</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Unit Price</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Discount</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Tax %</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Tax Amt</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>VAT %</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>VAT Amt</th>
+                                            <th className="text-center" style={{ backgroundColor: "#0066a6", color: "white", borderColor: "#0066a6" }}>Total Amt</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(blanketPoViewData.blanketPO.Requisition || []).map((row, idx) => (
+                                            <tr key={idx}>
+                                                <td className="text-center">{idx + 1}</td>
+                                                <td>{blanketPoViewData.blanketPono}</td>
+                                                <td>{row.groupname || ""}</td>
+                                                <td>{row.itemname || ""}</td>
+                                                <td className="text-center">{parseFloat(row.qty || 0).toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
+                                                <td className="text-center">{row.uom || ""}</td>
+                                                <td className="text-center">{parseFloat(row.unitprice || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                <td className="text-center">{parseFloat(row.discountvalue || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                <td className="text-center">{row.taxperc ?? 0}</td>
+                                                <td className="text-center">{parseFloat(row.taxvalue || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                <td className="text-center">{row.vatperc ?? 0}</td>
+                                                <td className="text-center">{parseFloat(row.vatvalue || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                <td className="text-center" style={{ color: "#ff5a00", fontWeight: "bold" }}>{parseFloat(row.nettotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                            </tr>
+                                        ))}
+                                        {(blanketPoViewData.blanketPO.Requisition || []).length === 0 && (
+                                            <tr><td colSpan={13} className="text-center text-muted">No items found</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
+                    ) : null}
+                </ModalBody>
+                <ModalFooter style={{ borderTop: "none" }}>
+                    <button type="button" className="btn text-white" style={{ backgroundColor: "#d9534f", borderColor: "#d9534f", padding: "8px 20px" }} onClick={() => setBlanketPoViewVisible(false)}>
+                        <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i> Close
                     </button>
                 </ModalFooter>
             </Modal>

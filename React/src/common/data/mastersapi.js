@@ -3715,6 +3715,26 @@ export const CancelPurchaseOrder = async (payload) => {
     }
 };
 
+export const ShortClosurePurchaseOrder = async (payload) => {
+    try {
+        const response = await post("/PurchaseOrder/ShortClosurePO", payload);
+        return response;
+    } catch (error) {
+        console.error("API error short closing purchase order:", error);
+        throw error;
+    }
+};
+
+export const GetPendingGRNQty = async (poid) => {
+    try {
+        const response = await get(`/PurchaseOrder/GetPendingGRNQty?poid=${poid}`);
+        return response;
+    } catch (error) {
+        console.error("API error fetching pending GRN quantity:", error);
+        throw error;
+    }
+};
+
 
 export const GetPrIdDetails = async (id, orgId, branchId) => {
     try {
@@ -5779,6 +5799,36 @@ export const deleteDebitNote = async (id) => {
         return response.data;
     } catch (error) {
         console.error("Error deleting debit note:", error);
+        throw error;
+    }
+};
+
+export const ShortClosurePO = async (payload) => {
+    try {
+        const response = await post("/PurchaseOrder/ShortClosurePO", payload);
+        return response;
+    } catch (error) {
+        console.error("Error in ShortClosurePO API:", error);
+        throw error;
+    }
+};
+
+export const GetBlanketPOApprovals = async (branchId, orgId, userId) => {
+    try {
+        const response = await get(`/PurchaseOrder/GetBlanketPOApprovals?branchid=${branchId}&orgid=${orgId}&userid=${userId}`);
+        return response;
+    } catch (error) {
+        console.error("Error fetching Blanket PO Approvals:", error);
+        return { status: false, data: [] };
+    }
+};
+
+export const SaveBlanketPOApprove = async (payload) => {
+    try {
+        const response = await post("/PurchaseOrder/SaveBlanketPOApprove", payload);
+        return response;
+    } catch (error) {
+        console.error("Error saving Blanket PO Approval:", error);
         throw error;
     }
 };

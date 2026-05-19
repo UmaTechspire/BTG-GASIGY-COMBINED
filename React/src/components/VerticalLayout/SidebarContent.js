@@ -539,6 +539,7 @@ class SidebarContent extends Component {
                 { name: "Purchase Memo", url: "/procurementspurchase-memo", icon: "bx bx-file" },
                 { name: "Purchase Requisition", url: "/procurementspurchase-requisition", icon: "bx bx-file" },
                 { name: "Approval", url: "/purchase-requisition-approval", icon: "bx bx-check-circle" },
+                { name: "Blanket PO", url: "/blanket-po-approval", icon: "bx bx-check-double" },
                 { name: "Purchase Order", url: "/procurementspurchase-order", icon: "bx bx-cart" },
                 { name: "GRN", url: "/procurementsgrn", icon: "bx bx-box" },
                 // IRN is already here, ensuring it shows in Procurement

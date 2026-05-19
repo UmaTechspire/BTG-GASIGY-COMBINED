@@ -12,6 +12,9 @@ namespace Infrastructure.Repositories
     {
 
         private readonly IDbConnection _connection;
+
+        private static bool _isProcedureUpdated = false;
+
         string IPAddress = "";
         public PurchaseOrderRepository(IUnitOfWorkDB2 unitOfWork)
         {
@@ -902,6 +905,280 @@ namespace Infrastructure.Repositories
                     Message = "Something went wrong: " + Ex.Message,
                     Status = false
                 };
+            }
+        }
+
+        public async Task<object> ShortClosureAsync(int poid, int userId, int branchId, int orgId)
+        {
+            try
+            {
+                // When "Blanket PO" is clicked, we set IsShortClosureSubmitted = 1
+                // and immediately create the short closure/blanket PO (-1 amendment PO)
+                var sql = "UPDATE tbl_purchaseorder_header SET IsShortClosureSubmitted = 1, modifieddt = NOW(), modifiedby = @userId WHERE poid = @poid AND branchid = @branchId AND orgid = @orgId";
+                var result = await _connection.ExecuteAsync(sql, new { poid, userId, branchId, orgId });
+
+                if (result > 0)
+                {
+                    // Immediately create the BlanketPO / ClosurePO record (PO ending with -1)
+                    await CreateShortClosureAmendmentAsync(poid, userId, branchId, orgId);
+                }
+
+                return new ResponseModel()
+                {
+                    Data = result,
+                    Message = result > 0 ? "Purchase Order submitted for closure approval" : "Failed to submit Purchase Order for closure",
+                    Status = result > 0
+                };
+            }
+            catch (Exception Ex)
+            {
+                return new ResponseModel()
+                {
+                    Data = null,
+                    Message = "Something went wrong: " + Ex.Message,
+                    Status = false
+                };
+            }
+        }
+
+        public async Task<object> SubmitShortClosureAsync(int poid, int userId, int branchId, int orgId)
+        {
+            return await ShortClosureAsync(poid, userId, branchId, orgId);
+        }
+
+        public async Task<object> GetBlanketPOApprovalsAsync(int branchId, int orgId, int userId)
+        {
+            try
+            {
+                var param = new DynamicParameters();
+                param.Add("@opt", 1);
+                param.Add("@userid", userId);
+                param.Add("@branchid", branchId);
+                param.Add("@orgid", orgId);
+                param.Add("@poid", 0);
+                param.Add("@isapprovedone", 0);
+                param.Add("@isapprovedtwo", 0);
+
+                var rawList = await _connection.QueryAsync("proc_purchaseorderapproval", param, commandType: CommandType.StoredProcedure);
+                var list = rawList.ToList();
+
+                if (list != null && list.Count > 0)
+                {
+                    foreach (var row in list)
+                    {
+                        var dict = row as IDictionary<string, object>;
+                        if (dict != null && dict.TryGetValue("id", out var poIdObj) && poIdObj != null)
+                        {
+                            int poid = Convert.ToInt32(poIdObj);
+                            var qtySql = "SELECT IFNULL(SUM(qty), 0) FROM tbl_purchaseorder_requisitions WHERE poid = @poid AND isactive = 1;";
+                            decimal totalQty = await _connection.QueryFirstOrDefaultAsync<decimal>(qtySql, new { poid = poid });
+                            dict["totalqty"] = totalQty;
+                        }
+                    }
+                }
+
+                return new ResponseModel
+                {
+                    Data = list,
+                    Message = "Success",
+                    Status = true
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ResponseModel
+                {
+                    Data = null,
+                    Message = "Error retrieving Blanket PO Approvals: " + ex.Message,
+                    Status = false
+                };
+            }
+        }
+
+        public async Task<object> SaveBlanketPOApproveAsync(BlanketPOApprovalHdr obj)
+        {
+            try
+            {
+                string updatedetails = @"UPDATE tbl_purchaseorder_header
+                    SET 
+                         modifiedby = @userid,
+                         modifieddt = NOW(),
+                         po_gm_isapproved = @isapprovedone,                
+                         po_director_isapproved = @isapprovedtwo,
+                         IsShortClosure = CASE WHEN @isapprovedtwo = 1 THEN 1 ELSE IsShortClosure END
+                    WHERE poid = @poid;";
+
+                string updateamendment = @"UPDATE tbl_purchaseorder_header
+                    SET 
+                         modifiedby = @userid,
+                         modifieddt = NOW(),
+                         po_gm_isapproved = @isapprovedone,                
+                         po_director_isapproved = @isapprovedtwo
+                    WHERE pono = (SELECT CONCAT(pono, '-1') FROM (SELECT pono FROM tbl_purchaseorder_header WHERE poid = @poid) AS tmp)
+                      AND branchid = @branchid AND orgid = @orgid;";
+
+                foreach (var item in obj.approve)
+                {
+                    item.userid = obj.UserId;
+                    await _connection.ExecuteAsync(updatedetails, item);
+
+                    // Update approval flags on the amendment PO as well
+                    await _connection.ExecuteAsync(updateamendment, new
+                    {
+                        userid = obj.UserId,
+                        isapprovedone = item.isapprovedone,
+                        isapprovedtwo = item.isapprovedtwo,
+                        poid = item.poid,
+                        branchid = obj.branchid,
+                        orgid = obj.orgid
+                    });
+                }
+
+
+                return new ResponseModel
+                {
+                    Data = 1,
+                    Message = "Updated successfully.",
+                    Status = true
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ResponseModel
+                {
+                    Data = null,
+                    Message = "Something went wrong while updating: " + ex.Message,
+                    Status = false
+                };
+            }
+        }
+
+        public async Task<object> GetPendingGRNQtyAsync(int poid)
+        {
+            try
+            {
+                var sql = @"
+                    SELECT (
+                        (SELECT IFNULL(SUM(qty), 0) FROM tbl_purchaseorder_requisitions WHERE poid = @poid AND isactive = 1)
+                        -
+                        (SELECT IFNULL(SUM(gd.grnQty), 0) FROM tbl_grn_detail gd 
+                         JOIN tbl_grn_header gh ON gd.grnid = gh.grnid 
+                         WHERE gd.poid = @poid AND gd.isactive = 1 AND gh.IsSubmitted = 1)
+                    ) as PendingQty";
+
+                var pendingQty = await _connection.QueryFirstOrDefaultAsync<decimal>(sql, new { poid });
+
+                return new ResponseModel()
+                {
+                    Data = pendingQty,
+                    Message = "Success",
+                    Status = true
+                };
+            }
+            catch (Exception Ex)
+            {
+                return new ResponseModel()
+                {
+                    Data = 0,
+                    Message = "Something went wrong: " + Ex.Message,
+                    Status = false
+                };
+            }
+        }
+
+        private async Task CreateShortClosureAmendmentAsync(int poid, int userid, int branchid, int orgid)
+        {
+            try
+            {
+                // Fetch original PO header info (pono AND original createdby)
+                var headerSql = "SELECT pono, createdby FROM tbl_purchaseorder_header WHERE poid = @poid;";
+                var headerInfo = await _connection.QueryFirstOrDefaultAsync(headerSql, new { poid });
+                if (headerInfo == null || string.IsNullOrEmpty((string)headerInfo.pono)) return;
+
+                var pono = (string)headerInfo.pono;
+                var originalCreatedBy = (int)headerInfo.createdby;
+
+                var newPono = pono + "-1";
+
+                // Check if already exists to avoid duplication
+                var checkSql = "SELECT COUNT(1) FROM tbl_purchaseorder_header WHERE pono = @newPono AND branchid = @branchid AND orgid = @orgid";
+                var exists = await _connection.ExecuteScalarAsync<int>(checkSql, new { newPono, branchid, orgid });
+                if (exists > 0) return;
+
+                // 1. Insert Header — preserve original createdby, NOT the approver's userid
+                var insertHeaderSql = @"
+                    INSERT INTO `tbl_purchaseorder_header`
+                    (`pono`, `podate`, `supplierid`, `issaved`, `createddt`, `createdby`, `createdip`,
+                    `isactive`, `orgid`, `branchid`, `requestorid`, `departmentid`, `paymenttermid`,
+                    `deliverytermid`, `remarks`, `currencyid`, `prid`, `prtypeid`, `deliveryaddress`,`exchangerate`, 
+                    `subtotal`, `discountvalue`, `taxvalue`, `vatvalue`, `nettotal`, `balance_amount`, `IsShortClosure`, `IsShortClosureSubmitted`, `po_gm_isapproved`, `po_director_isapproved`)
+                    SELECT 
+                    @newPono, podate, supplierid, issaved, NOW(), @originalCreatedBy, '',
+                    1, orgid, branchid, requestorid, departmentid, paymenttermid,
+                    deliverytermid, remarks, currencyid, prid, prtypeid, deliveryaddress, exchangerate,
+                    0, 0, 0, 0, 0, 0, 1, 1, po_gm_isapproved, po_director_isapproved
+                    FROM tbl_purchaseorder_header WHERE poid = @poid;
+                    SELECT LAST_INSERT_ID();";
+
+                var newPoid = await _connection.QuerySingleAsync<int>(insertHeaderSql, new { newPono, poid, originalCreatedBy });
+
+                // 2. Insert Details
+                var insertDetailSql = @"
+                    INSERT INTO `tbl_purchaseorder_detail`
+                    (`poid`, `prid`, `IsActive`, `CreatedDt`, `CreatedBy`, `branchid`, `orgid`)
+                    SELECT @newPoid, prid, 1, NOW(), @originalCreatedBy, @branchid, @orgid
+                    FROM tbl_purchaseorder_detail WHERE poid = @poid AND IsActive = 1;";
+
+                await _connection.ExecuteAsync(insertDetailSql, new { newPoid, poid, originalCreatedBy, branchid, orgid });
+
+                // 3. Insert Requisitions - scale all amounts proportionally to the pending balance qty
+                //    Pending qty = Original qty - GRN received qty (min 0)
+                //    Scale factor = pending_qty / original_qty  (avoids recalculating tax formula)
+                //    This preserves EXACTLY the same formula used when the original PO was saved.
+                var insertReqSql = @"
+                    INSERT INTO `tbl_purchaseorder_requisitions`
+                    (`poid`, `podid`, `prmid`, `prdid`, `prid`, `itemid`, `uomid`, `qty`, `unitprice`, `totalvalue`,
+                     `taxperc`, `taxvalue`, `subtotal`, `discountperc`, `discountvalue`, `nettotal`, `isactive`,
+                     `createddt`, `createdby`, `branchid`, `orgid`,`vatperc`,`vatvalue`,`itemgroupid`, `grn_rec_Qty`)
+                    SELECT 
+                    @newPoid, 
+                    (SELECT podid FROM tbl_purchaseorder_detail WHERE poid = @newPoid AND prid = por.prid LIMIT 1),
+                    prmid, prdid, prid, itemid, uomid, 
+                    -- Pending qty = Original qty - GRN received qty (never negative)
+                    GREATEST(0, por.qty - IFNULL(por.grn_rec_Qty, 0)),
+                    unitprice,
+                    -- Scale all stored financial values proportionally to pending qty / original qty
+                    CASE WHEN por.qty > 0 THEN ROUND(por.totalvalue    * GREATEST(0, por.qty - IFNULL(por.grn_rec_Qty, 0)) / por.qty, 2) ELSE 0 END,
+                    taxperc,
+                    CASE WHEN por.qty > 0 THEN ROUND(por.taxvalue      * GREATEST(0, por.qty - IFNULL(por.grn_rec_Qty, 0)) / por.qty, 2) ELSE 0 END,
+                    CASE WHEN por.qty > 0 THEN ROUND(por.subtotal      * GREATEST(0, por.qty - IFNULL(por.grn_rec_Qty, 0)) / por.qty, 2) ELSE 0 END,
+                    discountperc,
+                    CASE WHEN por.qty > 0 THEN ROUND(por.discountvalue * GREATEST(0, por.qty - IFNULL(por.grn_rec_Qty, 0)) / por.qty, 2) ELSE 0 END,
+                    CASE WHEN por.qty > 0 THEN ROUND(por.nettotal      * GREATEST(0, por.qty - IFNULL(por.grn_rec_Qty, 0)) / por.qty, 2) ELSE 0 END,
+                    1, NOW(), @originalCreatedBy, @branchid, @orgid, vatperc,
+                    CASE WHEN por.qty > 0 THEN ROUND(por.vatvalue      * GREATEST(0, por.qty - IFNULL(por.grn_rec_Qty, 0)) / por.qty, 2) ELSE 0 END,
+                    itemgroupid, IFNULL(por.grn_rec_Qty, 0)
+                    FROM tbl_purchaseorder_requisitions por WHERE poid = @poid AND isactive = 1;";
+
+                await _connection.ExecuteAsync(insertReqSql, new { newPoid, poid, originalCreatedBy, branchid, orgid });
+
+                // 4. Update Header Totals
+                var updateTotalsSql = @"
+                    UPDATE tbl_purchaseorder_header h
+                    INNER JOIN (
+                        SELECT poid, SUM(subtotal) as st, SUM(discountvalue) as dv, SUM(taxvalue) as tv, SUM(vatvalue) as vv, SUM(nettotal) as nt
+                        FROM tbl_purchaseorder_requisitions
+                        WHERE poid = @newPoid AND isactive = 1
+                        GROUP BY poid
+                    ) t ON h.poid = t.poid
+                    SET h.subtotal = t.st, h.discountvalue = t.dv, h.taxvalue = t.tv, h.vatvalue = t.vv, h.nettotal = t.nt, h.balance_amount = 0
+                    WHERE h.poid = @newPoid;";
+
+                await _connection.ExecuteAsync(updateTotalsSql, new { newPoid });
+            }
+            catch (Exception)
+            {
+                // Silently fail or log for now
             }
         }
 
