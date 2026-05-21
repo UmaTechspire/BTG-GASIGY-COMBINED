@@ -27,5 +27,15 @@ namespace Core.Procurement.PurchaseOrder
         Task<object> GetSupplierCurrencyList(int supplierid, int branchid, int orgid);
 
         Task<object> CancelPOAsync(int poid, int userId, int branchId, int orgId);
+
+        Task<object> ShortClosureAsync(int poid, int userId, int branchId, int orgId);
+
+        Task<object> SubmitShortClosureAsync(int poid, int userId, int branchId, int orgId);
+
+        Task<object> GetBlanketPOApprovalsAsync(int branchId, int orgId, int userId);
+
+        Task<object> SaveBlanketPOApproveAsync(BlanketPOApprovalHdr obj);
+
+        Task<object> GetPendingGRNQtyAsync(int poid);
     }
 }

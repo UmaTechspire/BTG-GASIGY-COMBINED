@@ -282,6 +282,7 @@ import PackingList from '../pages/Order-Management/Planning/PackingList';
 
 import EditDirectSalesForm from "pages/Order-Management/Order/EditDirectSalesForm";
 import PurchaseRequisitionApproval from "pages/Procurements/procurementspurchase-requisition-approval";
+import BlanketPOApproval from "pages/Procurements/procurementsblanket-po-approval";
 import AddItems from "pages/Masters/add-item";
 import ManageItems from "pages/Masters/manage-items";
 
@@ -685,6 +686,8 @@ const authProtectedRoutes = [
     { path: "/po-approval", component: ManagePoApproval },
     { path: "/procurementspurchase-requisition", component: ProcurementManagePurchaseRequistion },
     { path: "/purchase-requisition-approval", component: PurchaseRequisitionApproval },
+    { path: "/blanket-po-approval", component: BlanketPOApproval },
+
 
     { path: "/procurementspurchase-memo", component: ManagePurchaseMemo },
 

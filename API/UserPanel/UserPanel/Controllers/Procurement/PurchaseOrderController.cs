@@ -11,6 +11,10 @@ using Application.Procurement.Purchase_Order.GetPurchaseRequisitionList;
 using Application.Procurement.Purchase_Order.GetSupplierCurrencyList;
 using Application.Procurement.Purchase_Order.UpdatePurchaseOrderItem;
 using Application.Procurement.Purchase_Order.CancelPurchaseOrder;
+using Application.Procurement.Purchase_Order.ShortClosurePurchaseOrder;
+using Application.Procurement.Purchase_Order.GetPendingGRNQty;
+using Application.Procurement.Purchase_Order.GetBlanketPOApprovals;
+using Application.Procurement.Purchase_Order.SaveBlanketPOApprove;
 using Application.Procurement.Purchase_Requitision.GetAllPurchaseRequitsionitems;
 using Application.Procurement.Purchase_Requitision.GetPurchaseMemoItemsList;
 using Application.Procurement.Purchase_Requitision.GetPurchaseMemoList;
@@ -131,5 +135,35 @@ namespace UserPanel.Controllers.Procurement
             var result = await _mediator.Send(new GetSupplierCurrencyListCommand() { supplierid = supplierid, branchid = branchid, orgid = orgid });
             return Ok(result);
         }
+
+        [HttpPost("ShortClosurePO")]
+        public async Task<IActionResult> ShortClosurePO([FromBody] ShortClosurePurchaseOrderCommand command)
+        {
+            var result = await _mediator.Send(command);
+            return Ok(result);
+        }
+
+        [HttpGet("GetPendingGRNQty")]
+        public async Task<IActionResult> GetPendingGRNQty(int poid)
+        {
+            var result = await _mediator.Send(new GetPendingGRNQtyQuery() { poid = poid });
+            return Ok(result);
+        }
+
+        [HttpGet("GetBlanketPOApprovals")]
+        public async Task<IActionResult> GetBlanketPOApprovals(int branchid, int orgid, int userid)
+        {
+            var result = await _mediator.Send(new GetBlanketPOApprovalsQuery() { branchid = branchid, orgid = orgid, userid = userid });
+            return Ok(result);
+        }
+
+        [HttpPost("SaveBlanketPOApprove")]
+        public async Task<IActionResult> SaveBlanketPOApprove([FromBody] SaveBlanketPOApproveCommand command)
+        {
+            var result = await _mediator.Send(command);
+            return Ok(result);
+        }
+
+
     }
 }

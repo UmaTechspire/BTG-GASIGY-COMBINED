@@ -215,8 +215,8 @@ const AddBankBook = () => {
             // 1. Load Customers
             const customers = await GetCustomerFilter(1, "%");
             setCustomerList(Array.isArray(customers) ? customers.map(c => ({
-                value: Number(c.Id || c.CustomerID),
-                label: c.CustomerName
+                value: Number(c.value ?? c.id ?? c.Id ?? c.CustomerID ?? 0),
+                label: String(c.label ?? c.name ?? c.CustomerName ?? "")
             })) : []);
 
             // 2. Load Suppliers (Added for Payments)
@@ -1412,7 +1412,7 @@ const AddBankBook = () => {
                                                     value={row.bank_payment_via}
                                                     onChange={(e) => handleRowChange(index, 'bank_payment_via', parseInt(e.target.value))}
                                                     style={{ fontSize: '11px' }}
-                                                    disabled={true}
+                                                    disabled={row.isPosted}
                                                 >
                                                     <option value={2}>Bank Transfer</option>
                                                     <option value={1}>Cheque</option>

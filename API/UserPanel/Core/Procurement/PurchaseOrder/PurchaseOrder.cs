@@ -46,6 +46,11 @@ namespace Core.Procurement.PurchaseOrder
         public decimal VatValue { get; set; }
         public decimal NetTotal { get; set; }
 
+        public int IsShortClosure { get; set; }
+        public int IsShortClosureSubmitted { get; set; }
+        public int po_gm_isapproved { get; set; }
+        public int po_director_isapproved { get; set; }
+
     }
 
     public class PurchaseOrderDetail
