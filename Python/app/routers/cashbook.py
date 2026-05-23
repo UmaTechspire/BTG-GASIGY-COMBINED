@@ -223,8 +223,8 @@ async def get_cash_book_report(
 
         sql = "CALL proc_Cash_GetReport(:from_date, :to_date, :bank_id, :currency_id)"
         params = {
-            "from_date": from_date, # SP might expect original string format
-            "to_date": to_date, 
+            "from_date": f_date_parsed,
+            "to_date": t_date_parsed, 
             "bank_id": bank_id if bank_id and bank_id > 0 else 0,
             "currency_id": currency_id if currency_id and currency_id > 0 else 0,
             "f_date_parsed": f_date_parsed,
@@ -270,14 +270,16 @@ async def get_cash_book_report(
                 WHERE DATE(s.CreatedDate) >= :f_date_parsed AND DATE(s.CreatedDate) <= :t_date_parsed
                   AND s.NetCashWithdraw > 0
                   AND h.IsActive = 1
-                  AND COALESCE(h.IsRejected, 0) = 0
+                  AND COALESCE(h.ppp_IsRejected, 0) = 0
+                  AND COALESCE(h.ppp_pv_IsRejected, 0) = 0
+                  AND COALESCE(h.finance_cancel, 0) = 0
                   AND (
                     -- PPP-PV Approval Path
                     (COALESCE(h.PPP_PV_Director_approve, 0) = 1 OR COALESCE(h.PPP_PV_Commissioner_approveone, 0) = 1)
                     -- OR Regular PPP Approval Path (All levels approved)
                     OR (
                       COALESCE(h.ppp_gm_approvalone, 0) = 1 
-                      AND COALESCE(h.ppp_director_approveone, 0) = 1
+                      AND COALESCE(h.ppp_director_approvalone, 0) = 1
                     )
                   )
             """)
