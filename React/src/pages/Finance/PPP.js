@@ -1746,7 +1746,7 @@ let severity = 'secondary'; // default gray
                           </div>
 
                           {group.type === "PPP PV" ? (
-                            <PaymentSummaryTable claims={group.rows} approvedata={group} onRefresh={() => load()} />
+                            <PaymentSummaryTable claims={group.rows} approvedata={group} onRefresh={() => load()} handlePRClick={handlePRClick} />
                           ) : (
                             <ApprovalTable
                               setData={setclaims}
@@ -2899,7 +2899,7 @@ let severity = 'secondary'; // default gray
                 <strong>Payment Plan Date:</strong> {pvViewGroup.PaymentPlanDate} /
                 <strong> PPP No:</strong> {pvViewGroup.PaymentNo}
               </div>
-              <PaymentSummaryTable claims={pvViewGroup.rows} approvedata={pvViewGroup} onRefresh={() => load()} />
+              <PaymentSummaryTable claims={pvViewGroup.rows} approvedata={pvViewGroup} onRefresh={() => load()} handlePRClick={handlePRClick} />
             </>
           )}
         </ModalBody>

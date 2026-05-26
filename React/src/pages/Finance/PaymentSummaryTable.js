@@ -13,10 +13,10 @@ import { Button } from "primereact/button";
 import useAccess from "../../common/access/useAccess";
 import {
   DownloadFileById,
-  ClaimReject, getClaimDetailsById, ClaimAndPaymentGetById
+  ClaimReject, getClaimDetailsById, ClaimAndPaymentGetById, GetByIdPurchaseOrder
 } from "common/data/mastersapi";
 
-const PaymentSummaryTable = ({ claims, onRefresh, approvedata }) => {
+const PaymentSummaryTable = ({ claims, onRefresh, approvedata, handlePRClick }) => {
 
   const [detailVisible, setDetailVisible] = useState(false);
   const [selectedDetail, setSelectedDetail] = useState({});
@@ -145,45 +145,104 @@ const PaymentSummaryTable = ({ claims, onRefresh, approvedata }) => {
     setSelectedId(id);
     setSelectedType(type);
 
+    let rowsToProcess = [];
+
     if (preloadedRows && preloadedRows.length > 0) {
       console.log("Using preloaded rows for popup:", preloadedRows);
 
       // Map the preloaded rows to match the fields expected by the DataTable
-      const mappedRows = preloadedRows.map(row => ({
+      rowsToProcess = preloadedRows.map(row => ({
         ...row,
         claimcategory: row.ClaimCategory,
         transactioncurrency: row.curr,
         totalamountinidr: row.amount,
         // claimno is usually already present as row.claimno, but ensuring it if case differs
-        claimno: row.claimno || row.ClaimNo
+        claimno: row.claimno || row.ClaimNo,
+        prLoaded: false
       }));
-
-      setPopupRows(mappedRows);
-      setShowPopup(true);
-      return;
+    } else {
+      let isDirector = 0;
+      if (approvedata.PPP_PV_Director_approve === 0 && approvedata.PPP_PV_Commissioner_approveone === 0) {
+        isDirector = 0;
+      } else if (approvedata.PPP_PV_Director_approve === 1 && approvedata.PPP_PV_Commissioner_approveone === 0) {
+        isDirector = 1;
+      }
+      try {
+        const res = await getClaimDetailsById(
+          supplierId == null || supplierId == undefined ? 0 : supplierId,
+          applicantId == undefined || applicantId == null ? 0 : applicantId,
+          modeOfPaymentId == undefined || modeOfPaymentId == null ? 0 : modeOfPaymentId,
+          bankId == undefined || bankId == null ? 0 : bankId,
+          1,
+          isDirector,
+          summaryId
+        );
+        console.log("getClaimDetailsById response:", res);
+        rowsToProcess = (res.data || []).map(row => ({
+          ...row,
+          prLoaded: false
+        }));
+      } catch (error) {
+        console.error("Failed to fetch details:", error);
+      }
     }
 
-    let isDirector = 0;
-    if (approvedata.PPP_PV_Director_approve === 0 && approvedata.PPP_PV_Commissioner_approveone === 0) {
-      isDirector = 0;
-    } else if (approvedata.PPP_PV_Director_approve === 1 && approvedata.PPP_PV_Commissioner_approveone === 0) {
-      isDirector = 1;
-    }
+    setPopupRows(rowsToProcess);
+    setShowPopup(true);
+
+    // Asynchronously enrich with PR info
     try {
-      const res = await getClaimDetailsById(
-        supplierId == null || supplierId == undefined ? 0 : supplierId,
-        applicantId == undefined || applicantId == null ? 0 : applicantId,
-        modeOfPaymentId == undefined || modeOfPaymentId == null ? 0 : modeOfPaymentId,
-        bankId == undefined || bankId == null ? 0 : bankId,
-        1,
-        isDirector,
-        summaryId
-      );
-      console.log("getClaimDetailsById response:", res);
-      setPopupRows(res.data || []);
-      setShowPopup(true);
-    } catch (error) {
-      console.error("Failed to fetch details:", error);
+      const enrichedRows = await Promise.all(rowsToProcess.map(async (row) => {
+        const claimId = row.id || row.Claim_ID;
+        if (!claimId) return { ...row, prLoaded: true };
+        try {
+          const res = await ClaimAndPaymentGetById(claimId, 1, 1);
+          if (res.status && res.data && res.data.details) {
+            const details = res.data.details || [];
+            const uniquePOIds = [...new Set(details.map(d => d.poid).filter(id => id > 0))];
+            if (uniquePOIds.length > 0) {
+              const prConcatList = [];
+              const prIdsList = [];
+              const checkedPRNumbers = new Set();
+
+              await Promise.all(uniquePOIds.map(async (poid) => {
+                try {
+                  const poRes = await GetByIdPurchaseOrder(poid, 1, 1);
+                  if (poRes.status && poRes.data?.Requisition) {
+                    const requisitions = poRes.data.Requisition;
+                    requisitions.forEach(req => {
+                      if (req.prnumber && req.prid && !checkedPRNumbers.has(req.prnumber)) {
+                        checkedPRNumbers.add(req.prnumber);
+                        prConcatList.push(req.prnumber);
+                        prIdsList.push(req.prid);
+                      }
+                    });
+                  }
+                } catch (err) {
+                  console.error("Error fetching PO details:", poid, err);
+                }
+              }));
+
+              return {
+                ...row,
+                prConcat: prConcatList.join(", "),
+                prIdsList: prIdsList,
+                prLoaded: true
+              };
+            }
+          }
+        } catch (err) {
+          console.error("Error enriching claim:", claimId, err);
+        }
+        return {
+          ...row,
+          prConcat: "NA",
+          prLoaded: true
+        };
+      }));
+      setPopupRows(enrichedRows);
+    } catch (enrichError) {
+      console.error("Error in PR details enrichment:", enrichError);
     }
   };
 
@@ -1528,6 +1587,63 @@ word-break: break-word;
 
 
             )} />
+            <Column
+              header="PR"
+              body={(rowData) => {
+                if (rowData.prLoaded === false) {
+                  return <span>Loading...</span>;
+                }
+
+                const prConcat = rowData.prConcat || "";
+                const prIdsList = rowData.prIdsList || [];
+
+                if (!prConcat || prConcat === "NA" || prConcat.trim() === "") {
+                  return "N/A";
+                }
+
+                const prNumbers = prConcat.split(",");
+
+                return (
+                  <span>
+                    {prNumbers.map((prNumber, index) => {
+                      const cleanPR = prNumber.trim();
+                      if (!cleanPR) return null;
+
+                      const prid = prIdsList[index];
+                      const isLast = index === prNumbers.length - 1;
+
+                      return (
+                        <span key={index}>
+                          {prid ? (
+                            <span
+                              style={{
+                                color: "#007bff",
+                                textDecoration: "none",
+                                cursor: "pointer",
+                              }}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                if (handlePRClick) {
+                                  handlePRClick(prid);
+                                } else {
+                                  Swal.fire("Warning", "PR Details view is not available", "warning");
+                                }
+                              }}
+                              title={`View ${cleanPR}`}
+                            >
+                              {cleanPR}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#666" }}>{cleanPR}</span>
+                          )}
+                          {!isLast && ", "}
+                        </span>
+                      );
+                    })}
+                  </span>
+                );
+              }}
+            />
             <Column field="claimcategory" header="Claim Category"></Column>
             <Column field="totalamountinidr" header="Amount" body={(row) => formatAmount(row.totalamountinidr)}></Column>
             <Column field="transactioncurrency" header="Currency"></Column>

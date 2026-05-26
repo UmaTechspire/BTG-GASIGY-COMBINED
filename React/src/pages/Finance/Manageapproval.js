@@ -154,6 +154,16 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
   const [PPPPVAction1, setPPPPVAction1] = useState({});
   const [PPPPVAction2, setPPPPVAction2] = useState({});
+  const initialActionsRef = useRef({
+    action1: {},
+    action2: {},
+    action3: {},
+    pppAction1: {},
+    pppAction2: {},
+    pppAction3: {},
+    PPPPVAction1: {},
+    PPPPVAction2: {}
+  });
   const [UserData, setUserData] = useState(null);
   const [globalFilter, setGlobalFilter] = useState("");
 
@@ -514,7 +524,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
 
     }
-    // Filter claims where any approval action (normal or PPP) is set
+    // Filter claims where any approval action (normal or PPP) was modified in the current session
     const modifiedClaims = claims.filter(
       (claim) => {
 
@@ -524,14 +534,20 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
         if (isPPPClaim && invalidPPPPlans.has(claim.SummaryId)) {
           return false;
         }
-        return (
-          action3[claim.id] ||
-          action1[claim.id] ||
-          action2[claim.id] ||
-          pppAction1[claim.id] ||
-          pppAction2[claim.id] ||
-          pppAction3[claim.id] ||
-          PPPPVAction1[claim.id] || PPPPVAction2[claim.id])
+
+        const init = initialActionsRef.current;
+        const isChanged = (
+          action1[claim.id] !== init.action1[claim.id] ||
+          action2[claim.id] !== init.action2[claim.id] ||
+          action3[claim.id] !== init.action3[claim.id] ||
+          pppAction1[claim.id] !== init.pppAction1[claim.id] ||
+          pppAction2[claim.id] !== init.pppAction2[claim.id] ||
+          pppAction3[claim.id] !== init.pppAction3[claim.id] ||
+          PPPPVAction1[claim.id] !== init.PPPPVAction1[claim.id] ||
+          PPPPVAction2[claim.id] !== init.PPPPVAction2[claim.id]
+        );
+
+        return isChanged;
       }
     );
 
@@ -709,6 +725,17 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
 
       setPPPPVAction1(initialPPPPVAction1);
       setPPPPVAction2(initialPPPPVAction2);
+
+      initialActionsRef.current = {
+        action1: { ...initialAction1 },
+        action2: { ...initialAction2 },
+        action3: { ...initialAction3 },
+        pppAction1: { ...initialPPPAction1 },
+        pppAction2: { ...initialPPPAction2 },
+        pppAction3: { ...initialPPPAction3 },
+        PPPPVAction1: { ...initialPPPPVAction1 },
+        PPPPVAction2: { ...initialPPPPVAction2 }
+      };
     } else {
       Swal.fire({
         icon: 'error',
@@ -1064,6 +1091,17 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
         setPPPAction3(initialPPPAction3);
         setPPPPVAction1(initialPPPPVAction1);
         setPPPPVAction2(initialPPPPVAction2);
+
+        initialActionsRef.current = {
+          action1: { ...initialAction1 },
+          action2: { ...initialAction2 },
+          action3: { ...initialAction3 },
+          pppAction1: { ...initialPPPAction1 },
+          pppAction2: { ...initialPPPAction2 },
+          pppAction3: { ...initialPPPAction3 },
+          PPPPVAction1: { ...initialPPPPVAction1 },
+          PPPPVAction2: { ...initialPPPPVAction2 }
+        };
       } else {
         Swal.fire({
           icon: 'error',
@@ -4584,7 +4622,7 @@ const ApprovalTable = ({
               </div>
 
               {/* Dynamic tables */}
-              <PaymentSummaryTable claims={group.rows} approvedata={group} onRefresh={() => load()} />
+              <PaymentSummaryTable claims={group.rows} approvedata={group} onRefresh={() => load()} handlePRClick={handlePRClick} />
 
               {/* Optional buttons */}
 
