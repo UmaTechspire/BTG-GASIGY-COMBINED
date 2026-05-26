@@ -2288,6 +2288,7 @@ word-break: break-word;
                                   setSelectedSummaryId={setSelectedSummaryId}
                                   setShowDiscussModal={setShowDiscussModal}
                                   handleViewPVHistory={handleViewPVHistory}
+                                  handlePRClick={handlePRClick}
                                 />
                               </Card>
                             ))
@@ -2334,6 +2335,7 @@ word-break: break-word;
                               setShowDiscussModal={setShowDiscussModal}
                               setRemarks={setRemarks}
                               handleViewPVHistory={handleViewPVHistory}
+                              handlePRClick={handlePRClick}
                             />
                           )
                         }
@@ -3609,7 +3611,7 @@ const ApprovalTable = ({
   handlePPPClick2, handlePPPClick3, handleVoucherClick, handlePPPPVClick3, handlePPPPVDirector, handleClickgmapprovan
   , selectedPPPRows, confirmRemove, handleRemove, updateselectedrows, PaymentSummaryTable, groupedBySummary, handlePVSave, pvgroupedBySummary, handleViewRemarks, FilterMatchMode, FilterOperator, cleardata,
   setSelectedSummaryId, setShowDiscussModal, setRemarks,
-  access, handleViewPVHistory
+  access, handleViewPVHistory, handlePRClick
 }) => {
 
   const [filters, setFilters] = useState({
