@@ -16,6 +16,9 @@ class CreditNotes(Base):
     GLAccountCode = Column(String(50), nullable=True)
     CurrencyId = Column(Integer, nullable=True)
     IsSubmitted = Column(Boolean, default=False)
+    GasCodeId = Column(Integer, default=0)
+    Qty = Column(DECIMAL(18, 2), default=1)
+    UomId = Column(Integer, default=0)
     
     # Audit fields removed as they don't exist in DB
     # CreatedBy = Column(String(50), nullable=True)
@@ -38,6 +41,9 @@ class DebitNotes(Base):
     GLAccountCode = Column(String(50), nullable=True)
     CurrencyId = Column(Integer, nullable=True)
     IsSubmitted = Column(Boolean, default=False)
+    GasCodeId = Column(Integer, default=0)
+    Qty = Column(DECIMAL(18, 2), default=1)
+    UomId = Column(Integer, default=0)
     
     # Audit
     # CreatedBy = Column(String(50), nullable=True)

@@ -5643,6 +5643,16 @@ export const getOutstandingInvoices = async (customerId, receiptId = null, fromD
     }
 };
 
+export const getInvoiceDetails = async (invoiceId) => {
+    try {
+        const response = await get(`${PYTHON_API_URL}/pyapi/GetInvoiceDetails?invoiceid=${invoiceId}`);
+        return response;
+    } catch (error) {
+        console.error("Error fetching invoice details:", error);
+        return null;
+    }
+};
+
 export const createCreditNote = async (payload) => {
     try {
         const response = await post(`${PYTHON_API_URL}/dn_cn/create-credit-note`, payload);

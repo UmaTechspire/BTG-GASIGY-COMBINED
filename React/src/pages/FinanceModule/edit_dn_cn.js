@@ -15,10 +15,9 @@ import Select from "react-select";
 import Flatpickr from "react-flatpickr";
 
 import "flatpickr/dist/themes/material_blue.css";
-// import axios from "axios"; // Removed
 import { toast } from "react-toastify";
 import { useParams, useLocation } from "react-router-dom";
-import { getCustomersDNCN, getOutstandingInvoices, updateDebitNote, updateCreditNote, getDebitNoteById, getCreditNoteById, getLedgerCurrencies, GetCurrency } from "../../common/data/mastersapi";
+import { getCustomersDNCN, getOutstandingInvoices, getInvoiceDetails, updateDebitNote, updateCreditNote, getDebitNoteById, getCreditNoteById, getLedgerCurrencies, GetCurrency, fetchGasListDSI, GetUoM } from "../../common/data/mastersapi";
 
 const EditDnCn = () => {
     const history = useHistory();
@@ -27,21 +26,84 @@ const EditDnCn = () => {
     const { id } = useParams();
     const [customerOptions, setCustomerOptions] = useState([]);
     const [currencyOptions, setCurrencyOptions] = useState([]);
-    // Separate loading state if needed, or reuse one
+    const [gasOptions, setGasOptions] = useState([]);
+    const [uomOptions, setUomOptions] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // Rows State
+    // Debit Note Header State
+    const [debitHeader, setDebitHeader] = useState({
+        dnNo: "",
+        customer: null,
+        date: new Date(),
+        currency: null,
+        invoiceOptions: []
+    });
+
+    // Debit Note Rows State
     const [debitRows, setDebitRows] = useState([]);
+
+    // Credit Note Header State
+    const [creditHeader, setCreditHeader] = useState({
+        cnNo: "",
+        customer: null,
+        date: new Date(),
+        currency: null,
+        invoiceOptions: []
+    });
+
+    // Credit Note Rows State
     const [creditRows, setCreditRows] = useState([]);
 
-    useEffect(() => {
-        fetchCustomers();
-        fetchCurrencies();
+    // Invoice Items Map State
+    const [invoiceItemsMap, setInvoiceItemsMap] = useState({});
 
-        if (id) {
-            fetchData(id);
-        }
+    const getAvailableGasOptions = (rows, index) => {
+        const row = rows[index];
+        if (!row.invoiceNo) return gasOptions;
+        
+        const items = invoiceItemsMap[row.invoiceNo.value];
+        if (!items) return gasOptions;
+        
+        const invoiceGasIds = items.map(item => parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0));
+        
+        const selectedGasIds = rows
+            .filter((r, i) => i !== index && r.invoiceNo && r.invoiceNo.value === row.invoiceNo.value && r.gas)
+            .map(r => r.gas.value);
+            
+        return gasOptions.filter(g => invoiceGasIds.includes(g.value) && !selectedGasIds.includes(g.value));
+    };
+
+    useEffect(() => {
+        const initLoad = async () => {
+            fetchCustomers();
+            fetchCurrencies();
+            
+            const gasData = await fetchGasListDSI(1, 0);
+            const gasOpts = gasData.map(g => ({ value: g.GasCodeId, label: g.GasName }));
+            setGasOptions(gasOpts);
+
+            const uomData = await GetUoM(1, 0);
+            const uomOpts = Array.isArray(uomData) ? uomData.map(u => ({ value: u.UoMId, label: u.UoM })) : [];
+            setUomOptions(uomOpts);
+
+            if (id) {
+                fetchData(id, gasOpts, uomOpts);
+            }
+        };
+        initLoad();
     }, [id, location]);
+
+    const fetchGasItems = async () => {
+        const data = await fetchGasListDSI(1, 0);
+        setGasOptions(data.map(g => ({ value: g.GasCodeId, label: g.GasName })));
+    };
+
+    const fetchUOMs = async () => {
+        const data = await GetUoM(1, 0);
+        if (Array.isArray(data)) {
+            setUomOptions(data.map(u => ({ value: u.UoMId, label: u.UoM })));
+        }
+    };
 
     const fetchCustomers = async () => {
         try {
@@ -83,7 +145,7 @@ const EditDnCn = () => {
             if (response && response.status) {
                 return response.data.map(inv => ({
                     value: inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr,
-                    label: `${inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr} (${formatAmount(inv.balance_due || inv.BalanceAmount || 0)})`
+                    label: `${inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr} (${formatAmountInternal(inv.balance_due || inv.BalanceAmount || 0)})`
                 }));
             }
             return [];
@@ -93,7 +155,7 @@ const EditDnCn = () => {
         }
     };
 
-    const fetchData = async (recordId) => {
+    const fetchData = async (recordId, gasOpts = [], uomOpts = []) => {
         const type = location.state?.type; // 'debit' or 'credit'
         let custMap = {};
 
@@ -104,7 +166,6 @@ const EditDnCn = () => {
                 cRes.data.forEach(c => {
                     custMap[c.Id] = c.CustomerName;
                 });
-                // Also update options state if empty
                 if (customerOptions.length === 0) {
                     setCustomerOptions(cRes.data.map(c => ({ value: c.Id, label: c.CustomerName })));
                 }
@@ -113,7 +174,6 @@ const EditDnCn = () => {
             console.error(e);
         }
 
-        // Try Debit Note First if type is debit or unknown
         if (type === 'debit' || !type) {
             try {
                 const dnRes = await getDebitNoteById(recordId);
@@ -121,31 +181,34 @@ const EditDnCn = () => {
                     const data = dnRes.data;
                     const custLabel = custMap[data.CustomerId] || "Unknown";
 
-                    // Fetch invoices for this customer
                     const invOptions = await fetchInvoices(data.CustomerId);
-                    // Resolve invoice label
                     const invLabel = invOptions.find(i => i.value === data.InvoiceId)?.label || data.InvoiceId;
+
+                    setDebitHeader({
+                        dnNo: data.DebitNoteNumber || data.DebitNoteNo,
+                        customer: { value: data.CustomerId, label: custLabel },
+                        date: new Date(data.TransactionDate || data.Date),
+                        currency: { value: data.CurrencyId, label: data.CurrencyCode || "USD" },
+                        invoiceOptions: invOptions
+                    });
 
                     setDebitRows([{
                         dnId: data.DebitNoteId,
-                        dnNo: data.DebitNoteNumber || data.DebitNoteNo,
-                        date: new Date(data.TransactionDate || data.Date),
+                        invoiceNo: data.InvoiceId ? { value: data.InvoiceId, label: invLabel } : null,
+                        gas: gasOpts.find(g => g.value === data.GasCodeId) || null,
+                        uom: uomOpts.find(u => u.value === data.UomId) || null,
+                        qty: data.Qty || 1,
+                        unitPrice: data.Amount || data.DebitAmount || "",
                         amount: data.Amount || data.DebitAmount,
                         description: data.Description,
-                        customer: { value: data.CustomerId, label: custLabel },
-                        invoiceNo: data.InvoiceId ? { value: data.InvoiceId, label: invLabel } : null,
-                        currency: { value: data.CurrencyId, label: data.CurrencyCode || "USD" },
-                        invoiceOptions: invOptions
                     }]);
+                    setCreditHeader({ cnNo: "", customer: null, date: new Date(), currency: null, invoiceOptions: [] });
                     setCreditRows([]);
                     return;
                 }
-            } catch (e) {
-                // Not a debit note or error
-            }
+            } catch (e) { }
         }
 
-        // Try Credit Note if type is credit or unknown (and debit failed)
         if (type === 'credit' || !type) {
             try {
                 const cnRes = await getCreditNoteById(recordId);
@@ -156,89 +219,199 @@ const EditDnCn = () => {
                     const invOptions = await fetchInvoices(data.CustomerId);
                     const invLabel = invOptions.find(i => i.value === data.InvoiceId)?.label || data.InvoiceId;
 
-                    setCreditRows([{
-                        cnId: data.CreditNoteId,
+                    setCreditHeader({
                         cnNo: data.CreditNoteNumber || data.CreditNoteNo,
-                        date: new Date(data.TransactionDate || data.Date),
-                        amount: data.Amount || data.CreditAmount,
-                        description: data.Description,
                         customer: { value: data.CustomerId, label: custLabel },
-                        invoiceNo: data.InvoiceId ? { value: data.InvoiceId, label: invLabel } : null,
+                        date: new Date(data.TransactionDate || data.Date),
                         currency: { value: data.CurrencyId, label: data.CurrencyCode || "USD" },
                         invoiceOptions: invOptions
+                    });
+
+                    setCreditRows([{
+                        cnId: data.CreditNoteId,
+                        invoiceNo: data.InvoiceId ? { value: data.InvoiceId, label: invLabel } : null,
+                        gas: gasOpts.find(g => g.value === data.GasCodeId) || null,
+                        uom: uomOpts.find(u => u.value === data.UomId) || null,
+                        qty: data.Qty || 1,
+                        unitPrice: data.Amount || data.CreditAmount || "",
+                        amount: data.Amount || data.CreditAmount,
+                        description: data.Description,
                     }]);
+                    setDebitHeader({ dnNo: "", customer: null, date: new Date(), currency: null, invoiceOptions: [] });
                     setDebitRows([]);
                 }
-            } catch (e) {
-                console.error("Record not found in DN or CN");
-            }
+            } catch (e) { }
         }
     };
 
+    // Handlers for Debit Note Header
+    const handleDebitHeaderChange = async (field, value) => {
+        const newHeader = { ...debitHeader, [field]: value };
+        if (field === "customer") {
+            setDebitRows([{ dnId: null, invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
+            if (value && value.value) {
+                const invOptions = await fetchInvoices(value.value);
+                newHeader.invoiceOptions = invOptions;
+            } else {
+                newHeader.invoiceOptions = [];
+            }
+        }
+        setDebitHeader(newHeader);
+    };
 
-
-
-    // Handlers for Debit Note
     const handleDebitChange = async (index, field, value) => {
         const newRows = [...debitRows];
         newRows[index][field] = value;
-        if (field === "customer") {
-            if (value && value.value) {
-                const invOptions = await fetchInvoices(value.value);
-                newRows[index].invoiceOptions = invOptions;
-                newRows[index].invoiceNo = null;
-            } else {
-                newRows[index].invoiceOptions = [];
+        
+        if (field === "invoiceNo" && value && value.value) {
+            let items = invoiceItemsMap[value.value];
+            if (!items) {
+                const res = await getInvoiceDetails(value.value);
+                if (res && res.Items) {
+                    items = res.Items;
+                    setInvoiceItemsMap(prev => ({ ...prev, [value.value]: items }));
+                } else {
+                    items = [];
+                }
+            }
+            if (items && items.length > 0) {
+                const invoiceGasIds = items.map(item => parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0));
+                const selectedGasIds = newRows
+                    .filter((r, i) => i !== index && r.invoiceNo && r.invoiceNo.value === value.value && r.gas)
+                    .map(r => r.gas.value);
+                
+                const availableFirstItem = items.find(item => {
+                    const gid = parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0);
+                    return !selectedGasIds.includes(gid);
+                });
+
+                if (availableFirstItem) {
+                    const gid = parseInt(availableFirstItem.gascodeid || availableFirstItem.GasCodeId || availableFirstItem.GasId || 0);
+                    const uid = parseInt(availableFirstItem.uomid || availableFirstItem.UomId || 0);
+                    
+                    newRows[index].gas = gasOptions.find(g => g.value === gid) || null;
+                    newRows[index].uom = uomOptions.find(u => u.value === uid) || null;
+                } else {
+                    newRows[index].gas = null;
+                    newRows[index].uom = null;
+                }
             }
         }
+        
+        if (field === "qty" || field === "unitPrice" || field === "invoiceNo") {
+            const qty = parseFloat(newRows[index].qty) || 0;
+            const up = parseFloat(newRows[index].unitPrice) || 0;
+            newRows[index].amount = qty * up;
+        }
+
         setDebitRows(newRows);
     };
 
     const addDebitRow = () => {
-        setDebitRows([...debitRows, { dnNo: "", date: new Date(), amount: "", description: "", customer: null, invoiceNo: null, currency: null, invoiceOptions: [] }]);
+        setDebitRows([...debitRows, { invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
     };
 
     const removeDebitRow = (index) => {
         if (debitRows.length > 1) {
-            const newRows = debitRows.filter((_, i) => i !== index);
-            setDebitRows(newRows);
+            setDebitRows(debitRows.filter((_, i) => i !== index));
         }
     };
 
-    // Handlers for Credit Note
+    // Handlers for Credit Note Header
+    const handleCreditHeaderChange = async (field, value) => {
+        const newHeader = { ...creditHeader, [field]: value };
+        if (field === "customer") {
+            setCreditRows([{ cnId: null, invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
+            if (value && value.value) {
+                const invOptions = await fetchInvoices(value.value);
+                newHeader.invoiceOptions = invOptions;
+            } else {
+                newHeader.invoiceOptions = [];
+            }
+        }
+        setCreditHeader(newHeader);
+    };
+
     const handleCreditChange = async (index, field, value) => {
         const newRows = [...creditRows];
         newRows[index][field] = value;
-        if (field === "customer") {
-            if (value && value.value) {
-                const invOptions = await fetchInvoices(value.value);
-                newRows[index].invoiceOptions = invOptions;
-                newRows[index].invoiceNo = null;
-            } else {
-                newRows[index].invoiceOptions = [];
+        
+        if (field === "invoiceNo" && value && value.value) {
+            let items = invoiceItemsMap[value.value];
+            if (!items) {
+                const res = await getInvoiceDetails(value.value);
+                if (res && res.Items) {
+                    items = res.Items;
+                    setInvoiceItemsMap(prev => ({ ...prev, [value.value]: items }));
+                } else {
+                    items = [];
+                }
+            }
+            if (items && items.length > 0) {
+                const invoiceGasIds = items.map(item => parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0));
+                const selectedGasIds = newRows
+                    .filter((r, i) => i !== index && r.invoiceNo && r.invoiceNo.value === value.value && r.gas)
+                    .map(r => r.gas.value);
+                
+                const availableFirstItem = items.find(item => {
+                    const gid = parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0);
+                    return !selectedGasIds.includes(gid);
+                });
+
+                if (availableFirstItem) {
+                    const gid = parseInt(availableFirstItem.gascodeid || availableFirstItem.GasCodeId || availableFirstItem.GasId || 0);
+                    const uid = parseInt(availableFirstItem.uomid || availableFirstItem.UomId || 0);
+                    
+                    newRows[index].gas = gasOptions.find(g => g.value === gid) || null;
+                    newRows[index].uom = uomOptions.find(u => u.value === uid) || null;
+                } else {
+                    newRows[index].gas = null;
+                    newRows[index].uom = null;
+                }
             }
         }
+        
+        if (field === "qty" || field === "unitPrice" || field === "invoiceNo") {
+            const qty = parseFloat(newRows[index].qty) || 0;
+            const up = parseFloat(newRows[index].unitPrice) || 0;
+            newRows[index].amount = qty * up;
+        }
+
         setCreditRows(newRows);
     };
 
     const addCreditRow = () => {
-        setCreditRows([...creditRows, { cnNo: "", date: new Date(), amount: "", description: "", customer: null, invoiceNo: null, currency: null, invoiceOptions: [] }]);
+        setCreditRows([...creditRows, { invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
+    };
+
+    const removeCreditRow = (index) => {
+        if (creditRows.length > 1) {
+            setCreditRows(creditRows.filter((_, i) => i !== index));
+        }
     };
 
     const handleUpdateDebit = async (isSubmitted) => {
+        if (!debitHeader.dnNo || !debitHeader.customer) {
+            toast.warning("Please fill required header fields (DN No, Customer)");
+            return;
+        }
+
         for (const row of debitRows) {
-            if (!row.dnId) continue; // Only update existing? Or create new if added? For Edit Page, mostly update.
+            if (!row.dnId) continue; // Only updating existing for now
 
             const payload = {
                 DebitNoteId: row.dnId,
-                DebitNoteNo: row.dnNo,
-                Date: row.date.toISOString().split('T')[0],
+                DebitNoteNo: debitHeader.dnNo,
+                Date: debitHeader.date ? (debitHeader.date instanceof Date ? debitHeader.date.toISOString().split('T')[0] : new Date(debitHeader.date).toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
                 DebitAmount: parseFloat(row.amount),
-                Description: row.description,
-                CustomerId: row.customer.value,
+                Description: row.description || (row.gas ? row.gas.label : ""),
+                CustomerId: debitHeader.customer.value,
                 InvoiceNo: row.invoiceNo ? row.invoiceNo.value : null,
-                CurrencyId: row.currency ? row.currency.value : 1, // Default or selected
-                IsSubmitted: isSubmitted // or logic
+                CurrencyId: debitHeader.currency ? debitHeader.currency.value : 1,
+                GasCodeId: row.gas ? row.gas.value : 0,
+                Qty: parseFloat(row.qty) || 0,
+                UomId: row.uom ? row.uom.value : 0,
+                IsSubmitted: isSubmitted
             };
 
             try {
@@ -253,18 +426,26 @@ const EditDnCn = () => {
     };
 
     const handleUpdateCredit = async (isSubmitted) => {
+        if (!creditHeader.cnNo || !creditHeader.customer) {
+            toast.warning("Please fill required header fields (CN No, Customer)");
+            return;
+        }
+
         for (const row of creditRows) {
             if (!row.cnId) continue;
 
             const payload = {
                 CreditNoteId: row.cnId,
-                CreditNoteNo: row.cnNo,
-                Date: row.date.toISOString().split('T')[0],
+                CreditNoteNo: creditHeader.cnNo,
+                Date: creditHeader.date ? (creditHeader.date instanceof Date ? creditHeader.date.toISOString().split('T')[0] : new Date(creditHeader.date).toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
                 CreditAmount: parseFloat(row.amount),
-                Description: row.description,
-                CustomerId: row.customer.value,
+                Description: row.description || (row.gas ? row.gas.label : ""),
+                CustomerId: creditHeader.customer.value,
                 InvoiceNo: row.invoiceNo ? row.invoiceNo.value : null,
-                CurrencyId: row.currency ? row.currency.value : 1,
+                CurrencyId: creditHeader.currency ? creditHeader.currency.value : 1,
+                GasCodeId: row.gas ? row.gas.value : 0,
+                Qty: parseFloat(row.qty) || 0,
+                UomId: row.uom ? row.uom.value : 0,
                 IsSubmitted: isSubmitted
             };
 
@@ -279,17 +460,9 @@ const EditDnCn = () => {
         history.push("/dn-cn");
     };
 
-    const removeCreditRow = (index) => {
-        if (creditRows.length > 1) {
-            const newRows = creditRows.filter((_, i) => i !== index);
-            setCreditRows(newRows);
-        }
-    };
-
-    const formatAmount = (val) => {
+    const formatAmountInternal = (val) => {
         if (val === null || val === undefined || val === "") return "";
-        const formattedVal = parseFloat(val).toFixed(2);
-        const parts = formattedVal.split(".");
+        const parts = val.toString().split(".");
         parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
         return parts.join(".");
     };
@@ -302,254 +475,306 @@ const EditDnCn = () => {
                 {/* Debit Note Block */}
                 <Card>
                     <CardBody>
+                        <div className="d-flex justify-content-between align-items-center mb-4">
+                            <h4 className="card-title">Debit Note</h4>
+                            <Button color="primary" style={{ color: "white" }} onClick={addDebitRow}><i className="bx bx-plus"></i> Add Line</Button>
+                        </div>
+
+                        {/* Debit Header */}
                         <Row className="mb-4">
-                            <Col lg="12">
-                                <div className="d-flex justify-content-between align-items-center mb-3">
-                                    <h4 className="card-title">Debit Note</h4>
-                                    <Button color="primary" style={{ color: "white" }} onClick={addDebitRow}><i className="bx bx-plus"></i> Add</Button>
-                                </div>
-                                <div className="table-responsive">
-                                    <Table className="table-bordered mb-0 align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th style={{ minWidth: '120px' }}>Debit Note No</th>
-                                                <th style={{ minWidth: '120px' }}>Date</th>
-                                                <th style={{ minWidth: '100px' }}>Debit Amount</th>
-                                                <th style={{ minWidth: '150px' }}>Description</th>
-                                                <th style={{ minWidth: '200px' }}>Customer</th>
-                                                <th style={{ minWidth: '120px' }}>Invoice No</th>
-                                                <th style={{ minWidth: '100px' }}>Currency</th>
-                                                <th style={{ width: '40px' }}></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {debitRows.map((row, index) => (
-                                                <tr key={index}>
-                                                    <td className="p-1">
-                                                        <Input
-                                                            type="text"
-                                                            bsSize="sm"
-                                                            value={row.dnNo}
-                                                            onChange={(e) => handleDebitChange(index, "dnNo", e.target.value)}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Flatpickr
-                                                            className="form-control form-control-sm d-block"
-                                                            placeholder="dd-mm-yyyy"
-                                                            options={{
-                                                                altInput: true,
-                                                                altFormat: "d-M-Y",
-                                                                dateFormat: "Y-m-d",
-                                                            }}
-                                                            value={row.date}
-                                                            onChange={(date) => handleDebitChange(index, "date", date[0])}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Input
-                                                            type="text"
-                                                            bsSize="sm"
-                                                            value={formatAmount(row.amount)}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.replace(/,/g, "");
-                                                                if (/^\d*\.?\d*$/.test(val)) {
-                                                                    handleDebitChange(index, "amount", val);
-                                                                }
-                                                            }}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Input
-                                                            type="text"
-                                                            bsSize="sm"
-                                                            value={row.description}
-                                                            onChange={(e) => handleDebitChange(index, "description", e.target.value)}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Select
-                                                            value={row.customer}
-                                                            onChange={(selectedOption) => handleDebitChange(index, "customer", selectedOption)}
-                                                            options={customerOptions}
-                                                            classNamePrefix="select"
-                                                            placeholder="Select Customer"
-                                                            menuPortalTarget={document.body}
-                                                            styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Select
-                                                            value={row.invoiceNo}
-                                                            onChange={(selectedOption) => handleDebitChange(index, "invoiceNo", selectedOption)}
-                                                            options={row.invoiceOptions}
-                                                            classNamePrefix="select"
-                                                            placeholder="Select Invoice"
-                                                            menuPortalTarget={document.body}
-                                                            styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Select
-                                                            value={row.currency}
-                                                            onChange={(selectedOption) => handleDebitChange(index, "currency", selectedOption)}
-                                                            options={currencyOptions}
-                                                            classNamePrefix="select"
-                                                            placeholder="Currency"
-                                                            menuPortalTarget={document.body}
-                                                            styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
-                                                        />
-                                                    </td>
-                                                    <td className="text-center p-1">
-                                                        {debitRows.length > 1 && (
-                                                            <i className="bx bx-trash text-danger font-size-18" style={{ cursor: 'pointer' }} onClick={() => removeDebitRow(index)}></i>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                        <tfoot>
-                                            <tr>
-                                                <td colSpan="8">
-                                                    <div className="d-flex justify-content-end gap-2 mt-2">
-                                                        <Button color="primary" onClick={() => handleUpdateDebit(false)}>Save</Button>
-                                                        <Button color="success" onClick={() => handleUpdateDebit(true)}>Post</Button>
-                                                        <Button color="danger" onClick={() => history.push("/dn-cn")}>Cancel</Button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </Table>
-                                </div>
+                            <Col md={2}>
+                                <label className="form-label">Debit Note No</label>
+                                <Input
+                                    type="text"
+                                    value={debitHeader.dnNo}
+                                    placeholder="Enter DN No"
+                                    onChange={(e) => handleDebitHeaderChange("dnNo", e.target.value)}
+                                />
+                            </Col>
+                            <Col md={2}>
+                                <label className="form-label">Date</label>
+                                <Flatpickr
+                                    className="form-control d-block"
+                                    placeholder="Date"
+                                    options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }}
+                                    value={debitHeader.date}
+                                    onChange={(date) => handleDebitHeaderChange("date", date[0])}
+                                />
+                            </Col>
+                            <Col md={5}>
+                                <label className="form-label">Customer</label>
+                                <Select
+                                    value={debitHeader.customer}
+                                    onChange={(opt) => handleDebitHeaderChange("customer", opt)}
+                                    options={customerOptions}
+                                    placeholder="Select Customer"
+                                />
+                            </Col>
+                            <Col md={3}>
+                                <label className="form-label">Currency</label>
+                                <Select
+                                    value={debitHeader.currency}
+                                    onChange={(opt) => handleDebitHeaderChange("currency", opt)}
+                                    options={currencyOptions}
+                                    placeholder="Select Currency"
+                                />
                             </Col>
                         </Row>
+
+                        {/* Debit Grid */}
+                        <div className="table-responsive">
+                            <Table className="table-bordered mb-0 align-middle">
+                                <thead className="table-light">
+                                    <tr>
+                                        <th style={{ minWidth: '150px' }}>Invoice No</th>
+                                        <th style={{ minWidth: '180px' }}>Gas Name</th>
+                                        <th style={{ minWidth: '100px' }}>UOM</th>
+                                        <th style={{ minWidth: '80px' }}>Qty</th>
+                                        <th style={{ minWidth: '120px' }}>Unit Price</th>
+                                        <th style={{ minWidth: '120px' }}>Total Amount</th>
+                                        <th style={{ minWidth: '180px' }}>Description</th>
+                                        <th style={{ width: '40px' }}></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {debitRows.map((row, index) => (
+                                        <tr key={index}>
+                                            <td className="p-1">
+                                                <Select
+                                                    value={row.invoiceNo}
+                                                    onChange={(opt) => handleDebitChange(index, "invoiceNo", opt)}
+                                                    options={debitHeader.invoiceOptions}
+                                                    placeholder="Invoice"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Select
+                                                    value={row.gas}
+                                                    onChange={(opt) => handleDebitChange(index, "gas", opt)}
+                                                    options={getAvailableGasOptions(debitRows, index)}
+                                                    placeholder="Select Gas"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Select
+                                                    value={row.uom}
+                                                    onChange={(opt) => handleDebitChange(index, "uom", opt)}
+                                                    options={uomOptions}
+                                                    placeholder="UOM"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.qty}
+                                                    onChange={(e) => handleDebitChange(index, "qty", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.unitPrice}
+                                                    onChange={(e) => handleDebitChange(index, "unitPrice", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="text"
+                                                    bsSize="sm"
+                                                    disabled={true}
+                                                    value={formatAmountInternal(row.amount)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="text"
+                                                    bsSize="sm"
+                                                    value={row.description}
+                                                    onChange={(e) => handleDebitChange(index, "description", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="text-center p-1">
+                                                {debitRows.length > 1 && (
+                                                    <i className="bx bx-trash text-danger font-size-18" style={{ cursor: 'pointer' }} onClick={() => removeDebitRow(index)}></i>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colSpan="8">
+                                            <div className="d-flex justify-content-end gap-2 mt-3">
+                                                <Button color="primary" onClick={() => handleUpdateDebit(false)}>Save</Button>
+                                                <Button color="success" onClick={() => handleUpdateDebit(true)}>Post</Button>
+                                                <Button color="danger" onClick={() => history.push("/dn-cn")}>Cancel</Button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </Table>
+                        </div>
                     </CardBody>
                 </Card>
 
                 {/* Credit Note Block */}
                 <Card>
                     <CardBody>
-                        <Row>
-                            <Col lg="12">
-                                <div className="d-flex justify-content-between align-items-center mb-3">
-                                    <h4 className="card-title">Credit Note</h4>
-                                    <Button color="primary" style={{ color: "white" }} onClick={addCreditRow}><i className="bx bx-plus"></i> Add</Button>
-                                </div>
-                                <div className="table-responsive">
-                                    <Table className="table-bordered mb-0 align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th style={{ minWidth: '120px' }}>Credit Note No</th>
-                                                <th style={{ minWidth: '120px' }}>Date</th>
-                                                <th style={{ minWidth: '100px' }}>Credit Amount</th>
-                                                <th style={{ minWidth: '150px' }}>Description</th>
-                                                <th style={{ minWidth: '200px' }}>Customer</th>
-                                                <th style={{ minWidth: '120px' }}>Invoice No</th>
-                                                <th style={{ minWidth: '100px' }}>Currency</th>
-                                                <th style={{ width: '40px' }}></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {creditRows.map((row, index) => (
-                                                <tr key={index}>
-                                                    <td className="p-1">
-                                                        <Input
-                                                            type="text"
-                                                            bsSize="sm"
-                                                            value={row.cnNo}
-                                                            onChange={(e) => handleCreditChange(index, "cnNo", e.target.value)}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Flatpickr
-                                                            className="form-control form-control-sm d-block"
-                                                            placeholder="dd-mm-yyyy"
-                                                            options={{
-                                                                altInput: true,
-                                                                altFormat: "d-M-Y",
-                                                                dateFormat: "Y-m-d",
-                                                            }}
-                                                            value={row.date}
-                                                            onChange={(date) => handleCreditChange(index, "date", date[0])}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Input
-                                                            type="text"
-                                                            bsSize="sm"
-                                                            value={formatAmount(row.amount)}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.replace(/,/g, "");
-                                                                if (/^\d*\.?\d*$/.test(val)) {
-                                                                    handleCreditChange(index, "amount", val);
-                                                                }
-                                                            }}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Input
-                                                            type="text"
-                                                            bsSize="sm"
-                                                            value={row.description}
-                                                            onChange={(e) => handleCreditChange(index, "description", e.target.value)}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Select
-                                                            value={row.customer}
-                                                            onChange={(selectedOption) => handleCreditChange(index, "customer", selectedOption)}
-                                                            options={customerOptions}
-                                                            classNamePrefix="select"
-                                                            placeholder="Select Customer"
-                                                            menuPortalTarget={document.body}
-                                                            styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Select
-                                                            value={row.invoiceNo}
-                                                            onChange={(selectedOption) => handleCreditChange(index, "invoiceNo", selectedOption)}
-                                                            options={row.invoiceOptions}
-                                                            classNamePrefix="select"
-                                                            placeholder="Select Invoice"
-                                                            menuPortalTarget={document.body}
-                                                            styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
-                                                        />
-                                                    </td>
-                                                    <td className="p-1">
-                                                        <Select
-                                                            value={row.currency}
-                                                            onChange={(selectedOption) => handleCreditChange(index, "currency", selectedOption)}
-                                                            options={currencyOptions}
-                                                            classNamePrefix="select"
-                                                            placeholder="Currency"
-                                                            menuPortalTarget={document.body}
-                                                            styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
-                                                        />
-                                                    </td>
-                                                    <td className="text-center p-1">
-                                                        {creditRows.length > 1 && (
-                                                            <i className="bx bx-trash text-danger font-size-18" style={{ cursor: 'pointer' }} onClick={() => removeCreditRow(index)}></i>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                        <tfoot>
-                                            <tr>
-                                                <td colSpan="8">
-                                                    <div className="d-flex justify-content-end gap-2 mt-2">
-                                                        <Button color="primary" onClick={() => handleUpdateCredit(false)}>Save</Button>
-                                                        <Button color="success" onClick={() => handleUpdateCredit(true)}>Post</Button>
-                                                        <Button color="danger" onClick={() => history.push("/dn-cn")}>Cancel</Button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    </Table>
-                                </div>
+                        <div className="d-flex justify-content-between align-items-center mb-4">
+                            <h4 className="card-title">Credit Note</h4>
+                            <Button color="primary" style={{ color: "white" }} onClick={addCreditRow}><i className="bx bx-plus"></i> Add Line</Button>
+                        </div>
+
+                        {/* Credit Header */}
+                        <Row className="mb-4">
+                            <Col md={2}>
+                                <label className="form-label">Credit Note No</label>
+                                <Input
+                                    type="text"
+                                    value={creditHeader.cnNo}
+                                    placeholder="Enter CN No"
+                                    onChange={(e) => handleCreditHeaderChange("cnNo", e.target.value)}
+                                />
+                            </Col>
+                            <Col md={2}>
+                                <label className="form-label">Date</label>
+                                <Flatpickr
+                                    className="form-control d-block"
+                                    placeholder="Date"
+                                    options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }}
+                                    value={creditHeader.date}
+                                    onChange={(date) => handleCreditHeaderChange("date", date[0])}
+                                />
+                            </Col>
+                            <Col md={5}>
+                                <label className="form-label">Customer</label>
+                                <Select
+                                    value={creditHeader.customer}
+                                    onChange={(opt) => handleCreditHeaderChange("customer", opt)}
+                                    options={customerOptions}
+                                    placeholder="Select Customer"
+                                />
+                            </Col>
+                            <Col md={3}>
+                                <label className="form-label">Currency</label>
+                                <Select
+                                    value={creditHeader.currency}
+                                    onChange={(opt) => handleCreditHeaderChange("currency", opt)}
+                                    options={currencyOptions}
+                                    placeholder="Select Currency"
+                                />
                             </Col>
                         </Row>
+
+                        {/* Credit Grid */}
+                        <div className="table-responsive">
+                            <Table className="table-bordered mb-0 align-middle">
+                                <thead className="table-light">
+                                    <tr>
+                                        <th style={{ minWidth: '150px' }}>Invoice No</th>
+                                        <th style={{ minWidth: '180px' }}>Gas Name</th>
+                                        <th style={{ minWidth: '100px' }}>UOM</th>
+                                        <th style={{ minWidth: '80px' }}>Qty</th>
+                                        <th style={{ minWidth: '120px' }}>Unit Price</th>
+                                        <th style={{ minWidth: '120px' }}>Total Amount</th>
+                                        <th style={{ minWidth: '180px' }}>Description</th>
+                                        <th style={{ width: '40px' }}></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {creditRows.map((row, index) => (
+                                        <tr key={index}>
+                                            <td className="p-1">
+                                                <Select
+                                                    value={row.invoiceNo}
+                                                    onChange={(opt) => handleCreditChange(index, "invoiceNo", opt)}
+                                                    options={creditHeader.invoiceOptions}
+                                                    placeholder="Invoice"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Select
+                                                    value={row.gas}
+                                                    onChange={(opt) => handleCreditChange(index, "gas", opt)}
+                                                    options={getAvailableGasOptions(creditRows, index)}
+                                                    placeholder="Select Gas"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Select
+                                                    value={row.uom}
+                                                    onChange={(opt) => handleCreditChange(index, "uom", opt)}
+                                                    options={uomOptions}
+                                                    placeholder="UOM"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.qty}
+                                                    onChange={(e) => handleCreditChange(index, "qty", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.unitPrice}
+                                                    onChange={(e) => handleCreditChange(index, "unitPrice", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="text"
+                                                    bsSize="sm"
+                                                    disabled={true}
+                                                    value={formatAmountInternal(row.amount)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="text"
+                                                    bsSize="sm"
+                                                    value={row.description}
+                                                    onChange={(e) => handleCreditChange(index, "description", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="text-center p-1">
+                                                {creditRows.length > 1 && (
+                                                    <i className="bx bx-trash text-danger font-size-18" style={{ cursor: 'pointer' }} onClick={() => removeCreditRow(index)}></i>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colSpan="8">
+                                            <div className="d-flex justify-content-end gap-2 mt-3">
+                                                <Button color="primary" onClick={() => handleUpdateCredit(false)}>Save</Button>
+                                                <Button color="success" onClick={() => handleUpdateCredit(true)}>Post</Button>
+                                                <Button color="danger" onClick={() => history.push("/dn-cn")}>Cancel</Button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </Table>
+                        </div>
                     </CardBody>
                 </Card>
             </Container>

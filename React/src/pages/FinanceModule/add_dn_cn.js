@@ -17,7 +17,7 @@ import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/themes/material_blue.css";
 // import axios from "axios"; // Removed
 import { toast } from "react-toastify";
-import { getCustomersDNCN, getOutstandingInvoices, createDebitNote, createCreditNote, getLedgerCurrencies, fetchGasListDSI, GetUoM, GetCurrency } from "../../common/data/mastersapi";
+import { getCustomersDNCN, getOutstandingInvoices, getInvoiceDetails, createDebitNote, createCreditNote, getLedgerCurrencies, fetchGasListDSI, GetUoM, GetCurrency } from "../../common/data/mastersapi";
 
 
 const AddDnCn = () => {
@@ -110,7 +110,7 @@ const AddDnCn = () => {
 
     // Debit Note Rows State
     const [debitRows, setDebitRows] = useState([
-        { gas: null, qty: 1, uom: null, invoiceNo: null, amount: "", description: "" },
+        { invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" },
     ]);
 
     // Credit Note Header State
@@ -124,19 +124,37 @@ const AddDnCn = () => {
 
     // Credit Note Rows State
     const [creditRows, setCreditRows] = useState([
-        { gas: null, qty: 1, uom: null, invoiceNo: null, amount: "", description: "" },
+        { invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" },
     ]);
+
+    // Invoice Items Map State
+    const [invoiceItemsMap, setInvoiceItemsMap] = useState({});
+
+    const getAvailableGasOptions = (rows, index) => {
+        const row = rows[index];
+        if (!row.invoiceNo) return gasOptions;
+        
+        const items = invoiceItemsMap[row.invoiceNo.value];
+        if (!items) return gasOptions;
+        
+        const invoiceGasIds = items.map(item => parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0));
+        
+        const selectedGasIds = rows
+            .filter((r, i) => i !== index && r.invoiceNo && r.invoiceNo.value === row.invoiceNo.value && r.gas)
+            .map(r => r.gas.value);
+            
+        return gasOptions.filter(g => invoiceGasIds.includes(g.value) && !selectedGasIds.includes(g.value));
+    };
 
     // Handlers for Debit Note
     // Handlers for Debit Note Header
     const handleDebitHeaderChange = async (field, value) => {
         const newHeader = { ...debitHeader, [field]: value };
         if (field === "customer") {
+            setDebitRows([{ invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
             if (value && value.value) {
                 const invOptions = await fetchInvoices(value.value);
                 newHeader.invoiceOptions = invOptions;
-                // Reset invoice in all rows for this customer? 
-                // Or just update the options so rows can select.
             } else {
                 newHeader.invoiceOptions = [];
             }
@@ -144,14 +162,56 @@ const AddDnCn = () => {
         setDebitHeader(newHeader);
     };
 
-    const handleDebitChange = (index, field, value) => {
+    const handleDebitChange = async (index, field, value) => {
         const newRows = [...debitRows];
         newRows[index][field] = value;
+        
+        if (field === "invoiceNo" && value && value.value) {
+            let items = invoiceItemsMap[value.value];
+            if (!items) {
+                const res = await getInvoiceDetails(value.value);
+                if (res && res.Items) {
+                    items = res.Items;
+                    setInvoiceItemsMap(prev => ({ ...prev, [value.value]: items }));
+                } else {
+                    items = [];
+                }
+            }
+            if (items && items.length > 0) {
+                const invoiceGasIds = items.map(item => parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0));
+                const selectedGasIds = newRows
+                    .filter((r, i) => i !== index && r.invoiceNo && r.invoiceNo.value === value.value && r.gas)
+                    .map(r => r.gas.value);
+                
+                const availableFirstItem = items.find(item => {
+                    const gid = parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0);
+                    return !selectedGasIds.includes(gid);
+                });
+
+                if (availableFirstItem) {
+                    const gid = parseInt(availableFirstItem.gascodeid || availableFirstItem.GasCodeId || availableFirstItem.GasId || 0);
+                    const uid = parseInt(availableFirstItem.uomid || availableFirstItem.UomId || 0);
+                    
+                    newRows[index].gas = gasOptions.find(g => g.value === gid) || null;
+                    newRows[index].uom = uomOptions.find(u => u.value === uid) || null;
+                } else {
+                    newRows[index].gas = null;
+                    newRows[index].uom = null;
+                }
+            }
+        }
+        
+        if (field === "qty" || field === "unitPrice" || field === "invoiceNo") {
+            const qty = parseFloat(newRows[index].qty) || 0;
+            const up = parseFloat(newRows[index].unitPrice) || 0;
+            newRows[index].amount = qty * up;
+        }
+
         setDebitRows(newRows);
     };
 
     const addDebitRow = () => {
-        setDebitRows([...debitRows, { gas: null, qty: 1, uom: null, invoiceNo: null, amount: "", description: "" }]);
+        setDebitRows([...debitRows, { invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
     };
 
     const removeDebitRow = (index) => {
@@ -164,6 +224,7 @@ const AddDnCn = () => {
     const handleCreditHeaderChange = async (field, value) => {
         const newHeader = { ...creditHeader, [field]: value };
         if (field === "customer") {
+            setCreditRows([{ invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
             if (value && value.value) {
                 const invOptions = await fetchInvoices(value.value);
                 newHeader.invoiceOptions = invOptions;
@@ -174,14 +235,56 @@ const AddDnCn = () => {
         setCreditHeader(newHeader);
     };
 
-    const handleCreditChange = (index, field, value) => {
+    const handleCreditChange = async (index, field, value) => {
         const newRows = [...creditRows];
         newRows[index][field] = value;
+        
+        if (field === "invoiceNo" && value && value.value) {
+            let items = invoiceItemsMap[value.value];
+            if (!items) {
+                const res = await getInvoiceDetails(value.value);
+                if (res && res.Items) {
+                    items = res.Items;
+                    setInvoiceItemsMap(prev => ({ ...prev, [value.value]: items }));
+                } else {
+                    items = [];
+                }
+            }
+            if (items && items.length > 0) {
+                const invoiceGasIds = items.map(item => parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0));
+                const selectedGasIds = newRows
+                    .filter((r, i) => i !== index && r.invoiceNo && r.invoiceNo.value === value.value && r.gas)
+                    .map(r => r.gas.value);
+                
+                const availableFirstItem = items.find(item => {
+                    const gid = parseInt(item.gascodeid || item.GasCodeId || item.GasId || 0);
+                    return !selectedGasIds.includes(gid);
+                });
+
+                if (availableFirstItem) {
+                    const gid = parseInt(availableFirstItem.gascodeid || availableFirstItem.GasCodeId || availableFirstItem.GasId || 0);
+                    const uid = parseInt(availableFirstItem.uomid || availableFirstItem.UomId || 0);
+                    
+                    newRows[index].gas = gasOptions.find(g => g.value === gid) || null;
+                    newRows[index].uom = uomOptions.find(u => u.value === uid) || null;
+                } else {
+                    newRows[index].gas = null;
+                    newRows[index].uom = null;
+                }
+            }
+        }
+        
+        if (field === "qty" || field === "unitPrice" || field === "invoiceNo") {
+            const qty = parseFloat(newRows[index].qty) || 0;
+            const up = parseFloat(newRows[index].unitPrice) || 0;
+            newRows[index].amount = qty * up;
+        }
+
         setCreditRows(newRows);
     };
 
     const addCreditRow = () => {
-        setCreditRows([...creditRows, { gas: null, qty: 1, uom: null, invoiceNo: null, amount: "", description: "" }]);
+        setCreditRows([...creditRows, { invoiceNo: null, gas: null, uom: null, qty: 1, unitPrice: "", amount: "", description: "" }]);
     };
 
     const handleSaveDebit = async (isSubmitted) => {
@@ -324,11 +427,12 @@ const AddDnCn = () => {
                             <Table className="table-bordered mb-0 align-middle">
                                 <thead className="table-light">
                                     <tr>
-                                        <th style={{ minWidth: '180px' }}>Gas Name</th>
-                                        <th style={{ minWidth: '80px' }}>Qty</th>
-                                        <th style={{ minWidth: '100px' }}>UOM</th>
                                         <th style={{ minWidth: '150px' }}>Invoice No</th>
-                                        <th style={{ minWidth: '120px' }}>Amount</th>
+                                        <th style={{ minWidth: '180px' }}>Gas Name</th>
+                                        <th style={{ minWidth: '100px' }}>UOM</th>
+                                        <th style={{ minWidth: '80px' }}>Qty</th>
+                                        <th style={{ minWidth: '120px' }}>Unit Price</th>
+                                        <th style={{ minWidth: '120px' }}>Total Amount</th>
                                         <th style={{ minWidth: '180px' }}>Description</th>
                                         <th style={{ width: '40px' }}></th>
                                     </tr>
@@ -338,20 +442,22 @@ const AddDnCn = () => {
                                         <tr key={index}>
                                             <td className="p-1">
                                                 <Select
-                                                    value={row.gas}
-                                                    onChange={(opt) => handleDebitChange(index, "gas", opt)}
-                                                    options={gasOptions}
-                                                    placeholder="Select Gas"
+                                                    value={row.invoiceNo}
+                                                    onChange={(opt) => handleDebitChange(index, "invoiceNo", opt)}
+                                                    options={debitHeader.invoiceOptions}
+                                                    placeholder="Invoice"
                                                     menuPortalTarget={document.body}
                                                     styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
                                                 />
                                             </td>
                                             <td className="p-1">
-                                                <Input
-                                                    type="number"
-                                                    bsSize="sm"
-                                                    value={row.qty}
-                                                    onChange={(e) => handleDebitChange(index, "qty", e.target.value)}
+                                                <Select
+                                                    value={row.gas}
+                                                    onChange={(opt) => handleDebitChange(index, "gas", opt)}
+                                                    options={getAvailableGasOptions(debitRows, index)}
+                                                    placeholder="Select Gas"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
                                                 />
                                             </td>
                                             <td className="p-1">
@@ -365,24 +471,27 @@ const AddDnCn = () => {
                                                 />
                                             </td>
                                             <td className="p-1">
-                                                <Select
-                                                    value={row.invoiceNo}
-                                                    onChange={(opt) => handleDebitChange(index, "invoiceNo", opt)}
-                                                    options={debitHeader.invoiceOptions}
-                                                    placeholder="Invoice"
-                                                    menuPortalTarget={document.body}
-                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.qty}
+                                                    onChange={(e) => handleDebitChange(index, "qty", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.unitPrice}
+                                                    onChange={(e) => handleDebitChange(index, "unitPrice", e.target.value)}
                                                 />
                                             </td>
                                             <td className="p-1">
                                                 <Input
                                                     type="text"
                                                     bsSize="sm"
+                                                    disabled={true}
                                                     value={formatAmountInternal(row.amount)}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value.replace(/,/g, "");
-                                                        if (/^\d*\.?\d*$/.test(val)) handleDebitChange(index, "amount", val);
-                                                    }}
                                                 />
                                             </td>
                                             <td className="p-1">
@@ -403,7 +512,7 @@ const AddDnCn = () => {
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colSpan="7">
+                                        <td colSpan="8">
                                             <div className="d-flex justify-content-end gap-2 mt-3">
                                                 <Button color="primary" onClick={() => handleSaveDebit(false)}>Save</Button>
                                                 <Button color="success" onClick={() => handleSaveDebit(true)}>Post</Button>
@@ -471,11 +580,12 @@ const AddDnCn = () => {
                             <Table className="table-bordered mb-0 align-middle">
                                 <thead className="table-light">
                                     <tr>
-                                        <th style={{ minWidth: '180px' }}>Gas Name</th>
-                                        <th style={{ minWidth: '80px' }}>Qty</th>
-                                        <th style={{ minWidth: '100px' }}>UOM</th>
                                         <th style={{ minWidth: '150px' }}>Invoice No</th>
-                                        <th style={{ minWidth: '120px' }}>Amount</th>
+                                        <th style={{ minWidth: '180px' }}>Gas Name</th>
+                                        <th style={{ minWidth: '100px' }}>UOM</th>
+                                        <th style={{ minWidth: '80px' }}>Qty</th>
+                                        <th style={{ minWidth: '120px' }}>Unit Price</th>
+                                        <th style={{ minWidth: '120px' }}>Total Amount</th>
                                         <th style={{ minWidth: '180px' }}>Description</th>
                                         <th style={{ width: '40px' }}></th>
                                     </tr>
@@ -485,20 +595,22 @@ const AddDnCn = () => {
                                         <tr key={index}>
                                             <td className="p-1">
                                                 <Select
-                                                    value={row.gas}
-                                                    onChange={(opt) => handleCreditChange(index, "gas", opt)}
-                                                    options={gasOptions}
-                                                    placeholder="Select Gas"
+                                                    value={row.invoiceNo}
+                                                    onChange={(opt) => handleCreditChange(index, "invoiceNo", opt)}
+                                                    options={creditHeader.invoiceOptions}
+                                                    placeholder="Invoice"
                                                     menuPortalTarget={document.body}
                                                     styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
                                                 />
                                             </td>
                                             <td className="p-1">
-                                                <Input
-                                                    type="number"
-                                                    bsSize="sm"
-                                                    value={row.qty}
-                                                    onChange={(e) => handleCreditChange(index, "qty", e.target.value)}
+                                                <Select
+                                                    value={row.gas}
+                                                    onChange={(opt) => handleCreditChange(index, "gas", opt)}
+                                                    options={getAvailableGasOptions(creditRows, index)}
+                                                    placeholder="Select Gas"
+                                                    menuPortalTarget={document.body}
+                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
                                                 />
                                             </td>
                                             <td className="p-1">
@@ -512,24 +624,27 @@ const AddDnCn = () => {
                                                 />
                                             </td>
                                             <td className="p-1">
-                                                <Select
-                                                    value={row.invoiceNo}
-                                                    onChange={(opt) => handleCreditChange(index, "invoiceNo", opt)}
-                                                    options={creditHeader.invoiceOptions}
-                                                    placeholder="Invoice"
-                                                    menuPortalTarget={document.body}
-                                                    styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }) }}
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.qty}
+                                                    onChange={(e) => handleCreditChange(index, "qty", e.target.value)}
+                                                />
+                                            </td>
+                                            <td className="p-1">
+                                                <Input
+                                                    type="number"
+                                                    bsSize="sm"
+                                                    value={row.unitPrice}
+                                                    onChange={(e) => handleCreditChange(index, "unitPrice", e.target.value)}
                                                 />
                                             </td>
                                             <td className="p-1">
                                                 <Input
                                                     type="text"
                                                     bsSize="sm"
+                                                    disabled={true}
                                                     value={formatAmountInternal(row.amount)}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value.replace(/,/g, "");
-                                                        if (/^\d*\.?\d*$/.test(val)) handleCreditChange(index, "amount", val);
-                                                    }}
                                                 />
                                             </td>
                                             <td className="p-1">
@@ -550,7 +665,7 @@ const AddDnCn = () => {
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colSpan="9">
+                                        <td colSpan="8">
                                             <div className="d-flex justify-content-end gap-2 mt-3">
                                                 <Button color="primary" onClick={() => handleSaveCredit(false)}>Save</Button>
                                                 <Button color="success" onClick={() => handleSaveCredit(true)}>Post</Button>

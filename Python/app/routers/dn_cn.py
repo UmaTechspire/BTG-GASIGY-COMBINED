@@ -29,6 +29,9 @@ class CreditNoteCreate(BaseModel):
     InvoiceNo: Optional[Any] = None 
     CurrencyId: int
     IsSubmitted: bool = False
+    GasCodeId: int = 0
+    Qty: float = 1.0
+    UomId: int = 0
 
 class CreditNoteUpdate(BaseModel):
     CreditNoteId: int
@@ -40,6 +43,9 @@ class CreditNoteUpdate(BaseModel):
     InvoiceNo: Optional[Any] = None
     CurrencyId: int
     IsSubmitted: bool
+    GasCodeId: int = 0
+    Qty: float = 1.0
+    UomId: int = 0
 
 class DebitNoteCreate(BaseModel):
     DebitNoteNo: str
@@ -50,6 +56,9 @@ class DebitNoteCreate(BaseModel):
     InvoiceNo: Optional[Any] = None
     CurrencyId: int
     IsSubmitted: bool = False
+    GasCodeId: int = 0
+    Qty: float = 1.0
+    UomId: int = 0
 
 class DebitNoteUpdate(BaseModel):
     DebitNoteId: int
@@ -61,6 +70,9 @@ class DebitNoteUpdate(BaseModel):
     InvoiceNo: Optional[Any] = None
     CurrencyId: int
     IsSubmitted: bool
+    GasCodeId: int = 0
+    Qty: float = 1.0
+    UomId: int = 0
 
 # --- API Endpoints ---
 
@@ -78,7 +90,10 @@ async def create_credit_note(note: CreditNoteCreate, db: Session = Depends(get_d
         CustomerId=note.CustomerId,
         InvoiceId=note.InvoiceNo,           # Front sending ID in InvoiceNo field. Map to InvoiceId.
         CurrencyId=note.CurrencyId,
-        IsSubmitted=note.IsSubmitted 
+        IsSubmitted=note.IsSubmitted,
+        GasCodeId=note.GasCodeId,
+        Qty=note.Qty,
+        UomId=note.UomId
     )
     db.add(new_cn)
     await db.commit()
@@ -117,6 +132,9 @@ async def update_credit_note(note: CreditNoteUpdate, db: Session = Depends(get_d
     existing_cn.InvoiceId = note.InvoiceNo
     existing_cn.CurrencyId = note.CurrencyId
     existing_cn.IsSubmitted = note.IsSubmitted
+    existing_cn.GasCodeId = note.GasCodeId
+    existing_cn.Qty = note.Qty
+    existing_cn.UomId = note.UomId
     
     await db.commit()
 
@@ -151,7 +169,10 @@ async def create_debit_note(note: DebitNoteCreate, db: Session = Depends(get_db)
         CustomerId=note.CustomerId,
         InvoiceId=note.InvoiceNo,
         CurrencyId=note.CurrencyId,
-        IsSubmitted=note.IsSubmitted
+        IsSubmitted=note.IsSubmitted,
+        GasCodeId=note.GasCodeId,
+        Qty=note.Qty,
+        UomId=note.UomId
     )
     db.add(new_dn)
     await db.commit()
@@ -194,6 +215,9 @@ async def update_debit_note(note: DebitNoteUpdate, db: Session = Depends(get_db)
     existing_dn.InvoiceId = note.InvoiceNo
     existing_dn.CurrencyId = note.CurrencyId
     existing_dn.IsSubmitted = note.IsSubmitted
+    existing_dn.GasCodeId = note.GasCodeId
+    existing_dn.Qty = note.Qty
+    existing_dn.UomId = note.UomId
     
     await db.commit()
 

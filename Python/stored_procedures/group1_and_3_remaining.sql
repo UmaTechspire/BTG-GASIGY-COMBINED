@@ -371,16 +371,15 @@ BEGIN
             AND (p_from_date IS NULL OR ar.invoice_date >= p_from_date)
             AND (p_to_date   IS NULL OR ar.invoice_date <= p_to_date)
             AND (ar.inv_amount - ar.already_received) > 0.01
-            -- Standard Business Filter: Filter out DOs that are part of a consolidated invoice
-            AND (h.id IS NULL OR (
-                h.salesinvoicenbr NOT LIKE 'DO %'
+            AND (
+                ar.invoice_no NOT LIKE 'DO %'
                 AND NOT EXISTS (
                     SELECT 1
                     FROM btggasify_live.tbl_salesinvoices_details d
-                    WHERE TRIM(d.DOnumber) = h.salesinvoicenbr
-                      AND d.salesinvoicesheaderid != h.id
+                    WHERE TRIM(d.DOnumber) = ar.invoice_no
+                      AND (h.id IS NULL OR d.salesinvoicesheaderid != h.id)
                 )
-            ))
+            )
           )
       )
 
