@@ -1,4 +1,4 @@
-import { get, post, put } from "../../helpers/api_helper";
+import { get, post, put, del } from "../../helpers/api_helper";
 import axios from "axios";
 import { saveAs } from "file-saver";
 import Swal from 'sweetalert2';
@@ -5852,5 +5852,157 @@ export const SaveBlanketPOApprove = async (payload) => {
     } catch (error) {
         console.error("Error saving Blanket PO Approval:", error);
         throw error;
+    }
+};
+
+// --- PROCUREMENT DN/CN API ENDPOINTS ---
+export const getAllProcurementCreditNotes = async () => {
+    try {
+        const response = await get("/ProcurementDNCN/get-all-credit-notes");
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            console.error(response?.message || "Failed to fetch procurement credit notes");
+            return { status: "error", message: response?.message };
+        }
+    } catch (error) {
+        console.error("Error fetching procurement credit notes:", error);
+        return { status: "error", message: error.message };
+    }
+};
+
+export const getAllProcurementDebitNotes = async () => {
+    try {
+        const response = await get("/ProcurementDNCN/get-all-debit-notes");
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            console.error(response?.message || "Failed to fetch procurement debit notes");
+            return { status: "error", message: response?.message };
+        }
+    } catch (error) {
+        console.error("Error fetching procurement debit notes:", error);
+        return { status: "error", message: error.message };
+    }
+};
+
+export const createProcurementCreditNote = async (payload) => {
+    try {
+        const response = await post("/ProcurementDNCN/create-credit-note", payload);
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            throw new Error(response?.message || "Failed to create procurement credit note");
+        }
+    } catch (error) {
+        console.error("Error creating procurement credit note:", error);
+        throw error;
+    }
+};
+
+export const createProcurementDebitNote = async (payload) => {
+    try {
+        const response = await post("/ProcurementDNCN/create-debit-note", payload);
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            throw new Error(response?.message || "Failed to create procurement debit note");
+        }
+    } catch (error) {
+        console.error("Error creating procurement debit note:", error);
+        throw error;
+    }
+};
+
+export const updateProcurementCreditNote = async (payload) => {
+    try {
+        const response = await put("/ProcurementDNCN/update-credit-note", payload);
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            throw new Error(response?.message || "Failed to update procurement credit note");
+        }
+    } catch (error) {
+        console.error("Error updating procurement credit note:", error);
+        throw error;
+    }
+};
+
+export const updateProcurementDebitNote = async (payload) => {
+    try {
+        const response = await put("/ProcurementDNCN/update-debit-note", payload);
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            throw new Error(response?.message || "Failed to update procurement debit note");
+        }
+    } catch (error) {
+        console.error("Error updating procurement debit note:", error);
+        throw error;
+    }
+};
+
+export const getProcurementCreditNoteById = async (id) => {
+    try {
+        const response = await get("/ProcurementDNCN/get-credit-note/" + id);
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            console.error(response?.message || "Failed to fetch procurement credit note");
+            return { status: "error", message: response?.message };
+        }
+    } catch (error) {
+        console.error("Error fetching procurement credit note:", error);
+        return { status: "error", message: error.message };
+    }
+};
+
+export const getProcurementDebitNoteById = async (id) => {
+    try {
+        const response = await get("/ProcurementDNCN/get-debit-note/" + id);
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            console.error(response?.message || "Failed to fetch procurement debit note");
+            return { status: "error", message: response?.message };
+        }
+    } catch (error) {
+        console.error("Error fetching procurement debit note:", error);
+        return { status: "error", message: error.message };
+    }
+};
+
+export const deleteProcurementCreditNote = async (id) => {
+    try {
+        const response = await del("/ProcurementDNCN/delete-credit-note/" + id);
+        return { status: "success", message: response?.message };
+    } catch (error) {
+        console.error("Error deleting procurement credit note:", error);
+        throw error;
+    }
+};
+
+export const deleteProcurementDebitNote = async (id) => {
+    try {
+        const response = await del("/ProcurementDNCN/delete-debit-note/" + id);
+        return { status: "success", message: response?.message };
+    } catch (error) {
+        console.error("Error deleting procurement debit note:", error);
+        throw error;
+    }
+};
+
+export const getItemsByInvoiceId = async (invoiceId) => {
+    try {
+        const response = await get("/ProcurementDNCN/get-items-by-invoice/" + invoiceId);
+        if (response?.status) {
+            return { status: "success", data: response.data };
+        } else {
+            console.error(response?.message || "Failed to fetch invoice items");
+            return { status: "error", message: response?.message };
+        }
+    } catch (error) {
+        console.error("Error fetching invoice items:", error);
+        return { status: "error", message: error.message };
     }
 };

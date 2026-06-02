@@ -350,6 +350,9 @@ import BankReconciliation from "../pages/FinanceModule/Reports/BankReconciliatio
 import DnCn from "../pages/FinanceModule/DnCn";
 import AddDnCn from "../pages/FinanceModule/add_dn_cn";
 import EditDnCn from "../pages/FinanceModule/edit_dn_cn";
+import ProcurementDnCn from "../pages/Procurement/DnCn";
+import ProcurementAddDnCn from "../pages/Procurement/add_dn_cn";
+import ProcurementEditDnCn from "../pages/Procurement/edit_dn_cn";
 import JournalCt from "../pages/FinanceModule/JournalCt";
 import AddJournal from "../pages/FinanceModule/add_journal";
 import SalesCommissionReport from "../pages/FinanceModule/Reports/SalesCommissionReport";
@@ -734,6 +737,9 @@ const authProtectedRoutes = [
     { path: "/dn-cn", component: DnCn },
     { path: "/add-dn-cn", component: AddDnCn },
     { path: "/edit-dn-cn/:id", component: EditDnCn },
+    { path: "/procurement-dn-cn", component: ProcurementDnCn },
+    { path: "/procurement-add-dn-cn", component: ProcurementAddDnCn },
+    { path: "/procurement-edit-dn-cn/:id", component: ProcurementEditDnCn },
     { path: "/add-sales-commission", component: AddSalesCommission },
     { path: "/sales-commission-report", component: SalesCommissionReport },
 ];

@@ -543,7 +543,8 @@ class SidebarContent extends Component {
                 { name: "Purchase Order", url: "/procurementspurchase-order", icon: "bx bx-cart" },
                 { name: "GRN", url: "/procurementsgrn", icon: "bx bx-box" },
                 // IRN is already here, ensuring it shows in Procurement
-                { name: "IRN", url: "/InvoiceReceipt", icon: "bx bx-receipt" }
+                { name: "IRN", url: "/InvoiceReceipt", icon: "bx bx-receipt" },
+                { name: "DN/CN", url: "/procurement-dn-cn", icon: "bx bx-file" }
             ];
 
             procurementItems.forEach((item, index) => {
@@ -557,6 +558,20 @@ class SidebarContent extends Component {
             });
 
             menuData.menus.push(procurementModule);
+        }
+
+        // Ensure "DN/CN" is present under Procurement in all cases
+        if (procurementModule) {
+            const dnCnExists = procurementModule.screen.find(s => s.screenName === "DN/CN" || s.url === "/procurement-dn-cn");
+            if (!dnCnExists) {
+                procurementModule.screen.push({
+                    screenId: 99978,
+                    screenName: "DN/CN",
+                    url: "/procurement-dn-cn",
+                    icon: "bx bx-file",
+                    module: []
+                });
+            }
         }
 
         // D. Inject "Claim"
