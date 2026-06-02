@@ -429,7 +429,13 @@ const AP = () => {
                                 POId: item.poid,
                                 IRNId: item.irn_id,
                                 ppp_pv_director_approved: item.ppp_pv_director_approved,
-                                ppp_pv_commissioner_approved: item.ppp_pv_commissioner_approved
+                                ppp_pv_commissioner_approved: item.ppp_pv_commissioner_approved,
+                                debit_note_amount: Number(item.debit_note_amount || 0),
+                                credit_note_amount: Number(item.credit_note_amount || 0),
+                                debit_note_no: item.debit_note_no || "",
+                                debit_note_date: item.debit_note_date || "",
+                                credit_note_no: item.credit_note_no || "",
+                                credit_note_date: item.credit_note_date || ""
                             });
                         });
                 }
@@ -443,7 +449,7 @@ const AP = () => {
 
                 let cumulative = 0;
                 mergedList = mergedList.map(item => {
-                    const balance = (item.IRNAmount || 0) - (item.ClaimAmount || 0);
+                    const balance = (item.IRNAmount || 0) + (item.debit_note_amount || 0) - (item.ClaimAmount || 0) - (item.credit_note_amount || 0);
                     cumulative += balance;
                     if (Math.abs(cumulative) < 0.001) cumulative = 0;
                     return { ...item, Balance: balance, CumulativeAmount: cumulative };
@@ -552,6 +558,128 @@ const AP = () => {
             );
         }
         return "-";
+    };
+
+    const displayLedgerPONumber = (item) => {
+        const poNo = item.PONumber || item.po_no || item.pono || (poLookup[item.POId] ? poLookup[item.POId].pono : null);
+        const poDate = item.po_date || item.podate || (poLookup[item.POId] ? poLookup[item.POId].podate : null);
+        let val = item.po_amount || 0;
+        if (Math.abs(val) < 0.001) val = 0;
+        const poAmt = val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+
+        if (poNo && poNo !== "-") {
+            return (
+                <div className="d-flex flex-column align-items-center text-center">
+                    <span
+                        className="fw-bold cursor-pointer text-primary"
+                        style={{ textDecoration: 'underline' }}
+                        onClick={() => handlePOClick(item.POId)}
+                        title="View PO Details"
+                    >
+                        {poNo}
+                    </span>
+                    {poDate && (
+                        <small className="text-muted mt-1">
+                            {formatDate(poDate)}
+                        </small>
+                    )}
+                    <span className="fw-semibold mt-1" style={{ color: 'rgb(178, 34, 34)', whiteSpace: 'nowrap' }}>
+                        {poAmt}
+                    </span>
+                </div>
+            );
+        }
+        return <div style={{ textAlign: "center" }}>-</div>;
+    };
+
+    const displayLedgerGRNNumber = (item) => {
+        if (item.grn_no && item.grn_no !== "") {
+            let val = item.IRNAmount || 0;
+            if (Math.abs(val) < 0.001) val = 0;
+            const grnAmt = val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+
+            return (
+                <div className="d-flex flex-column align-items-center text-center">
+                    <span
+                        className="fw-bold cursor-pointer text-primary"
+                        style={{ textDecoration: 'underline' }}
+                        onClick={() => handleGRNClick(item.grn_id)}
+                        title="View GRN Details"
+                    >
+                        {item.grn_no}
+                    </span>
+                    {item.grn_date && (
+                        <small className="text-muted mt-1">
+                            {formatDate(item.grn_date)}
+                        </small>
+                    )}
+                    <span className="fw-semibold mt-1" style={{ color: 'rgb(178, 34, 34)', whiteSpace: 'nowrap' }}>
+                        {grnAmt}
+                    </span>
+                </div>
+            );
+        }
+        return <div style={{ textAlign: "center" }}>-</div>;
+    };
+
+    const displayLedgerIRNNumber = (item) => {
+        if (item.irn_no && item.irn_no !== "") {
+            let val = item.IRNAmount || 0;
+            if (Math.abs(val) < 0.001) val = 0;
+            const irnAmt = val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+
+            return (
+                <div className="d-flex flex-column align-items-center text-center">
+                    <span
+                        className="fw-bold cursor-pointer text-primary"
+                        style={{ textDecoration: 'underline' }}
+                        onClick={() => handleIRNClick(item.POId || item.poid, item)}
+                        title="View IRN Details"
+                    >
+                        {item.irn_no}
+                    </span>
+                    {item.irn_date && (
+                        <small className="text-muted mt-1">
+                            {formatDate(item.irn_date)}
+                        </small>
+                    )}
+                    <span className="fw-semibold mt-1" style={{ color: 'rgb(178, 34, 34)', whiteSpace: 'nowrap' }}>
+                        {irnAmt}
+                    </span>
+                </div>
+            );
+        }
+        return <div style={{ textAlign: "center" }}>-</div>;
+    };
+
+    const displayLedgerClaimNumber = (item) => {
+        if (item.claim_no && item.claim_no !== "") {
+            let val = item.ClaimAmount || 0;
+            if (Math.abs(val) < 0.001) val = 0;
+            const claimAmt = val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+
+            return (
+                <div className="d-flex flex-column align-items-center text-center">
+                    <span
+                        className="fw-bold cursor-pointer text-primary"
+                        style={{ textDecoration: 'underline' }}
+                        onClick={() => handleClaimClick(item)}
+                        title="View Claim Details"
+                    >
+                        {item.claim_no}
+                    </span>
+                    {item.claim_date && (
+                        <small className="text-muted mt-1">
+                            {formatDate(item.claim_date)}
+                        </small>
+                    )}
+                    <span className="fw-semibold mt-1" style={{ color: 'rgb(178, 34, 34)', whiteSpace: 'nowrap' }}>
+                        {claimAmt}
+                    </span>
+                </div>
+            );
+        }
+        return <div style={{ textAlign: "center" }}>-</div>;
     };
 
     const renderHeader = (tabType) => {
@@ -1119,35 +1247,62 @@ const AP = () => {
                                     className="blue-bg"
                                     showGridlines
                                 >
-                                    <Column field="po_no" header="PO No / DATE" body={displayPONumber} sortable />
-                                    <Column field="po_amount" header="PO Amt" body={(item) => {
-                                        let val = item.po_amount || 0;
-                                        if (Math.abs(val) < 0.001) val = 0;
-                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
-                                    }} className="text-end" sortable />
-                                    <Column field="grn_no" header="GRN No. / DATE" body={displayGRNNumber} sortable />
-                                    <Column field="irn_no" header="IRN No. / DATE" body={displayIRNNumber} sortable />
-                                    <Column field="IRNAmount" header="GRN/IRN Amount" body={(item) => {
-                                        let val = item.IRNAmount || 0;
-                                        if (Math.abs(val) < 0.001) val = 0;
-                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
-                                    }} className="text-end" sortable />
-                                    <Column field="claim_no" header="Claim No. / DATE" body={displayClaimNumber} sortable />
-                                    <Column field="ClaimAmount" header="Claim Amt" body={(item) => {
-                                        let val = item.ClaimAmount || 0;
-                                        if (Math.abs(val) < 0.001) val = 0;
-                                        return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
-                                    }} className="text-end" sortable />
+                                    <Column field="po_no" header="PO No / DATE/ PO Amt" body={displayLedgerPONumber} sortable alignHeader="center" style={{ width: '16%', minWidth: '11rem' }} />
+                                    <Column field="grn_no" header="GRN No. / DATE/GRN Amt" body={displayLedgerGRNNumber} sortable alignHeader="center" style={{ width: '16%', minWidth: '11rem' }} />
+                                    <Column field="irn_no" header="IRN No. / DATE / IRN Amt (A)" body={displayLedgerIRNNumber} sortable alignHeader="center" style={{ width: '16%', minWidth: '11rem' }} />
+                                    <Column field="claim_no" header="Claim No. / DATE/Claim Amt (C)" body={displayLedgerClaimNumber} sortable alignHeader="center" style={{ width: '16%', minWidth: '11rem' }} />
                                     <Column field="Balance" header="Balance" body={(item) => {
                                         let val = item.Balance || 0;
                                         if (Math.abs(val) < 0.001) val = 0;
                                         return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                    }} className="text-end" sortable />
-                                    <Column field="CumulativeAmount" header="Cumulative" body={(item) => {
+                                    }} className="text-end" sortable style={{ width: '10%', minWidth: '7rem' }} />
+                                    <Column field="debit_note_amount" header="Debit Note (B)" body={(item) => {
+                                        let val = item.debit_note_amount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        if (val > 0) {
+                                            const dnNo = item.debit_note_no || "-";
+                                            const dnDate = item.debit_note_date ? formatDate(item.debit_note_date) : "-";
+                                            const dnAmt = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            return (
+                                                <div className="d-flex flex-column align-items-center text-center">
+                                                    <span className="fw-bold text-primary">{dnNo}</span>
+                                                    <small className="text-muted mt-1">{dnDate}</small>
+                                                    <span className="fw-semibold mt-1" style={{ color: '#1976d2', whiteSpace: 'nowrap' }}>
+                                                        {dnAmt}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return <div style={{ textAlign: "center" }}>-</div>;
+                                    }} className="text-end" sortable style={{ width: '12%', minWidth: '8rem' }} />
+                                    <Column field="credit_note_amount" header="Credit Note (D)" body={(item) => {
+                                        let val = item.credit_note_amount || 0;
+                                        if (Math.abs(val) < 0.001) val = 0;
+                                        if (val > 0) {
+                                            const cnNo = item.credit_note_no || "-";
+                                            const cnDate = item.credit_note_date ? formatDate(item.credit_note_date) : "-";
+                                            const cnAmt = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            return (
+                                                <div className="d-flex flex-column align-items-center text-center">
+                                                    <span className="fw-bold text-success">{cnNo}</span>
+                                                    <small className="text-muted mt-1">{cnDate}</small>
+                                                    <span className="fw-semibold mt-1" style={{ color: '#2e7d32', whiteSpace: 'nowrap' }}>
+                                                        {cnAmt}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return <div style={{ textAlign: "center" }}>-</div>;
+                                    }} className="text-end" sortable style={{ width: '12%', minWidth: '8rem' }} />
+                                    <Column field="CumulativeAmount" header="Balance((A+B)-(C+D))" body={(item) => {
                                         let val = item.CumulativeAmount || 0;
                                         if (Math.abs(val) < 0.001) val = 0;
-                                        return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                    }} className="text-end" sortable />
+                                        return (
+                                            <span className="fw-bold" style={{ color: 'firebrick' }}>
+                                                {val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        );
+                                    }} className="text-end" sortable style={{ width: '12%', minWidth: '8rem' }} />
                                 </DataTable>
                             </TabPane>
                         </TabContent>

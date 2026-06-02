@@ -4,7 +4,7 @@ from sqlalchemy import select, update, delete, text
 from typing import List, Optional
 from datetime import datetime, date
 from pydantic import BaseModel
-from ..database import get_db, engine, DB_NAME_USER, DB_NAME_USER_NEW, DB_NAME_FINANCE
+from ..database import get_db, engine, DB_NAME_USER, DB_NAME_USER_NEW, DB_NAME_FINANCE, DB_NAME_MASTER
 from ..models import ledger as models
 
 router = APIRouter(
@@ -301,6 +301,7 @@ async def get_ledger_report(
             #    Source: Credit_Notes
             # ---------------------------------------------------------------
             if not category or category == "Credit Note":
+                # --- Customer Credit Notes ---
                 q_cn = text(f"""
                     SELECT 
                         DATE_FORMAT(cn.TransactionDate, '%Y-%m-%d') AS txn_date,
@@ -310,6 +311,7 @@ async def get_ledger_report(
                     FROM {DB_NAME_FINANCE}.Credit_Notes cn
                     LEFT JOIN {DB_NAME_USER}.master_customer c ON cn.CustomerId = c.Id
                     WHERE cn.IsSubmitted = 1
+                      AND cn.CustomerId > 0
                       AND cn.TransactionDate BETWEEN :from_date AND :to_date
                     ORDER BY cn.TransactionDate ASC
                 """)
@@ -350,11 +352,52 @@ async def get_ledger_report(
                         "narration": ref
                     })
 
+                # --- Supplier Credit Notes ---
+                q_supplier_cn = text(f"""
+                    SELECT 
+                        DATE_FORMAT(cn.TransactionDate, '%Y-%m-%d') AS txn_date,
+                        cn.CreditNoteNumber AS ref_no,
+                        COALESCE(s.SupplierName, 'Unknown') AS party_name,
+                        cn.Amount AS amount
+                    FROM {DB_NAME_FINANCE}.Credit_Notes cn
+                    LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON cn.SupplierId = s.SupplierId
+                    WHERE cn.IsSubmitted = 1
+                      AND cn.SupplierId > 0
+                      AND cn.TransactionDate BETWEEN :from_date AND :to_date
+                    ORDER BY cn.TransactionDate ASC
+                """)
+                result = await conn.execute(q_supplier_cn, {"from_date": from_date, "to_date": to_date})
+                for row in result.fetchall():
+                    r = dict(row._mapping)
+                    amount = float(r["amount"] or 0)
+                    if amount == 0:
+                        continue
+
+                    party_name = r["party_name"]
+                    if party and party.lower() not in party_name.lower():
+                        continue
+
+                    ref = r["ref_no"] or ""
+                    txn_date = r["txn_date"]
+
+                    # Cr Supplier (AP)
+                    all_rows.append({
+                        "transaction_date": txn_date,
+                        "category": "Credit Note",
+                        "reference_no": ref,
+                        "party": party_name,
+                        "description": "Cr Supplier (AP)",
+                        "debit": 0.0,
+                        "credit": amount,
+                        "narration": ref
+                    })
+
             # ---------------------------------------------------------------
             # 4. DEBIT NOTES — Dr Customer, Cr Adjustment
             #    Source: Debit_Notes
             # ---------------------------------------------------------------
             if not category or category == "Debit Note":
+                # --- Customer Debit Notes ---
                 q_dn = text(f"""
                     SELECT 
                         DATE_FORMAT(dn.TransactionDate, '%Y-%m-%d') AS txn_date,
@@ -364,6 +407,7 @@ async def get_ledger_report(
                     FROM {DB_NAME_FINANCE}.Debit_Notes dn
                     LEFT JOIN {DB_NAME_USER}.master_customer c ON dn.CustomerId = c.Id
                     WHERE dn.IsSubmitted = 1
+                      AND dn.CustomerId > 0
                       AND dn.TransactionDate BETWEEN :from_date AND :to_date
                     ORDER BY dn.TransactionDate ASC
                 """)
@@ -401,6 +445,46 @@ async def get_ledger_report(
                         "description": "Cr Adjustment",
                         "debit": 0.0,
                         "credit": amount,
+                        "narration": ref
+                    })
+
+                # --- Supplier Debit Notes ---
+                q_supplier_dn = text(f"""
+                    SELECT 
+                        DATE_FORMAT(dn.TransactionDate, '%Y-%m-%d') AS txn_date,
+                        dn.DebitNoteNumber AS ref_no,
+                        COALESCE(s.SupplierName, 'Unknown') AS party_name,
+                        dn.Amount AS amount
+                    FROM {DB_NAME_FINANCE}.Debit_Notes dn
+                    LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON dn.SupplierId = s.SupplierId
+                    WHERE dn.IsSubmitted = 1
+                      AND dn.SupplierId > 0
+                      AND dn.TransactionDate BETWEEN :from_date AND :to_date
+                    ORDER BY dn.TransactionDate ASC
+                """)
+                result = await conn.execute(q_supplier_dn, {"from_date": from_date, "to_date": to_date})
+                for row in result.fetchall():
+                    r = dict(row._mapping)
+                    amount = float(r["amount"] or 0)
+                    if amount == 0:
+                        continue
+
+                    party_name = r["party_name"]
+                    if party and party.lower() not in party_name.lower():
+                        continue
+
+                    ref = r["ref_no"] or ""
+                    txn_date = r["txn_date"]
+
+                    # Dr Supplier (AP)
+                    all_rows.append({
+                        "transaction_date": txn_date,
+                        "category": "Debit Note",
+                        "reference_no": ref,
+                        "party": party_name,
+                        "description": "Dr Supplier (AP)",
+                        "debit": amount,
+                        "credit": 0.0,
                         "narration": ref
                     })
 
