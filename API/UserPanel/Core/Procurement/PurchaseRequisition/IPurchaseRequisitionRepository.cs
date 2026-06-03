@@ -31,5 +31,7 @@ namespace Core.Procurement.PurchaseRequisition
 
         Task<object> GetAllPO(int BranchId, int orgid, int PRId);
 
+        Task<object> CancelPRAsync(int prid, int userId, int branchId, int orgId);
+
     }
 }

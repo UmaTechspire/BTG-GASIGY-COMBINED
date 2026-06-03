@@ -3395,7 +3395,7 @@ const ProcurementsManagePurchaseOrder = () => {
                             )}
 
                             {/* ====== SECTION 2: BLANKET PO ====== */}
-                            <p style={{ fontWeight: "bold", fontSize: "15px", marginTop: "20px", marginBottom: "15px", color: "#333" }}>GRN Details</p>
+                            <p style={{ fontWeight: "bold", fontSize: "15px", marginTop: "20px", marginBottom: "15px", color: "#333" }}>BlanketPO Details</p>
                             <Row className="mb-3">
                                 <Col md={4}>
                                     <div className="d-flex mb-2 align-items-center">

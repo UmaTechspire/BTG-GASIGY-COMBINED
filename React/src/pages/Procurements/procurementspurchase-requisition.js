@@ -38,7 +38,8 @@ import {
     GetPurchaseRequisitionRemarks,
     PurchaseRequisitionDownloadFileById,
     SavePRReply,
-    GetApprovalSettings
+    GetApprovalSettings,
+    CancelPurchaseRequisition
 } from "common/data/mastersapi";
 import Swal from 'sweetalert2';
 import * as XLSX from "xlsx";
@@ -137,6 +138,7 @@ const ProcurementManagePurchaseRequistion = () => {
                 return 'success';
             case 'Posted':
                 return 'success';
+            case 'Cancelled':
             case 'Saved':
                 return 'danger';
             case 'new':
@@ -286,24 +288,27 @@ const ProcurementManagePurchaseRequistion = () => {
     const renderHeader = () => {
         return (
             <div className="row align-items-center g-3 clear-spa">
-                <div className="col-12 col-lg-3">
+                <div className="col-12 col-lg-2">
                     <Button className="btn btn-danger btn-label" onClick={clearFilter}>
                         <i className="mdi mdi-filter-off label-icon" /> Clear
                     </Button>
                 </div>
 
-                <div className="col-12 col-lg-6 text-end">
+                <div className="col-12 col-lg-8 text-end">
                     <Badge style={{ width: "5px", fontSize: "13px", margin: "3px" }} value={"A"} severity={"success"} /><b> Approved </b>
                     <Badge style={{ width: "5px", fontSize: "13px", margin: "3px" }} value={"D"} severity={"warning"} /> <b> Discussed  </b>
                     <Badge style={{ width: "5px", fontSize: "13px", margin: "3px" }} value={"P"} severity={"danger"} /> <b> Pending  </b>
-                    <span className="me-4">
+                    <span className="ms-4 me-3">
                         <Tag value="S" severity="danger" /> Saved
                     </span>
-                    <span className="me-1">
+                    <span className="me-3">
                         <Tag value="P" severity="success" /> Posted
                     </span>
+                    <span className="me-3">
+                        <Tag value="C" style={{ backgroundColor: '#ffe6e6', color: '#b30000', border: '1px solid #ffb3b3' }} /> Cancelled
+                    </span>
                 </div>
-                <div className="col-12 col-lg-3">
+                <div className="col-12 col-lg-2">
                     <input
                         className="form-control"
                         type="text"
@@ -338,6 +343,73 @@ const ProcurementManagePurchaseRequistion = () => {
         history.push({
             pathname: "/procurementsadd-purchaserequisition", state: { ReqDetails: rowData }
         });
+    };
+
+    const handleCancelPR = (rowData) => {
+        Swal.fire({
+            title: "Are you sure?",
+            text: `This will cancel Purchase Requisition ${rowData.PR_NUMBER} and reset the PM approval status.`,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonColor: "#d33",
+            cancelButtonColor: "#3085d6",
+            confirmButtonText: "Yes, cancel it!",
+            cancelButtonText: "No"
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    const payload = {
+                        prid: rowData.PRId,
+                        userId: Number(userData?.u_id),
+                        branchId: branchId,
+                        orgId: orgId
+                    };
+                    const res = await CancelPurchaseRequisition(payload);
+                    if (res?.status) {
+                        Swal.fire("Cancelled!", res.message || "Purchase Requisition has been cancelled.", "success");
+                        fetchAllProcurementRequestion(); // Refresh the list
+                    } else {
+                        Swal.fire("Error", res?.message || "Failed to cancel Purchase Requisition.", "error");
+                    }
+                } catch (error) {
+                    console.error("Error cancelling PR:", error);
+                    Swal.fire("Error", "Something went wrong while cancelling.", "error");
+                }
+            }
+        });
+    };
+
+    const cancelBodyTemplate = (rowData) => {
+        // Only visible to Hugo (UserId: 135)
+        if (Number(userData?.u_id) !== 135) {
+            return null;
+        }
+
+        const isEligible = rowData.reqdmstatus === 'P' &&
+            rowData.reqdrtatus === 'P' &&
+            rowData.ApproveStatus === 'No' &&
+            rowData.IsCancel !== 1;
+
+        return (
+            <div className="d-flex align-items-center justify-content-center">
+                <span
+                    onClick={() => {
+                        if (isEligible) {
+                            handleCancelPR(rowData);
+                        }
+                    }}
+                    title={isEligible ? "Cancel PR" : "Cancellation not allowed"}
+                    style={{
+                        cursor: isEligible ? 'pointer' : 'not-allowed',
+                        color: isEligible ? '#d9534f' : '#ccc',
+                        opacity: isEligible ? 1 : 0.5,
+                        display: 'inline-block'
+                    }}
+                >
+                    <i className="mdi mdi-delete-outline" style={{ fontSize: '1.5rem' }}></i>
+                </span>
+            </div>
+        );
     };
 
 
@@ -932,6 +1004,12 @@ const ProcurementManagePurchaseRequistion = () => {
 
     return (
         <React.Fragment>
+            <style>{`
+                .cancelled-row, .cancelled-row td {
+                    background-color: #ffe6e6 !important;
+                    color: #b30000 !important;
+                }
+            `}</style>
             <div className="page-content">
                 <Container fluid>
                     <Breadcrumbs title="Procurement" breadcrumbItem="Purchase Requisition" />
@@ -1012,6 +1090,7 @@ const ProcurementManagePurchaseRequistion = () => {
                             <Card>
                                 <DataTable
                                     value={requisitionWithLabels}
+                                    rowClassName={(data) => data.IsCancel === 1 ? 'cancelled-row' : ''}
                                     paginator
                                     showGridlines
                                     rows={20}
@@ -1169,6 +1248,15 @@ const ProcurementManagePurchaseRequistion = () => {
                                         className="text-center"
                                         style={{ width: "8%" }}
                                     />
+                                    {Number(userData?.u_id) === 135 && (
+                                        <Column
+                                            header="Delete"
+                                            showFilterMatchModes={false}
+                                            body={cancelBodyTemplate}
+                                            className="text-center"
+                                            style={{ width: "5%" }}
+                                        />
+                                    )}
                                     <Column header="Copy" showFilterMatchModes={false} body={CopyBodyTemplate} className="text-center" />
                                 </DataTable>
                             </Card>

@@ -3715,6 +3715,16 @@ export const CancelPurchaseOrder = async (payload) => {
     }
 };
 
+export const CancelPurchaseRequisition = async (payload) => {
+    try {
+        const response = await post("/PurchaseRequisition/CancelPR", payload);
+        return response;
+    } catch (error) {
+        console.error("API error cancelling purchase requisition:", error);
+        throw error;
+    }
+};
+
 export const ShortClosurePurchaseOrder = async (payload) => {
     try {
         const response = await post("/PurchaseOrder/ShortClosurePO", payload);

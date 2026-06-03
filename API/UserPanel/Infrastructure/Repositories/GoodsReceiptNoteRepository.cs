@@ -385,7 +385,7 @@ namespace Infrastructure.Repositories
                 {
                     detail.grnid = grnid;
                     detail.UnitPrice = unitPriceDict.ContainsKey(detail.porid) ? unitPriceDict[detail.porid] : 0;
-                    detail.TotalAmount = detail.UnitPrice * detail.grnqty;
+                    detail.TotalAmount = Math.Round(detail.UnitPrice * detail.grnqty, MidpointRounding.AwayFromZero);
 
                     detailSql = @"                        
                     INSERT INTO `tbl_grn_detail`(`grnid`,`itemid`,`uomid`,`dono`,`dodate`,`poqty`,`alreadyrecqty`,`balanceqty`,
@@ -515,7 +515,7 @@ namespace Infrastructure.Repositories
 
                     detail.grnid = Obj.Header.grnid;
                     detail.UnitPrice = unitPriceDictUpdate.ContainsKey(detail.porid) ? unitPriceDictUpdate[detail.porid] : 0;
-                    detail.TotalAmount = detail.UnitPrice * detail.grnqty;
+                    detail.TotalAmount = Math.Round(detail.UnitPrice * detail.grnqty, MidpointRounding.AwayFromZero);
 
                     if (detail.grndid == 0)
                     {

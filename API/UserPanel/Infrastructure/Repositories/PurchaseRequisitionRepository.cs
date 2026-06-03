@@ -1108,5 +1108,91 @@ VALUES (
                 };
             }
         }
+
+         public async Task<object> CancelPRAsync(int prid, int userId, int branchId, int orgId)
+        {
+            try
+            {
+                try
+                {
+                    await _connection.ExecuteAsync("SELECT IsCancel FROM tbl_PurchaseRequisition_Header LIMIT 1");
+                }
+                catch
+                {
+                }
+
+                const string getPRStatusSql = @"
+                    SELECT 
+                        IFNULL(pr_gm_isapproved, 0) AS GMApproved, 
+                        IFNULL(pr_gm_isdiscussed, 0) AS GMDiscussed, 
+                        IFNULL(pr_director_isapproved, 0) AS DirApproved, 
+                        IFNULL(pr_director_isdiscussed, 0) AS DirDiscussed, 
+                        IFNULL(IsPOUtil, 0) AS POUtil,
+                        IFNULL(IsCancel, 0) AS IsPRCancel
+                    FROM tbl_PurchaseRequisition_Header 
+                    WHERE PRId = @prid AND BranchId = @branchId AND OrgId = @orgId";
+
+                var prStatus = await _connection.QueryFirstOrDefaultAsync<dynamic>(getPRStatusSql, new { prid, branchId, orgId });
+                if (prStatus == null)
+                {
+                    return new ResponseModel
+                    {
+                        Status = false,
+                        Message = "Purchase Requisition not found."
+                    };
+                }
+
+                if (Convert.ToInt32(prStatus.IsPRCancel) == 1)
+                {
+                    return new ResponseModel
+                    {
+                        Status = false,
+                        Message = "Purchase Requisition is already cancelled."
+                    };
+                }
+
+                bool isGMApprovePending = (Convert.ToInt32(prStatus.GMApproved) == 0 && Convert.ToInt32(prStatus.GMDiscussed) == 0);
+                bool isDirApprovePending = (Convert.ToInt32(prStatus.DirApproved) == 0 && Convert.ToInt32(prStatus.DirDiscussed) == 0);
+                bool isPONotGenerated = (Convert.ToInt32(prStatus.POUtil) == 0);
+
+                if (!isGMApprovePending || !isDirApprovePending || !isPONotGenerated)
+                {
+                    return new ResponseModel
+                    {
+                        Status = false,
+                        Message = "PR cannot be cancelled. Only PRs with Pending GM/Director approval and No PO generated can be cancelled."
+                    };
+                }
+
+                const string cancelPRSql = @"
+                    UPDATE tbl_PurchaseRequisition_Header 
+                    SET IsCancel = 1, ModifiedDt = NOW(), ModifiedBy = @userId 
+                    WHERE PRId = @prid AND BranchId = @branchId AND OrgId = @orgId";
+
+                await _connection.ExecuteAsync(cancelPRSql, new { prid, userId, branchId, orgId });
+
+                const string revertPMSql = @"
+                    UPDATE tbl_purchasememo_header AS a 
+                    INNER JOIN tbl_PurchaseRequisition_Detail AS b ON a.Memo_ID = b.MEMO_ID AND a.IsActive = 1
+                    SET a.IsPrUtil = 0 
+                    WHERE b.PRId = @prid AND b.IsActive = 1";
+
+                await _connection.ExecuteAsync(revertPMSql, new { prid });
+
+                return new ResponseModel
+                {
+                    Status = true,
+                    Message = "Purchase Requisition cancelled successfully."
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ResponseModel
+                {
+                    Status = false,
+                    Message = "Something went wrong: " + ex.Message
+                };
+            }
+        }
     }
 }
