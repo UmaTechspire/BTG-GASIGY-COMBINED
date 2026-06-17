@@ -34,7 +34,7 @@ jobs:
             --exclude='React/build' \
             --exclude='API/UserPanel/publish' \
             ./ beta/
-
+      
       - name: Commit And Push
         run: |
           cd beta
@@ -42,9 +42,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          git remote set-url origin https://x-access-token:${{ secrets.BUILD_REPO_TOKEN }}@github.com/UmaTechspire/Build_Beta_BTG.git
+
           git add .
 
           git commit -m "Auto Sync From BTG-GASIGY-COMBINED" || exit 0
 
           git push origin main
-
