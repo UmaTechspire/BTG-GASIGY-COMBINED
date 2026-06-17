@@ -46,6 +46,6 @@ jobs:
 
           git add .
 
-          git commit -m "Auto Sync From BTG-GASIGY-COMBINED" || exit 0
+          git commit -m "UPDATED-$(TZ='Asia/Kolkata' date +'%d-%m-%Y- %H:%M:%S')" || exit 0
 
           git push origin main
