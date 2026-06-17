@@ -23,6 +23,7 @@ jobs:
       - name: Sync Files
         run: |
           rsync -av --delete \
+            --exclude='beta' \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.vs' \
